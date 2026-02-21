@@ -49,7 +49,7 @@ target_link_directories(macos_cli PRIVATE /opt/local/lib)
 target_link_libraries(macos_cli
     PRIVATE converter
     platform
-    jansson
+    ${JANSSON_LIB}
 )
 
 # --- WINDOWS CLI (пока пустой, добавим позже) ---
