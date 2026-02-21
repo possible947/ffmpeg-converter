@@ -1,0 +1,35 @@
+# Build artifacts
+/build/
+/bin/
+*/build/
+
+# Object files
+*.o
+*.obj
+
+# Libraries
+*.so
+*.dylib
+*.dll
+
+# Executables
+*.exe
+*.out
+
+# Logs and temporary
+*.log
+*.tmp
+*~
+*.swp
+
+# IDE/editor
+.vscode/
+.idea/
+/.cache/
+.DS_Store
+
+# Backup files
+*~
+
+# Coverage
+coverage/
