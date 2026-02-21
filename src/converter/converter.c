@@ -520,7 +520,11 @@ static void build_ffmpeg_cmd(
     }
 
     // audio codec
+    if (c->opts.use_aac_for_h265) {
+    strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
+        } else {
     strcat(cmd, "-c:a pcm_s16le -ar 48000 ");
+        }
 
     // audio normalization
     if (strcmp(opts->audio_norm, "none") == 0) {
@@ -782,6 +786,11 @@ ConverterError converter_process_files(
         //  Build ffmpeg command
         // ----------------------------------------------------
         char cmd[8192];
+        if (strcmp(c->opts.codec, "h265_mi50") == 0) {
+            c->opts.use_aac_for_h265 = 1;
+        } else {
+            c->opts.use_aac_for_h265 = 0;
+        }
         build_ffmpeg_cmd(c, input, output, cmd, sizeof(cmd));
 
         // ----------------------------------------------------

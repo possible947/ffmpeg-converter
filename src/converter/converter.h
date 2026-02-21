@@ -68,6 +68,7 @@ typedef struct {
     int  overwrite;      // 0=skip, 1=force
     char output_dir[1024]; // optional output directory ("" = same as input)
     int output_dir_status;
+    int use_aac_for_h265;
 
 } ConvertOptions;
 
