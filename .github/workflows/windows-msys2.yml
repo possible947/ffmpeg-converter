@@ -14,6 +14,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          tags: true
 
       - name: Setup MSYS2 and install packages
         uses: msys2/setup-msys2@v2
@@ -46,11 +49,31 @@ jobs:
           path: |
             build/**/ffmpeg_converter*.exe
 
+      - name: Generate changelog
+        id: changelog
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -e
+          git fetch --tags
+          REF=${GITHUB_REF#refs/tags/}
+          # Try to find previous tag; if none, take last 50 commits
+          PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_REF}^" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            git log ${PREV_TAG}..${GITHUB_REF} --pretty=format:'- %s (%h)' > changelog.txt || true
+          else
+            git log -n 50 --pretty=format:'- %s (%h)' > changelog.txt || true
+          fi
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release and upload asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.body }}
           files: |
             build/**/ffmpeg_converter*.exe
