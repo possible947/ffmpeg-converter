@@ -10,6 +10,8 @@
 
 `ffmpeg_converter` — кроссплатформенный CLI‑инструмент для формирования и выполнения команд `ffmpeg` с набором преднастроек: поддержка ProRes (`prores`, `prores_ks`), `copy` и `h265_mi50` (H.265 VAAPI), нормализация аудио (peak, loudness), двухпроходный анализ (peak 2‑pass, loudnorm 2‑pass), прогресс‑бар и интерактивное текстовое меню.
 
+Также есть GUI для Linux на GTK4 с выбором параметров, списком файлов и прогрессом обработки.
+
 Проект организован модульно: заголовки (.h) хранятся в отдельных модулях, реализации платформенных частей — в `src/platform/<os>/`.
 
 --------------------------------------------------------------------------------
@@ -23,6 +25,9 @@
 - `src/cli/`
   - `linux/` — `main.c` — реализация CLI для Linux (парсинг аргументов, интерактивное меню, связывание колбэков с `progress`).
   - `macos/`, `windows/` — заготовки CLI для других платформ.
+
+- `src/gui/`
+  - `gui_main.c`, `gui_window.c`, `gui_callbacks.c` — GTK4 GUI (Linux), взаимодействие с `converter` через коллбэки, выбор параметров и файлов.
 
 - `src/platform/`
   - `linux/progress.c`, `macos/progress.c`, `windows/progress.c` — платформенные реализации прогресс‑индикатора.
@@ -41,6 +46,7 @@
 ## Сборка и зависимости
 
 - Требования: `cmake` (>=3.16), компилятор (gcc/clang), `ffmpeg` в PATH (для запуска и анализа), библиотека `jansson` (для парсинга JSON, используемого loudnorm).
+- Для GUI на Linux требуется `gtk4`.
 - Быстрая сборка для Linux:
 
 ```bash
@@ -48,6 +54,12 @@ mkdir build
 cd build
 cmake ..
 cmake --build . --target linux_cli
+```
+
+- Сборка GUI (Linux):
+
+```bash
+cmake --build . --target linux_gui
 ```
 
 - На macOS используется таргет `macos_cli` и дополнительно пути MacPorts (`/opt/local/include`, `/opt/local/lib`) прописаны в `src/cli/CMakeLists.txt`.

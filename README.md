@@ -15,6 +15,7 @@
 
 - `ffmpeg` в `PATH` (или указать переменную окружения `FFMPEG` для нестандартного пути).
 - `jansson` (для парсинга JSON, используемого в loudnorm анализе).
+- `gtk4` (для GUI на Linux).
 - CMake + компилятор (gcc/clang) для сборки.
 
 Быстрая сборка (Linux)
@@ -25,6 +26,12 @@ mkdir build
 cd build
 cmake ..
 cmake --build . --target linux_cli
+```
+
+Сборка GUI (Linux):
+
+```bash
+cmake --build . --target linux_gui
 ```
 
 На macOS сборка аналогична, целевой таргет — `macos_cli`.
@@ -42,6 +49,12 @@ cmake --build . --target linux_cli
 
 # Пример: H.265 VAAPI (h265_mi50) с устройством по умолчанию
 ./linux_cli/ffmpeg_converter -c h265_mi50 input.mov
+```
+
+GUI (Linux):
+
+```bash
+./src/gui/ffmpeg_converter_gui
 ```
 
 Дополнительная документация и примеры параметров находятся в модуле: [src/README.md](src/README.md).

@@ -23,3 +23,12 @@ add_subdirectory(platform)
 # CLI (после объявления библиотек)
 add_subdirectory(cli)
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	option(ENABLE_GUI "Build GTK GUI" ON)
+else()
+	option(ENABLE_GUI "Build GTK GUI" OFF)
+endif()
+if (ENABLE_GUI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	add_subdirectory(gui)
+endif()
+
