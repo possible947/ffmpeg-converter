@@ -199,7 +199,8 @@ static void make_output_name(
     
     if (base_len <= max_safe_base_len) {
         // Имя вписывается нормально
-        if (strcmp(opts->codec, "copy") == 0)
+        if (strcmp(opts->codec, "copy") == 0 ||
+            strcmp(opts->codec, "h265_mi50") == 0)
             snprintf(filename, sizeof(filename), "%s_converted.mkv", base);
         else
             snprintf(filename, sizeof(filename), "%s_converted.mov", base);
@@ -208,7 +209,8 @@ static void make_output_name(
         char truncated[512];
         snprintf(truncated, sizeof(truncated), "%s", base);
         
-        if (strcmp(opts->codec, "copy") == 0)
+        if (strcmp(opts->codec, "copy") == 0 ||
+            strcmp(opts->codec, "h265_mi50") == 0)
             snprintf(filename, sizeof(filename), "%s_converted.mkv", truncated);
         else
             snprintf(filename, sizeof(filename), "%s_converted.mov", truncated);
@@ -466,7 +468,16 @@ static void build_ffmpeg_cmd(
     cmd[0] = 0;
 
     // input
-    snprintf(cmd, sizeof(cmd), "ffmpeg -i \"%s\" ", input);
+    if (strcmp(opts->codec, "h265_mi50") == 0) {
+        const char* device = getenv("VAAPI_DEVICE");
+        if (!device || device[0] == '\0')
+            device = "/dev/dri/renderD128";
+        snprintf(cmd, sizeof(cmd),
+                 "ffmpeg -vaapi_device \"%s\" -i \"%s\" ",
+                 device, input);
+    } else {
+        snprintf(cmd, sizeof(cmd), "ffmpeg -i \"%s\" ", input);
+    }
 
     // map
     strcat(cmd, "-map 0:v:0 ");
@@ -483,19 +494,29 @@ static void build_ffmpeg_cmd(
                  opts->codec, opts->profile);
         strcat(cmd, tmp);
     }
+    else if (strcmp(opts->codec, "h265_mi50") == 0)
+    {
+        strcat(cmd,
+            "-c:v hevc_vaapi -rc_mode:v auto -qp 25 "
+            "-profile:v main -level:v 5.1 ");
+    }
     else {
         strcat(cmd, "-c:v copy ");
     }
 
     // deblock
-    if (opts->deblock == 2) {
-        strcat(cmd,
-            "-vf \"deblock=filter=weak:block=4:planes=1\" ");
-    }
-    else if (opts->deblock == 3) {
-        strcat(cmd,
-            "-vf \"deblock=filter=strong:block=4:"
-            "alpha=0.12:beta=0.07:gamma=0.06:delta=0.05:planes=1\" ");
+    if (strcmp(opts->codec, "h265_mi50") == 0) {
+        strcat(cmd, "-vf \"format=nv12,hwupload\" ");
+    } else {
+        if (opts->deblock == 2) {
+            strcat(cmd,
+                "-vf \"deblock=filter=weak:block=4:planes=1\" ");
+        }
+        else if (opts->deblock == 3) {
+            strcat(cmd,
+                "-vf \"deblock=filter=strong:block=4:"
+                "alpha=0.12:beta=0.07:gamma=0.06:delta=0.05:planes=1\" ");
+        }
     }
 
     // audio codec
@@ -567,7 +588,7 @@ static ConverterError run_ffmpeg_encode_with_progress(
         c->cb.on_stage("encoding");
 
     char cmd[8192];
-    snprintf(cmd, sizeof(cmd), "%s -progress pipe:1 -nostats 2>&1", cmd_base);
+    snprintf(cmd, sizeof(cmd), "%s -progress pipe:1 -nostats -nostdin 2>&1", cmd_base);
 
     FILE* fp = popen(cmd, "r");
     if (!fp) {

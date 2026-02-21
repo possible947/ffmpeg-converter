@@ -67,7 +67,7 @@ static void cli_on_complete(void) {
 static void print_usage(void) {
     printf("Usage: ffmpeg_converter [options] file1 file2 ...\n\n");
     printf("Options:\n");
-    printf("  -c, --codec <copy|prores|prores_ks>\n");
+    printf("  -c, --codec <copy|prores|prores_ks|h265_mi50>\n");
     printf("  -p, --profile <lt|standard|hq|4444>\n");
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
@@ -117,6 +117,8 @@ static int parse_args(int argc, char** argv, ConvertOptions* opts,
                 strcpy(opts->codec, "prores");
             else if (!strcmp(argv[i], "prores_ks"))
                 strcpy(opts->codec, "prores_ks");
+            else if (!strcmp(argv[i], "h265_mi50"))
+                strcpy(opts->codec, "h265_mi50");
             else return 0;
 
             continue;
@@ -221,7 +223,8 @@ static void print_summary(const ConvertOptions* opts, const char** files, int fi
     printf("\n=== Summary ===\n");
     printf("Codec:        %s\n", opts->codec);
 
-    if (strcmp(opts->codec, "copy") != 0) {
+    if (strcmp(opts->codec, "copy") != 0 &&
+        strcmp(opts->codec, "h265_mi50") != 0) {
         const char* profile_str = "none";
         switch (opts->profile) {
             case 1: profile_str = "lt"; break;
@@ -571,6 +574,7 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                 printf("  1. copy (default)\n");
                 printf("  2. prores\n");
                 printf("  3. prores_ks\n");
+                printf("  4. h265_mi50\n");
                 printf("----------------------\n");
                 printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
                 {
@@ -579,6 +583,7 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                     else if (ch == '1') { codec = 1; step = 4; }
                     else if (ch == '2') { codec = 2; step = 2; }
                     else if (ch == '3') { codec = 3; step = 2; }
+                    else if (ch == '4') { codec = 4; step = 4; }
                     else if (ch == 'c' || ch == 'C') { 
                         if (temp_files) {
                             for (int i = 0; i < temp_file_count; i++) free(temp_files[i]);
@@ -780,6 +785,7 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                         case 1: strcpy(opts->codec, "copy"); break;
                         case 2: strcpy(opts->codec, "prores"); break;
                         case 3: strcpy(opts->codec, "prores_ks"); break;
+                        case 4: strcpy(opts->codec, "h265_mi50"); break;
                     }
                     opts->profile   = profile;
                     opts->deblock   = deblock;
