@@ -155,6 +155,55 @@ CLI поддерживает (см. `src/cli/linux/main.c`):
 
 --------------------------------------------------------------------------------
 
+## Windows (MSYS2) — сборка и рекомендации
+
+Проект можно собирать под Windows с использованием среды MSYS2 (MinGW‑w64). Рекомендуемый рабочий сценарий:
+
+1. Запустите MINGW64 shell (MSYS2). Обновите систему и установите необходимые пакеты:
+
+```bash
+pacman -Syu
+pacman -S --needed base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake \
+    mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-jansson mingw-w64-x86_64-make
+```
+
+2. Убедитесь, что `ffmpeg` и библиотеки из `/mingw64/bin` доступны в `PATH` внутри MINGW64 shell (обычно это уже так).
+
+3. Рекомендуемая генерация сборки (в корне репозитория):
+
+```bash
+mkdir build
+cd build
+# В MINGW64 shell можно использовать генератор MSYS Makefiles
+cmake -G "MSYS Makefiles" ..
+cmake --build . --target windows_cli
+```
+
+Если CMake не находит `jansson`, укажите префикс вручную:
+
+```bash
+cmake -G "MSYS Makefiles" -DCMAKE_PREFIX_PATH=/mingw64 ..
+```
+
+4. Запуск готового бинарника (пример):
+
+```bash
+./windows_cli/ffmpeg_converter.exe -c prores_ks -p hq -a loudnorm2 input.mov
+```
+
+Особенности и замечания для Windows/MSYS2:
+
+- В файловой логике проекта учтены обратные слэши (`\\`) под `_WIN32` в `make_output_name()`; это помогает корректно формировать имена при использовании нативных Windows путей.
+- Код CLI использует POSIX‑функции и `termios` в заголовках — в среде MSYS2 это обычно доступно, но при сборке с нативным MSVC потребуется отдельная портировка (этот репозиторий ориентирован на MinGW/MSYS сборку для Windows).
+- CMake‑настройки уже используют `find_library(JANSSON_LIB jansson)` и линкуют `windows_cli` с `${JANSSON_LIB}` — это совместимо с пакетами MSYS2 (`mingw-w64-x86_64-jansson`).
+- Если планируется собирать с помощью MSVC (Visual Studio), потребуется:
+  - заменить POSIX‑зависимые участки (например, `unistd.h`, `termios`) или добавить условную реализацию для Windows API;
+  - настроить поиск и линкирование `jansson`/`ffmpeg` под MSVC.
+
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+
 ## Быстрые ссылки (ключевые файлы)
 
 - [CMake root](CMakeLists.txt)
