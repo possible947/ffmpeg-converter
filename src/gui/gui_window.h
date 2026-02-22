@@ -40,6 +40,9 @@ typedef struct {
     GtkWidget *log_view;            /* GtkTextView */
     GtkTextBuffer *log_buffer;
 
+    /* Status tracking */
+    char *last_status;              /* stores the last status message */
+
     /* Threading */
     GThread *worker_thread;
     GMutex   thread_lock;           /* protects worker_thread */

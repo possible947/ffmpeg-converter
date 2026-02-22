@@ -30,6 +30,7 @@ static void activate_cb(GtkApplication *app, gpointer user_data)
     AppWidgets *w = g_new0(AppWidgets, 1);
     g_mutex_init(&w->thread_lock);
     w->current_converter = NULL;
+    w->last_status = g_strdup("Ready");
 
     /* Create the main window and all widgets */
     w->window = create_main_window(app, w);

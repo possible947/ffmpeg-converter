@@ -218,7 +218,15 @@ static gboolean update_progress_idle(gpointer data)
 
     char eta_buf[32];
     format_eta(eta, eta_buf, sizeof(eta_buf));
-    gtk_label_set_text(GTK_LABEL(w->status_label), eta_buf);
+    
+    /* Combine status with ETA time */
+    char combined[256];
+    if (w->last_status && strlen(w->last_status) > 0)
+        snprintf(combined, sizeof(combined), "%s | %s", w->last_status, eta_buf);
+    else
+        snprintf(combined, sizeof(combined), "%s", eta_buf);
+    
+    gtk_label_set_text(GTK_LABEL(w->status_label), combined);
 
     return G_SOURCE_REMOVE;
 }
@@ -258,6 +266,11 @@ static gboolean update_status_idle(gpointer data)
     StatusUpdateData *payload = (StatusUpdateData *)data;
     if (!payload || !payload->w || !payload->text)
         return G_SOURCE_REMOVE;
+
+    /* Save the status text */
+    if (payload->w->last_status)
+        g_free(payload->w->last_status);
+    payload->w->last_status = g_strdup(payload->text);
 
     gtk_label_set_text(GTK_LABEL(payload->w->status_label), payload->text);
     return G_SOURCE_REMOVE;
