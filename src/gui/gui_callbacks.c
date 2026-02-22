@@ -6,6 +6,7 @@
 #include <glib.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 /* Forward declarations of helper functions */
 static gboolean update_log_idle(gpointer data);
@@ -181,6 +182,19 @@ static gboolean update_log_idle(gpointer data)
     return G_SOURCE_REMOVE;
 }
 
+static void format_eta(float eta, char *buf, size_t sz)
+{
+    if (!isfinite(eta) || eta <= 0) {
+        snprintf(buf, sz, "ETA --:--:--");
+        return;
+    }
+    int t = (int)eta;
+    int h = t / 3600;
+    int m = (t % 3600) / 60;
+    int s = t % 60;
+    snprintf(buf, sz, "ETA %02d:%02d:%02d", h, m, s);
+}
+
 static gboolean update_progress_idle(gpointer data)
 {
     ProgressUpdateData *payload = (ProgressUpdateData *)data;
@@ -202,7 +216,10 @@ static gboolean update_progress_idle(gpointer data)
 
     gtk_progress_bar_set_text(GTK_PROGRESS_BAR(w->progress_bar), txt);
 
-    (void)eta;
+    char eta_buf[32];
+    format_eta(eta, eta_buf, sizeof(eta_buf));
+    gtk_label_set_text(GTK_LABEL(w->status_label), eta_buf);
+
     return G_SOURCE_REMOVE;
 }
 
