@@ -43,16 +43,12 @@ if (APPLE)
 
     set_target_properties(macos_cli PROPERTIES OUTPUT_NAME "ffmpeg_converter")
 
-    # Пути MacPorts и Homebrew (Intel: /usr/local, Apple Silicon: /opt/homebrew)
+    # Пути MacPorts
     target_include_directories(macos_cli PRIVATE
         /opt/local/include
-        /usr/local/include
-        /opt/homebrew/include
     )
     target_link_directories(macos_cli PRIVATE
         /opt/local/lib
-        /usr/local/lib
-        /opt/homebrew/lib
     )
 
     # Линкуем только то, что реально нужно

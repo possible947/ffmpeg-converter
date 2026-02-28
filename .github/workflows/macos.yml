@@ -19,15 +19,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install dependencies via Homebrew
+      - name: Install MacPorts
         run: |
-          brew install ffmpeg jansson cmake
+          set -e
+          MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
+          case "${MACOS_MAJOR}" in
+            15) MP_PKG="MacPorts-2.10.1-15-Sequoia.pkg" ;;
+            14) MP_PKG="MacPorts-2.10.1-14-Sonoma.pkg" ;;
+            13) MP_PKG="MacPorts-2.10.1-13-Ventura.pkg" ;;
+            *)  echo "Unsupported macOS version: ${MACOS_MAJOR}"; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/macports/macports-base/releases/download/v2.10.1/${MP_PKG}" \
+            -o /tmp/macports.pkg
+          sudo installer -pkg /tmp/macports.pkg -target /
+          echo "/opt/local/bin" >> "$GITHUB_PATH"
+          echo "/opt/local/sbin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies via MacPorts
+        run: |
+          sudo port selfupdate
+          sudo port install ffmpeg jansson cmake
 
       - name: Configure (CMake)
         run: |
           mkdir -p build
           cd build
-          cmake ..
+          cmake -DCMAKE_PREFIX_PATH=/opt/local ..
 
       - name: Build macos_cli
         run: |
