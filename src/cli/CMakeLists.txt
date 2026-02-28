@@ -44,8 +44,12 @@ if (APPLE)
     set_target_properties(macos_cli PROPERTIES OUTPUT_NAME "ffmpeg_converter")
 
     # Пути MacPorts
-    target_include_directories(macos_cli PRIVATE /opt/local/include)
-    target_link_directories(macos_cli PRIVATE /opt/local/lib)
+    target_include_directories(macos_cli PRIVATE
+        /opt/local/include
+    )
+    target_link_directories(macos_cli PRIVATE
+        /opt/local/lib
+    )
 
     # Линкуем только то, что реально нужно
     target_link_libraries(macos_cli

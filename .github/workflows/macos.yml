@@ -1,0 +1,98 @@
+name: Build macOS
+
+on:
+  push:
+    tags:
+      - 'macos'
+  workflow_dispatch: {}
+
+jobs:
+  build-macos:
+    name: Build macos_cli on macOS
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install MacPorts
+        run: |
+          set -e
+          MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
+          case "${MACOS_MAJOR}" in
+            15) MP_PKG="MacPorts-2.10.1-15-Sequoia.pkg" ;;
+            14) MP_PKG="MacPorts-2.10.1-14-Sonoma.pkg" ;;
+            13) MP_PKG="MacPorts-2.10.1-13-Ventura.pkg" ;;
+            *)  echo "Unsupported macOS version: ${MACOS_MAJOR}"; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/macports/macports-base/releases/download/v2.10.1/${MP_PKG}" \
+            -o /tmp/macports.pkg
+          sudo installer -pkg /tmp/macports.pkg -target /
+          echo "/opt/local/bin" >> "$GITHUB_PATH"
+          echo "/opt/local/sbin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies via MacPorts
+        run: |
+          sudo port selfupdate
+          sudo port install ffmpeg jansson cmake
+
+      - name: Configure (CMake)
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_PREFIX_PATH=/opt/local ..
+
+      - name: Build macos_cli
+        run: |
+          cd build
+          cmake --build . --target macos_cli
+
+      - name: Show build result
+        run: |
+          echo "=== macOS build result ==="
+          ls -lh build/macos_cli/ffmpeg_converter 2>/dev/null \
+            || ls -lh build/ffmpeg_converter 2>/dev/null \
+            || find build -name "ffmpeg_converter" -type f
+          echo "=== Binary info ==="
+          file $(find build -name "ffmpeg_converter" -type f | head -1)
+          echo "=== Help output ==="
+          $(find build -name "ffmpeg_converter" -type f | head -1) --help || true
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg_converter-macos
+          path: |
+            build/**/ffmpeg_converter
+
+      - name: Generate changelog
+        id: changelog
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -e
+          git fetch --tags
+          REF=${GITHUB_REF#refs/tags/}
+          PREV_TAG=$(git describe --tags --abbrev=0 "${REF}^" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            git log ${PREV_TAG}..${GITHUB_REF} --pretty=format:'- %s (%h)' > changelog.txt || true
+          else
+            git log -n 50 --pretty=format:'- %s (%h)' > changelog.txt || true
+          fi
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release and upload asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.body }}
+          files: |
+            build/**/ffmpeg_converter
