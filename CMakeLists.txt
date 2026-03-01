@@ -7,6 +7,9 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set(SRC_DIR "${CMAKE_SOURCE_DIR}/src")
 
+# --- JANSSON VENDORED HEADERS ---
+add_subdirectory(third_party/jansson)
+
 # --- МОДУЛЬНАЯ СТРУКТУРА ---
 add_subdirectory(src)
 

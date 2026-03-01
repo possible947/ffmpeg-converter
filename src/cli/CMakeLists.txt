@@ -64,6 +64,7 @@ if (APPLE)
     target_link_libraries(macos_cli
         PRIVATE converter
         platform
+        jansson_headers
         ${JANSSON_LIB}
     )
 endif()
