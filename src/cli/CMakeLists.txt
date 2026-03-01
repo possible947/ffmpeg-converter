@@ -7,8 +7,17 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/ffmpeg_cmd
 )
 
-# Ищем библиотеку jansson
-find_library(JANSSON_LIB jansson)
+# Ищем библиотеку jansson (MacPorts, Homebrew Intel, Homebrew Apple Silicon)
+find_library(JANSSON_LIB jansson
+    HINTS
+        /opt/local/lib
+        /usr/local/lib
+        /opt/homebrew/lib
+)
+
+if (NOT JANSSON_LIB)
+    message(FATAL_ERROR "jansson library not found. Please install it (e.g. 'brew install jansson' or 'port install jansson').")
+endif()
 
 # --- LINUX CLI ---
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
