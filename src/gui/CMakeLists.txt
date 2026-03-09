@@ -22,7 +22,7 @@ target_link_libraries(gui_lib
     PUBLIC converter   # already defined in src/converter/CMakeLists
 )
 
-# Executable
+# Executable for Linux
 add_executable(linux_gui gui_main.c)
 set_target_properties(linux_gui PROPERTIES OUTPUT_NAME "ffmpeg_converter_gui")
 target_link_libraries(linux_gui
@@ -31,4 +31,13 @@ target_link_libraries(linux_gui
     PRIVATE ${JANSSON_LIB}
 )
 
-install(TARGETS linux_gui RUNTIME DESTINATION bin)
+# Executable for macOS
+add_executable(macos_gui gui_main.c)
+set_target_properties(macos_gui PROPERTIES OUTPUT_NAME "ffmpeg_converter_gui_macos")
+target_link_libraries(macos_gui
+    PRIVATE gui_lib
+    PRIVATE converter
+    PRIVATE ${JANSSON_LIB}
+)
+
+install(TARGETS linux_gui macos_gui RUNTIME DESTINATION bin)

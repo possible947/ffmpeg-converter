@@ -1,6 +1,8 @@
 # ffmpeg_converter
 
-`ffmpeg_converter` — кроссплатформенный инструмент командной строки для формирования и запуска оптимизированных команд `ffmpeg` с поддержкой ProRes, копирования видеопотока, H.265 VAAPI (h265_mi50) и нескольких режимов нормализации аудио (включая двухпроходную EBU R128).
+**Версия 1.0**
+
+`ffmpeg_converter` — кроссплатформенный инструмент с CLI и GUI для формирования и запуска оптимизированных команд `ffmpeg` с поддержкой ProRes, копирования видеопотока, H.265 VAAPI (h265_mi50) и нескольких режимов нормализации аудио (включая двухпроходную EBU R128).
 
 Особенности:
 
@@ -8,6 +10,7 @@
 - Поддержка нормализации аудио: peak, peak 2-pass, loudness (loudnorm) и loudness 2-pass.
 - Отображение прогресса кодирования (percent, FPS, ETA).
 - Интерактивное текстовое меню и удобный CLI для пакетной обработки файлов.
+- **GTK4 GUI для Linux и macOS** с визуальным выбором параметров и прогресс-баром.
 - Модульная архитектура: заголовки и платформенные реализации разделены.
 
 Требования
@@ -15,26 +18,36 @@
 
 - `ffmpeg` в `PATH` (или указать переменную окружения `FFMPEG` для нестандартного пути).
 - `jansson` (для парсинга JSON, используемого в loudnorm анализе).
-- `gtk4` (для GUI на Linux).
+- `gtk4` (для GUI на Linux и macOS):
+  - **Linux**: `sudo apt install libgtk-4-dev` (Debian/Ubuntu) или аналог для других дистрибутивов
+  - **macOS**: `sudo port install gtk4 +quartz -x11` (MacPorts) или `brew install gtk4` (Homebrew)
+    - ⚠️ Важно: для нативной работы на macOS используйте вариант `+quartz`, а не `+x11`
 - CMake + компилятор (gcc/clang) для сборки.
 
-Быстрая сборка (Linux)
-----------------------
+Быстрая сборка
+--------------
+
+**Linux:**
 
 ```bash
 mkdir build
 cd build
 cmake ..
-cmake --build . --target linux_cli
+cmake --build . --target linux_cli  # CLI
+cmake --build . --target linux_gui  # GUI
 ```
 
-Сборка GUI (Linux):
+**macOS:**
 
 ```bash
-cmake --build . --target linux_gui
+mkdir build
+cd build
+cmake ..
+cmake --build . --target macos_cli  # CLI
+cmake --build . --target macos_gui  # GUI
 ```
 
-На macOS сборка аналогична, целевой таргет — `macos_cli`.
+*Примечание: GUI собирается автоматически, если GTK4 найден в системе (`ENABLE_GUI=ON` по умолчанию).*
 
 Использование
 -------------
@@ -55,6 +68,12 @@ GUI (Linux):
 
 ```bash
 ./src/gui/ffmpeg_converter_gui
+```
+
+GUI (macOS):
+
+```bash
+./src/gui/ffmpeg_converter_gui_macos
 ```
 
 Дополнительная документация и примеры параметров находятся в модуле: [src/README.md](src/README.md).

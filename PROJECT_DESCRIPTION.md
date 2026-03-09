@@ -1,6 +1,6 @@
 # Подробное описание проекта: ffmpeg_converter
 
-Версия: рабочая копия в репозитории
+**Версия: 1.0**
 
 Цель документа: дать разработчику полное представление о структуре репозитория, архитектуре кода, ключевых модулях, опциях командной строки и особенностях реализации.
 
@@ -8,9 +8,9 @@
 
 ## Краткий обзор
 
-`ffmpeg_converter` — кроссплатформенный CLI‑инструмент для формирования и выполнения команд `ffmpeg` с набором преднастроек: поддержка ProRes (`prores`, `prores_ks`), `copy` и `h265_mi50` (H.265 VAAPI), нормализация аудио (peak, loudness), двухпроходный анализ (peak 2‑pass, loudnorm 2‑pass), прогресс‑бар и интерактивное текстовое меню.
+`ffmpeg_converter` — кроссплатформенный инструмент с CLI и GUI для формирования и выполнения команд `ffmpeg` с набором преднастроек: поддержка ProRes (`prores`, `prores_ks`), `copy` и `h265_mi50` (H.265 VAAPI), нормализация аудио (peak, loudness), двухпроходный анализ (peak 2‑pass, loudnorm 2‑pass), прогресс‑бар и интерактивное текстовое меню.
 
-Также есть GUI для Linux на GTK4 с выбором параметров, списком файлов и прогрессом обработки.
+**GUI доступен для Linux и macOS** на GTK4 с визуальным выбором параметров, списком файлов и прогрессом обработки.
 
 Проект организован модульно: заголовки (.h) хранятся в отдельных модулях, реализации платформенных частей — в `src/platform/<os>/`.
 
@@ -27,7 +27,8 @@
   - `macos/`, `windows/` — заготовки CLI для других платформ.
 
 - `src/gui/`
-  - `gui_main.c`, `gui_window.c`, `gui_callbacks.c` — GTK4 GUI (Linux), взаимодействие с `converter` через коллбэки, выбор параметров и файлов.
+  - `gui_main.c`, `gui_window.c`, `gui_callbacks.c` — GTK4 GUI (для Linux и macOS), взаимодействие с `converter` через коллбэки, выбор параметров и файлов.
+  - `CMakeLists.txt` — создаёт два target: `linux_gui` и `macos_gui`.
 
 - `src/platform/`
   - `linux/progress.c`, `macos/progress.c`, `windows/progress.c` — платформенные реализации прогресс‑индикатора.
@@ -46,23 +47,32 @@
 ## Сборка и зависимости
 
 - Требования: `cmake` (>=3.16), компилятор (gcc/clang), `ffmpeg` в PATH (для запуска и анализа), библиотека `jansson` (для парсинга JSON, используемого loudnorm).
-- Для GUI на Linux требуется `gtk4`.
+- Для GUI требуется `gtk4`:
+  - **Linux**: `libgtk-4-dev` (через apt/dnf/pacman)
+  - **macOS**: `gtk4 +quartz -x11` (через MacPorts) или `gtk4` (через Homebrew)
+    - ⚠️ **Важно**: для нативной работы используйте вариант `+quartz` (MacPorts), а не `+x11`
+
 - Быстрая сборка для Linux:
 
 ```bash
 mkdir build
 cd build
 cmake ..
-cmake --build . --target linux_cli
+cmake --build . --target linux_cli  # CLI
+cmake --build . --target linux_gui  # GUI
 ```
 
-- Сборка GUI (Linux):
+- Сборка для macOS:
 
 ```bash
-cmake --build . --target linux_gui
+mkdir build
+cd build
+cmake ..
+cmake --build . --target macos_cli  # CLI
+cmake --build . --target macos_gui  # GUI
 ```
 
-- На macOS используется таргет `macos_cli` и дополнительно пути MacPorts (`/opt/local/include`, `/opt/local/lib`) прописаны в `src/cli/CMakeLists.txt`.
+*Примечание: `ENABLE_GUI=ON` по умолчанию. GUI собирается автоматически, если GTK4 найден.*
 
 --------------------------------------------------------------------------------
 
