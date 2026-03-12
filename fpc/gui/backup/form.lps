@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <Version Value="12"/>
+    <BuildModes Active="Default"/>
+    <Units>
+      <Unit>
+        <Filename Value="main.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="-1"/>
+        <WindowIndex Value="-1"/>
+        <TopLine Value="-1"/>
+        <CursorPos X="-1" Y="-1"/>
+        <UsageCount Value="20"/>
+      </Unit>
+      <Unit>
+        <Filename Value="form.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="MainForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="266"/>
+        <CursorPos X="43" Y="283"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="form.lfm"/>
+        <HasResources Value="True"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="10">
+      <Position>
+        <Filename Value="form.pas"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="9" Column="3"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="77" Column="46" TopLine="58"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="233" Column="39" TopLine="215"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="242" Column="42" TopLine="223"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="273" Column="45" TopLine="254"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="363" Column="14" TopLine="344"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="945" Column="5" TopLine="908"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="363" Column="14" TopLine="344"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="233" Column="39" TopLine="214"/>
+      </Position>
+      <Position>
+        <Filename Value="form.pas"/>
+        <Caret Line="212" Column="8" TopLine="193"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode="default">
+        <Mode Name="default">
+          <local>
+            <WorkingDirectory Value="/home/viktor/Git/ffmpeg-converter/fpc/gui"/>
+          </local>
+        </Mode>
+      </Modes>
+    </RunParams>
+    <HistoryLists>
+      <List Name="WorkingDirectory" Type="File" Count="1">
+        <Item1 Value="/home/viktor/Git/ffmpeg-converter/fpc/gui"/>
+      </List>
+    </HistoryLists>
+  </ProjectSession>
+</CONFIG>

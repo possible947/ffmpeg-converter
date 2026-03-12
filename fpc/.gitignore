@@ -1,0 +1,22 @@
+# FPC/Lazarus build artifacts
+*.o
+*.ppu
+*.or
+*.a
+*.so
+*.compiled
+
+# IDE/generated outputs
+*.res
+lib/
+
+# Built executables
+ffmpeg_converter
+run_apple_m4v_test
+test_cli_mode_matrix
+test_cmd_builder
+test_path_parse
+form
+
+# Temporary media/test files
+*_converted.mov
