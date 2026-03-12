@@ -1,52 +1,65 @@
-# Free Pascal Port Scaffold
+# Free Pascal Port — ffmpeg_converter
 
-This folder contains the Free Pascal port scaffold for `ffmpeg-converter`.
+This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-converter` project, including CLI, shared library, and Lazarus/LCL GUI.
 
-## Goals
+## Features
 
-- Mirror the C converter API from `src/converter/converter.h`
-- Keep conversion engine behavior close to C version
-- Provide a Pascal-first CLI implementation
-- Leave room for a later GUI implementation (Lazarus/LCL recommended)
+- Full C API parity — exports all 7 converter symbols with ABI-compatible types
+- CLI with argument parsing and interactive multi-step menu
+- Lazarus/LCL GUI with threaded conversion and progress display
+- Apple M4V creator with multi-step mux pipeline (video copy + AAC + AC3 + MP4Box)
+- 2-pass peak and loudnorm (EBU R128) audio analysis
+- Codecs: copy, prores, prores_ks, h265_mi50 (VAAPI)
 
 ## Folder Layout
 
-- `converter/`: API-compatible core units
-- `common/`: reusable file, process, and time helpers
-- `json/`: loudnorm JSON parsing helpers
-- `cli/`: command line app and interactive menu stubs
-- `test/`: basic test stubs for parity checks
-- `build/`: FPC build helper files
-
-## Current Status
-
-Pascal port is actively usable for CLI workflows and test harness runs.
-Core conversion flow, overwrite handling, Apple M4V helper path, and 2-pass audio analysis paths are implemented.
-Non-GUI library port is included and can be built as a shared library.
-
-## Recent Changes (0.2.0)
-
-- Fixed process output capture reliability in `common/process_utils.pas` by waiting for process completion.
-- Fixed `peak2` and `loudnorm2` analysis stability by hardening parser flow and aligning `loudnorm2` to JSON-based extraction.
-- Added explicit overwrite flags (`-y` / `-n`) in command builder for deterministic overwrite behavior.
-- Updated GUI Apple M4V list flow behavior (direct mode and edit-chain mode) and overwrite handling.
-- Added local parity tests and helper checks in `fpc/test/`.
-- Cleaned generated artifacts from source tree and added `fpc/.gitignore` for FPC/Lazarus build outputs.
+- `converter/`: core engine, C ABI export, command builder, analysis, runner, Apple M4V creator
+- `common/`: reusable file, process, path, and time helpers
+- `json/`: loudnorm JSON parsing (using `fpjson`/`jsonparser`)
+- `cli/`: CLI binary — argument parsing, interactive menu, progress display
+- `gui/`: Lazarus/LCL GUI application with threaded workers
+- `test/`: unit tests and integration test scripts
 
 ## Build
 
-From repository root:
+### CLI binary
 
 ```bash
-make -C fpc/build cli
-make -C fpc/build lib
-make -C fpc/build tests
+fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli ./fpc/cli/ffmpeg_converter.lpr
 ```
 
-Generated artifacts:
+### Shared library
+
+```bash
+fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/converter_pas.lpr
+```
+
+### GUI (requires Lazarus IDE or lazbuild)
+
+```bash
+lazbuild ./fpc/gui/form.lpi
+```
+
+### Tests
+
+```bash
+fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/test/test_cmd_builder.pas
+fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/test/test_path_parse.pas
+fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli ./fpc/test/test_cli_mode_matrix.pas
+```
+
+Shell-based integration tests:
+
+```bash
+bash fpc/test/test_cli_args_matrix.sh
+bash fpc/test/check_gui_cli_issues.sh
+```
+
+### Generated artifacts
 
 - CLI binary: `fpc/cli/ffmpeg_converter`
 - Shared library: `fpc/converter/libconverter_pas.so`
+- GUI binary: `fpc/gui/form`
 
 ## C/C++ Integration
 
@@ -64,13 +77,9 @@ Runtime loader path example:
 LD_LIBRARY_PATH=fpc/converter ./your_app
 ```
 
-Detailed converter library description: `fpc/converter/CONVERTER_LIBRARY_DETAIL.md`.
+## Documentation
 
-Cross-platform install/build guides: `docs/install-linux.md`, `docs/install-macos.md`, `docs/install-windows.md`.
-
-## Next Implementation Steps
-
-1. Port command building logic from `src/converter/converter.c`
-2. Port peak/loudnorm analysis flow using external `ffmpeg`/`ffprobe`
-3. Port file verification and valid-file compaction behavior in CLI
-4. Add command parity tests for representative option combinations
+- Converter library API detail: `fpc/converter/CONVERTER_LIBRARY_DETAIL.md`
+- Code review report: `fpc/REVIEW_REPORT.md`
+- Optimization audit: `fpc/OPTIMIZATION_AUDIT.md`
+- Cross-platform install guides: `docs/install-linux.md`, `docs/install-macos.md`, `docs/install-windows.md`
