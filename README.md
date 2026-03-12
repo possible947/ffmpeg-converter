@@ -78,6 +78,12 @@ GUI (macOS):
 
 Дополнительная документация и примеры параметров находятся в модуле: [src/README.md](src/README.md).
 
+Подробный обзор компонентов проекта: [PROJECT_OVERVIEW_DETAILED.md](PROJECT_OVERVIEW_DETAILED.md).
+
+Install/build commands for Linux/macOS/Windows: [docs/install-linux.md](docs/install-linux.md), [docs/install-macos.md](docs/install-macos.md), [docs/install-windows.md](docs/install-windows.md).
+
+Подробности по Pascal converter library: [fpc/converter/CONVERTER_LIBRARY_DETAIL.md](fpc/converter/CONVERTER_LIBRARY_DETAIL.md).
+
 Структура проекта (основные папки)
 ---------------------------------
 
