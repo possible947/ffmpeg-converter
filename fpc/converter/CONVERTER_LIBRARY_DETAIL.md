@@ -69,7 +69,9 @@ Main responsibilities inside `converter.c`:
 - encoding invocation via `ffmpeg`
 
 ## 7. Shared Library Artifact
-- Output: `fpc/converter/libconverter_pas.so`
+- Output (Linux): `fpc/converter/libconverter_pas.so`
+- Output (macOS): `fpc/converter/libconverter_pas.dylib`
+- Output (Windows): `fpc/converter/converter_pas.dll`
 - Exported symbols:
 - `converter_create`
 - `converter_destroy`

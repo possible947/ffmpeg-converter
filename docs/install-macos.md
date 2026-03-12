@@ -42,7 +42,7 @@ make -C fpc/build tests
 
 Note:
 - macOS shared libraries commonly use `.dylib` extension.
-- Current Pascal Makefile is Linux-oriented (`.so`) and may need minor platform adjustment for native packaging.
+- The recreated `fpc/build/Makefile` emits `.dylib` on macOS.
 
 ## 3. Runtime Notes
 - Ensure `ffmpeg` and `ffprobe` are available in `PATH`.

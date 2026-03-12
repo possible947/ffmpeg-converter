@@ -2,6 +2,9 @@
 /build/
 /bin/
 */build/
+!fpc/build/
+!fpc/build/Makefile
+!fpc/build/fpmake.pp
 
 # Object files
 *.o

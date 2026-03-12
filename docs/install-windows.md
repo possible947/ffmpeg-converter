@@ -36,8 +36,7 @@ make -C fpc/build tests
 ```
 
 Notes:
-- Current Pascal make flow focuses on Linux shared library naming.
-- For Windows shared library, adapt build target to produce DLL + import library.
+- `fpc/build/Makefile` includes a Windows shared-library output path (`fpc/converter/converter_pas.dll`).
 
 ## 3. GUI Notes
 If Lazarus GUI build reports missing `Interfaces` or `Forms`, install full Lazarus/LCL widgetset packages for the active compiler/toolchain.

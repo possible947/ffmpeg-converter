@@ -60,8 +60,10 @@ bash fpc/test/check_gui_cli_issues.sh
 ### Generated artifacts
 
 - CLI binary: `fpc/cli/ffmpeg_converter`
-- Shared library: `fpc/converter/libconverter_pas.so`
-- GUI binary: `fpc/gui/form`
+- Shared library (Linux): `fpc/converter/libconverter_pas.so`
+- Shared library (macOS): `fpc/converter/libconverter_pas.dylib`
+- Shared library (Windows): `fpc/converter/converter_pas.dll`
+- GUI binary: `fpc/gui/ffmpeg_converter_gui`
 
 ## C/C++ Integration
 

@@ -9,6 +9,7 @@
 # IDE/generated outputs
 *.res
 lib/
+build/.units/
 
 # Built executables
 ffmpeg_converter
