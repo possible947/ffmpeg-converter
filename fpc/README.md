@@ -31,8 +31,10 @@ fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli ./fpc/cli/ffmp
 ### Shared library
 
 ```bash
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/converter_pas.lpr
+fpc -Cg -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/converter_pas.lpr
 ```
+
+> Note: `-Cg` enables position-independent code (PIC), required for shared library linking on x86_64.
 
 ### GUI (requires Lazarus IDE or lazbuild)
 
