@@ -13,7 +13,7 @@ uses
   Forms, form
   { you can add units after this };
 
-{$R form.res}
+{$R *.res}
 
 begin
   RequireDerivedFormResource:=True;
