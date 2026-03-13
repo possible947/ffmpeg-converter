@@ -205,7 +205,7 @@ MP4Box -new \
 # ---------------------------------------------------------------------------
 echo "[5/5] Importing chapters (if any)..."
 $FFPROBE_BIN -v error -print_format json -show_chapters "$INPUT_MKV" \
-  > "$WORK_DIR/chapters.json" 2>/dev/null || true
+  > "$WORK_DIR/chapters.json"
 
 python3 - "$WORK_DIR/chapters.json" "$CHAPTERS_TXT" << 'PYEOF'
 import json, sys
