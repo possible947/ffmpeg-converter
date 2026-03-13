@@ -23,6 +23,7 @@ endif
 
 CLI_BIN := $(ROOT)/fpc/cli/ffmpeg_converter$(EXEEXT)
 GUI_BIN := $(ROOT)/fpc/gui/ffmpeg_converter_gui$(EXEEXT)
+GUI_RES := $(ROOT)/fpc/gui/form.res
 
 COMMON_UNITS := \
 	$(wildcard $(ROOT)/fpc/common/*.pas) \
@@ -97,10 +98,21 @@ apple-test: $(ROOT)/fpc/test/run_apple_m4v_test$(EXEEXT)
 gui: $(GUI_BIN)
 
 $(GUI_BIN): $(GUI_DEPS)
-	@test -n "$(LAZARUS_VERSION)" || { echo "ERROR: could not auto-detect LAZARUS_VERSION under $(LAZARUS_PREFIX)."; echo "Set LAZARUS_VERSION or LAZARUS_DIR explicitly."; exit 1; }
+	@test -n "$(LAZARUS_VERSION)" -o "$(LAZARUS_DIR)" != "$(LAZARUS_PREFIX)/" || { echo "ERROR: could not auto-detect LAZARUS_VERSION under $(LAZARUS_PREFIX)."; echo "Set LAZARUS_VERSION or LAZARUS_DIR explicitly."; exit 1; }
 	@test -d "$(LCL_UNITS_DIR)" || { echo "ERROR: LCL units not found: $(LCL_UNITS_DIR)"; echo "Set LAZARUS_DIR/LAZARUS_VERSION/LCL_UNITS_DIR as needed."; exit 1; }
 	@test -d "$(WIDGETSET_UNITS_DIR)" || { echo "ERROR: widgetset units not found: $(WIDGETSET_UNITS_DIR)"; echo "Set LCL_WIDGETSET (e.g. gtk2, gtk3, qt5) or override WIDGETSET_UNITS_DIR."; exit 1; }
 	@test -d "$(LAZUTIL_UNITS_DIR)" || { echo "ERROR: lazutils units not found: $(LAZUTIL_UNITS_DIR)"; echo "Override LAZUTIL_UNITS_DIR if your distro layout differs."; exit 1; }
+	@if [ ! -f "$(GUI_RES)" ]; then \
+		if command -v lazres >/dev/null 2>&1; then \
+			lazres "$(GUI_RES)" "$(ROOT)/fpc/gui/form.lfm"; \
+		elif [ -x "$(LAZARUS_DIR)/lazres" ]; then \
+			"$(LAZARUS_DIR)/lazres" "$(GUI_RES)" "$(ROOT)/fpc/gui/form.lfm"; \
+		else \
+			echo "ERROR: lazres not found to generate $(GUI_RES)."; \
+			echo "Install Lazarus tools or generate form.res manually."; \
+			exit 1; \
+		fi; \
+	fi
 	@mkdir -p "$(ROOT)/fpc/gui" "$(UNIT_BASE)/gui"
 	$(FPC) $(FPCFLAGS) \
 		-Fu"$(ROOT)/fpc/gui" \
@@ -140,4 +152,4 @@ $(ROOT)/fpc/test/%$(EXEEXT): $(ROOT)/fpc/test/%.pas $(TEST_SHARED_DEPS)
 
 clean:
 	rm -rf "$(UNIT_BASE)"
-	rm -f "$(CLI_BIN)" "$(LIB_OUT)" "$(GUI_BIN)" $(TEST_BINS)
+	rm -f "$(CLI_BIN)" "$(LIB_OUT)" "$(GUI_BIN)" "$(GUI_RES)" $(TEST_BINS)
