@@ -13,6 +13,7 @@ build/.units/
 
 # Built executables
 ffmpeg_converter
+ffmpeg_converter_gui
 run_apple_m4v_test
 test_cli_mode_matrix
 test_cmd_builder

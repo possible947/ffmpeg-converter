@@ -23,7 +23,6 @@ endif
 
 CLI_BIN := $(ROOT)/fpc/cli/ffmpeg_converter$(EXEEXT)
 GUI_BIN := $(ROOT)/fpc/gui/ffmpeg_converter_gui$(EXEEXT)
-GUI_RES := $(ROOT)/fpc/gui/form.res
 
 COMMON_UNITS := \
 	$(wildcard $(ROOT)/fpc/common/*.pas) \
@@ -62,7 +61,9 @@ TEST_SHARED_DEPS := \
 GUI_UNITS := \
 	$(wildcard $(ROOT)/fpc/gui/*.pas)
 
-GUI_MAIN ?= $(ROOT)/fpc/gui/form.lpr
+GUI_MAIN ?= $(ROOT)/fpc/gui/main.lpr
+GUI_MAIN_STEM := $(basename $(notdir $(GUI_MAIN)))
+GUI_RES := $(ROOT)/fpc/gui/$(GUI_MAIN_STEM).res
 
 # GUI rule supports plain FPC compilation (no Lazarus IDE), but still needs LCL units installed.
 FPC_TARGET_CPU ?= $(shell $(FPC) -iTP 2>/dev/null || echo x86_64)
@@ -75,6 +76,7 @@ LCL_UNITS_DIR ?= $(LAZARUS_DIR)/lcl/units/$(FPC_TARGET_CPU)-$(FPC_TARGET_OS)
 WIDGETSET_UNITS_DIR ?= $(LCL_UNITS_DIR)/$(LCL_WIDGETSET)
 LAZUTIL_UNITS_DIR ?= $(LAZARUS_DIR)/components/lazutils/lib/$(FPC_TARGET_CPU)-$(FPC_TARGET_OS)
 GUI_EXTRA_FU ?=
+GUI_FPCFLAGS ?= $(FPCFLAGS) -B
 
 GUI_DEPS := \
 	$(GUI_MAIN) \
@@ -114,7 +116,7 @@ $(GUI_BIN): $(GUI_DEPS)
 		fi; \
 	fi
 	@mkdir -p "$(ROOT)/fpc/gui" "$(UNIT_BASE)/gui"
-	$(FPC) $(FPCFLAGS) \
+	$(FPC) $(GUI_FPCFLAGS) \
 		-Fu"$(ROOT)/fpc/gui" \
 		$(COMMON_FU) \
 		-Fu"$(LCL_UNITS_DIR)" \
