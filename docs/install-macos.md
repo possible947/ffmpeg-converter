@@ -45,10 +45,22 @@ Note:
 - The recreated `fpc/build/Makefile` emits `.dylib` on macOS.
 
 ## 3. Runtime Notes
-- Ensure `ffmpeg` and `ffprobe` are available in `PATH`.
+- Ensure `ffmpeg` and `ffprobe` are installed. The Pascal path resolves binaries
+	via `PATH` and also checks common macOS locations:
+	- `/opt/homebrew/bin`
+	- `/usr/local/bin`
+	- `/usr/bin`
 - GUI builds require GTK4 properly installed for the selected package manager.
+- CLI `-o/--output` creates missing output directories and reports a clear
+	error when the path is invalid or not writable.
 
 ## 4. Validation
 ```bash
 make -C fpc/build all
+```
+
+Full regression (including Pascal/C parity checks):
+
+```bash
+./fpc/test/run_all_regression_and_capture.sh
 ```

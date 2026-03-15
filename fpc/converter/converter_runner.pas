@@ -13,16 +13,21 @@ implementation
 
 uses
   SysUtils,
-  process_utils;
+  process_utils,
+  tool_paths,
+  path_utils;
 
 function ProbeDuration(const InputFile: string): Double;
 var
+  FfprobeBin: string;
   R: TRunResult;
   Code: Integer;
 begin
+  FfprobeBin := ResolveFfprobeBin;
   R := RunCommandCapture(
-    'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ' +
-    '"' + InputFile + '" 2>/dev/null');
+    QuoteForShell(FfprobeBin) +
+    ' -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ' +
+    QuoteForShell(InputFile) + ' 2>/dev/null');
 
   if R.ExitCode <> 0 then
     Exit(0.0);

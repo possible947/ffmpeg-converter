@@ -161,8 +161,18 @@ begin
   Result := True;
 end;
 
-function BuildChapterText(const JsonText, ChapterFile: string): Boolean;
+function ParseFloatDot(const S: string; out V: Double): Boolean;
 var
+  Fmt: TFormatSettings;
+begin
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  Result := TryStrToFloat(Trim(S), V, Fmt);
+end;
+
+function BuildChapterText(const ChaptersJsonFile, ChapterFile: string): Boolean;
+var
+  JsonText: string;
   J: TJSONData;
   Chapters: TJSONArray;
   I: Integer;
@@ -199,6 +209,20 @@ begin
   J := nil;
   Lines := TStringList.Create;
   try
+    if not FileExists(ChaptersJsonFile) then
+      Exit(False);
+
+    with TStringList.Create do
+    try
+      LoadFromFile(ChaptersJsonFile);
+      JsonText := Text;
+    finally
+      Free;
+    end;
+
+    if Trim(JsonText) = '' then
+      Exit(False);
+
     J := GetJSON(JsonText);
     if not (J is TJSONObject) then
       Exit(False);
@@ -216,7 +240,8 @@ begin
       StartTime := 0.0;
       if ChObj.Find('start_time') <> nil then
       begin
-        T := StrToFloatDef(ChObj.Get('start_time', '0'), 0.0);
+        if not ParseFloatDot(ChObj.Get('start_time', '0'), T) then
+          T := 0.0;
         StartTime := T;
       end;
 
@@ -249,6 +274,7 @@ var
   R: TRunResult;
   Fps: Double;
   FpsStr: string;
+  Fmt: TFormatSettings;
   WorkDir: string;
   VideoMp4: string;
   AacM4a: string;
@@ -280,7 +306,9 @@ begin
   end;
 
   Fps := ProbeFps(FfprobeBin, InputFile);
-  FpsStr := Format('%.6f', [Fps]);
+  Fmt := DefaultFormatSettings;
+  Fmt.DecimalSeparator := '.';
+  FpsStr := Format('%.6f', [Fps], Fmt);
 
   if not CreateWorkDir(WorkDir) then
   begin
@@ -323,18 +351,12 @@ begin
 
     if Opts.AddChapters then
     begin
-      R := RunCommandCapture(FfprobeBin + ' -v error -print_format json -show_chapters ' + QuoteForShell(InputFile));
+      R := RunCommandCapture(
+        FfprobeBin + ' -v error -print_format json -show_chapters ' +
+        QuoteForShell(InputFile) + ' > ' + QuoteForShell(ChaptersJson));
       if R.ExitCode = 0 then
       begin
-        with TStringList.Create do
-        try
-          Text := R.OutputText;
-          SaveToFile(ChaptersJson);
-        finally
-          Free;
-        end;
-
-        if BuildChapterText(R.OutputText, ChaptersTxt) then
+        if BuildChapterText(ChaptersJson, ChaptersTxt) and (FileExists(ChaptersTxt)) then
         begin
           Cmd := 'MP4Box -chap ' + QuoteForShell(ChaptersTxt) + ' ' + QuoteForShell(OutputFile);
           RunCommandCapture(Cmd);

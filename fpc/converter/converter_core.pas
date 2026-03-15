@@ -196,6 +196,7 @@ var
   Err: TConverterError;
   Gain: Double;
   AudioNorm: string;
+  FileOpts: TConvertOptions;
 begin
   if (c = nil) or (files = nil) or (file_count <= 0) then
     Exit(ERR_INVALID_OPTIONS);
@@ -233,7 +234,18 @@ begin
     if Ctx^.StopFlag <> 0 then
       Exit(ERR_SKIP_FILE);
 
-    AudioNorm := ArrToStr(Ctx^.Opts.audio_norm);
+    FileOpts := Ctx^.Opts;
+    FileOpts.gain := 0.0;
+    FileOpts.I_target := 0.0;
+    FileOpts.TP_target := 0.0;
+    FileOpts.LRA_target := 0.0;
+    FileOpts.measured_I := 0.0;
+    FileOpts.measured_TP := 0.0;
+    FileOpts.measured_LRA := 0.0;
+    FileOpts.measured_thresh := 0.0;
+    FileOpts.measured_offset := 0.0;
+
+    AudioNorm := ArrToStr(FileOpts.audio_norm);
     if AudioNorm = 'peak_norm_2pass' then
     begin
       if Assigned(Ctx^.Cb.on_stage) then
@@ -248,7 +260,7 @@ begin
         Continue;
       end;
 
-      Ctx^.Opts.gain := Gain;
+      FileOpts.gain := Gain;
       if Assigned(Ctx^.Cb.on_progress_analysis) then
         Ctx^.Cb.on_progress_analysis(100.0, 0.0);
     end;
@@ -258,8 +270,8 @@ begin
       if Assigned(Ctx^.Cb.on_stage) then
         Ctx^.Cb.on_stage('loudnorm analysis');
 
-      ApplyGenreTargets(Ctx^.Opts);
-      Err := RunLoudnormTwoPass(InputFile, Ctx^.Opts);
+      ApplyGenreTargets(FileOpts);
+      Err := RunLoudnormTwoPass(InputFile, FileOpts);
       if Err <> ERR_OK then
       begin
         EmitError(Ctx, 'loudnorm analysis failed', Err);
@@ -272,12 +284,12 @@ begin
         Ctx^.Cb.on_progress_analysis(100.0, 0.0);
     end;
 
-    if ArrToStr(Ctx^.Opts.codec) = 'h265_mi50' then
-      Ctx^.Opts.use_aac_for_h265 := 1
+    if ArrToStr(FileOpts.codec) = 'h265_mi50' then
+      FileOpts.use_aac_for_h265 := 1
     else
-      Ctx^.Opts.use_aac_for_h265 := 0;
+      FileOpts.use_aac_for_h265 := 0;
 
-    Cmd := BuildFfmpegCommand(Ctx^.Opts, InputFile, OutputFile);
+    Cmd := BuildFfmpegCommand(FileOpts, InputFile, OutputFile);
     if Assigned(Ctx^.Cb.on_message) then
       Ctx^.Cb.on_message('ffmpeg command built');
 

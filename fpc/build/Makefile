@@ -49,6 +49,7 @@ TEST_PROGRAMS := \
 	test_cmd_builder \
 	test_path_parse \
 	test_cli_mode_matrix \
+	test_analysis_parsers \
 	run_apple_m4v_test
 
 TEST_BINS := $(addprefix $(ROOT)/fpc/test/,$(addsuffix $(EXEEXT),$(TEST_PROGRAMS)))

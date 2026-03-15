@@ -19,25 +19,22 @@ implementation
 
 uses
   fpjson,
-  jsonparser,
-  SysUtils;
+  jsonparser;
 
 function JsonNumToFloat(O: TJSONObject; const Key: string; out Value: Double): Boolean;
 var
-  S: string;
-  Fmt: TFormatSettings;
+  D: TJSONData;
 begin
-  Fmt := DefaultFormatSettings;
-  Fmt.DecimalSeparator := '.';
-
-  if O.Find(Key) = nil then
+  D := O.Find(Key);
+  if D = nil then
     Exit(False);
 
-  S := Trim(O.Get(Key, ''));
-  if S = '' then
-    Exit(False);
+  if D.JSONType = jtNumber then
+    Value := TJSONNumber(D).AsFloat
+  else
+    Value := 0.0;
 
-  Result := TryStrToFloat(S, Value, Fmt);
+  Result := True;
 end;
 
 function TryParseLoudnormJson(const Text: string; out Metrics: TLoudnormMetrics): Boolean;

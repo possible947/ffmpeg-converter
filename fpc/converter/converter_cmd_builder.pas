@@ -12,11 +12,18 @@ implementation
 
 uses
   SysUtils,
-  path_utils;
+  path_utils,
+  tool_paths;
 
 function ArrToStr(const A: array of AnsiChar): string;
 begin
   Result := StrPas(@A[0]);
+end;
+
+function InvariantFmt: TFormatSettings;
+begin
+  Result := DefaultFormatSettings;
+  Result.DecimalSeparator := '.';
 end;
 
 function BuildFfmpegCommand(const Opts: TConvertOptions; const InputFile, OutputFile: string): string;
@@ -24,9 +31,13 @@ var
   Codec: string;
   AudioNorm: string;
   DevicePath: string;
+  FfmpegBin: string;
+  Fmt: TFormatSettings;
 begin
   Codec := ArrToStr(Opts.codec);
   AudioNorm := ArrToStr(Opts.audio_norm);
+  FfmpegBin := ResolveFfmpegBin;
+  Fmt := InvariantFmt;
 
   if Codec = 'h265_mi50' then
   begin
@@ -34,22 +45,22 @@ begin
     if DevicePath = '' then
       DevicePath := '/dev/dri/renderD128';
     if Opts.overwrite <> 0 then
-      Result := 'ffmpeg -y -vaapi_device ' + QuoteForShell(DevicePath) + ' -i ' + QuoteForShell(InputFile) + ' '
+      Result := QuoteForShell(FfmpegBin) + ' -y -vaapi_device ' + QuoteForShell(DevicePath) + ' -i ' + QuoteForShell(InputFile) + ' '
     else
-      Result := 'ffmpeg -n -vaapi_device ' + QuoteForShell(DevicePath) + ' -i ' + QuoteForShell(InputFile) + ' ';
+      Result := QuoteForShell(FfmpegBin) + ' -n -vaapi_device ' + QuoteForShell(DevicePath) + ' -i ' + QuoteForShell(InputFile) + ' ';
   end
   else
   begin
     if Opts.overwrite <> 0 then
-      Result := 'ffmpeg -y -i ' + QuoteForShell(InputFile) + ' '
+      Result := QuoteForShell(FfmpegBin) + ' -y -i ' + QuoteForShell(InputFile) + ' '
     else
-      Result := 'ffmpeg -n -i ' + QuoteForShell(InputFile) + ' ';
+      Result := QuoteForShell(FfmpegBin) + ' -n -i ' + QuoteForShell(InputFile) + ' ';
   end;
 
   Result += '-map 0:v:0 -map 0:a:0 -map_metadata 0 ';
 
   if (Codec = 'prores') or (Codec = 'prores_ks') then
-    Result += Format('-c:v %s -profile:v %d ', [Codec, Opts.profile])
+    Result += Format('-c:v %s -profile:v %d ', [Codec, Opts.profile], Fmt)
   else if Codec = 'h265_mi50' then
     Result += '-c:v hevc_vaapi -rc_mode:v auto -qp 25 -profile:v main -level:v 5.1 '
   else
@@ -72,12 +83,12 @@ begin
   else if AudioNorm = 'peak_norm' then
     Result += '-af "aresample=resampler=soxr:precision=28:cheby=1,volume=-3dB" '
   else if AudioNorm = 'peak_norm_2pass' then
-    Result += Format('-af "aresample=resampler=soxr:precision=28:cheby=1,volume=%.2fdB" ', [Opts.gain])
+    Result += Format('-af "aresample=resampler=soxr:precision=28:cheby=1,volume=%.2fdB" ', [Opts.gain], Fmt)
   else if AudioNorm = 'loudness_norm' then
     Result += '-af "aresample=resampler=soxr:precision=28:cheby=1,loudnorm=I=-11:TP=-1.5:LRA=7" '
   else if AudioNorm = 'loudness_norm_2pass' then
     Result += Format('-af "aresample=resampler=soxr:precision=28:cheby=1,loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:measured_I=%.2f:measured_TP=%.2f:measured_LRA=%.2f:measured_thresh=%.2f:offset=%.2f:linear=true" ',
-      [Opts.I_target, Opts.TP_target, Opts.LRA_target, Opts.measured_I, Opts.measured_TP, Opts.measured_LRA, Opts.measured_thresh, Opts.measured_offset]);
+      [Opts.I_target, Opts.TP_target, Opts.LRA_target, Opts.measured_I, Opts.measured_TP, Opts.measured_LRA, Opts.measured_thresh, Opts.measured_offset], Fmt);
 
   Result += QuoteForShell(OutputFile);
 end;

@@ -15,7 +15,14 @@ begin
   InitDefaultOptions(Opts);
   Cmd := BuildFfmpegCommand(Opts, 'input.mov', 'output.mov');
 
-  if Pos('ffmpeg -i', Cmd) <> 1 then
+  if (Pos('"ffmpeg" -n -i ', Cmd) <> 1) and
+     (Pos('"ffmpeg" -y -i ', Cmd) <> 1) and
+     (Pos('"/usr/bin/ffmpeg" -n -i ', Cmd) <> 1) and
+     (Pos('"/usr/bin/ffmpeg" -y -i ', Cmd) <> 1) and
+     (Pos('"/usr/local/bin/ffmpeg" -n -i ', Cmd) <> 1) and
+     (Pos('"/usr/local/bin/ffmpeg" -y -i ', Cmd) <> 1) and
+     (Pos('"/opt/homebrew/bin/ffmpeg" -n -i ', Cmd) <> 1) and
+     (Pos('"/opt/homebrew/bin/ffmpeg" -y -i ', Cmd) <> 1) then
   begin
     WriteLn('FAIL: command prefix');
     Halt(1);

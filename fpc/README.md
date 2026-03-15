@@ -57,6 +57,15 @@ bash fpc/test/test_cli_args_matrix.sh
 bash fpc/test/check_gui_cli_issues.sh
 ```
 
+Unified regression run (build + unit + integration + Pascal/C parity):
+
+```bash
+./fpc/test/run_all_regression_and_capture.sh
+```
+
+The script writes a timestamped report under `/tmp/ffc_regression_<timestamp>/`
+with `summary.txt`, `status.tsv`, logs, and parity artifacts.
+
 ### Generated artifacts
 
 - CLI binary: `fpc/cli/ffmpeg_converter`
@@ -87,3 +96,11 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
 - Code review report: `fpc/REVIEW_REPORT.md`
 - Optimization audit: `fpc/OPTIMIZATION_AUDIT.md`
 - Cross-platform install guides: `docs/install-linux.md`, `docs/install-macos.md`, `docs/install-windows.md`
+
+## macOS Notes
+
+- Pascal runtime now resolves `ffmpeg`/`ffprobe` robustly for GUI/CLI launches,
+	including common Homebrew paths (`/opt/homebrew/bin`, `/usr/local/bin`) when
+	GUI apps start with a limited `PATH`.
+- CLI `-o/--output` now creates missing output directories before conversion and
+	fails early with a clear error if the directory is invalid or not writable.

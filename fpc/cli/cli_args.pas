@@ -201,12 +201,46 @@ begin
       S := ParamStr(I);
       SetAnsiField(Opts.output_dir, S);
 
-      if (fpStat(PChar(S), DirInfo) = 0) and FPS_ISDIR(DirInfo.st_mode) and (fpAccess(PChar(S), W_OK) = 0) then
+      if fpStat(PChar(S), DirInfo) <> 0 then
+      begin
+        if fpgeterrno = ESysENOENT then
+        begin
+          if not ForceDirectories(S) then
+          begin
+            Opts.output_dir_status := 0;
+            WriteLn(StdErr, 'Error: Failed to create output directory: ', S);
+            Exit(False);
+          end;
+
+          if fpStat(PChar(S), DirInfo) <> 0 then
+          begin
+            Opts.output_dir_status := 0;
+            WriteLn(StdErr, 'Error: Output directory is not accessible after creation: ', S);
+            Exit(False);
+          end;
+        end
+        else
+        begin
+          Opts.output_dir_status := 0;
+          WriteLn(StdErr, 'Error: Cannot stat output directory: ', S);
+          Exit(False);
+        end;
+      end;
+
+      if not FPS_ISDIR(DirInfo.st_mode) then
+      begin
+        Opts.output_dir_status := 0;
+        WriteLn(StdErr, 'Error: Output path is not a directory: ', S);
+        Exit(False);
+      end;
+
+      if fpAccess(PChar(S), W_OK) = 0 then
         Opts.output_dir_status := 1
       else
       begin
         Opts.output_dir_status := 0;
-        WriteLn(StdErr, 'Warning: Output directory is not writable or does not exist: ', S);
+        WriteLn(StdErr, 'Error: Output directory is not writable: ', S);
+        Exit(False);
       end;
 
       Inc(I);
