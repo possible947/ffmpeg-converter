@@ -25,4 +25,7 @@ void start_conversion(AppWidgets *w);
 /* Request the running converter to stop. */
 void stop_conversion(AppWidgets *w);
 
+/* Stop/join worker thread during app shutdown. */
+void shutdown_conversion(AppWidgets *w);
+
 #endif /* GUI_CALLBACKS_H */

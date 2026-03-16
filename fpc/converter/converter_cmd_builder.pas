@@ -32,11 +32,13 @@ var
   AudioNorm: string;
   DevicePath: string;
   FfmpegBin: string;
+  Tools: TToolPaths;
   Fmt: TFormatSettings;
 begin
   Codec := ArrToStr(Opts.codec);
   AudioNorm := ArrToStr(Opts.audio_norm);
-  FfmpegBin := ResolveFfmpegBin;
+  Tools := ResolveToolPaths;
+  FfmpegBin := Tools.FfmpegBin;
   Fmt := InvariantFmt;
 
   if Codec = 'h265_mi50' then

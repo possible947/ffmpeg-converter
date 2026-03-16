@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(ffmpeg_converter_gui LANGUAGES C)
 
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    return()
+endif()
+
 # Find GTK4
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
@@ -31,13 +35,4 @@ target_link_libraries(linux_gui
     PRIVATE ${JANSSON_LIB}
 )
 
-# Executable for macOS
-add_executable(macos_gui gui_main.c)
-set_target_properties(macos_gui PROPERTIES OUTPUT_NAME "ffmpeg_converter_gui_macos")
-target_link_libraries(macos_gui
-    PRIVATE gui_lib
-    PRIVATE converter
-    PRIVATE ${JANSSON_LIB}
-)
-
-install(TARGETS linux_gui macos_gui RUNTIME DESTINATION bin)
+install(TARGETS linux_gui RUNTIME DESTINATION bin)

@@ -1,5 +1,6 @@
 ROOT := $(abspath ../..)
 FPC ?= fpc
+LAZBUILD ?= lazbuild
 
 FPCFLAGS ?= -Mobjfpc -Sh -O2
 COMMON_FU := -Fu$(ROOT)/fpc/converter -Fu$(ROOT)/fpc/common -Fu$(ROOT)/fpc/json -Fu$(ROOT)/fpc/cli
@@ -50,6 +51,10 @@ TEST_PROGRAMS := \
 	test_path_parse \
 	test_cli_mode_matrix \
 	test_analysis_parsers \
+	test_default_output_preflight \
+	test_output_preflight_rules \
+	test_error_log_creation \
+	test_unified_tool_resolver \
 	run_apple_m4v_test
 
 TEST_BINS := $(addprefix $(ROOT)/fpc/test/,$(addsuffix $(EXEEXT),$(TEST_PROGRAMS)))
@@ -65,28 +70,18 @@ GUI_UNITS := \
 GUI_MAIN ?= $(ROOT)/fpc/gui/main.lpr
 GUI_MAIN_STEM := $(basename $(notdir $(GUI_MAIN)))
 GUI_RES := $(ROOT)/fpc/gui/$(GUI_MAIN_STEM).res
-
-# GUI rule supports plain FPC compilation (no Lazarus IDE), but still needs LCL units installed.
-FPC_TARGET_CPU ?= $(shell $(FPC) -iTP 2>/dev/null || echo x86_64)
-FPC_TARGET_OS ?= $(shell $(FPC) -iTO 2>/dev/null || echo linux)
-LAZARUS_PREFIX ?= /usr/lib/lazarus
-LAZARUS_VERSION ?= $(shell ls -1 "$(LAZARUS_PREFIX)" 2>/dev/null | sort -V | tail -n 1)
-LAZARUS_DIR ?= $(LAZARUS_PREFIX)/$(LAZARUS_VERSION)
-LCL_WIDGETSET ?= gtk2
-LCL_UNITS_DIR ?= $(LAZARUS_DIR)/lcl/units/$(FPC_TARGET_CPU)-$(FPC_TARGET_OS)
-WIDGETSET_UNITS_DIR ?= $(LCL_UNITS_DIR)/$(LCL_WIDGETSET)
-LAZUTIL_UNITS_DIR ?= $(LAZARUS_DIR)/components/lazutils/lib/$(FPC_TARGET_CPU)-$(FPC_TARGET_OS)
-GUI_EXTRA_FU ?=
-GUI_FPCFLAGS ?= $(FPCFLAGS) -B
+GUI_PROJECT ?= $(ROOT)/fpc/gui/form.lpi
+LAZBUILD_FLAGS ?= -B
 
 GUI_DEPS := \
+	$(GUI_PROJECT) \
 	$(GUI_MAIN) \
 	$(ROOT)/fpc/gui/form.lfm \
 	$(GUI_UNITS) \
 	$(COMMON_UNITS) \
 	$(CONVERTER_UNITS)
 
-.PHONY: all cli lib tests apple-test gui clean
+.PHONY: all cli lib tests apple-test gui gui-app clean
 
 all: cli lib tests
 
@@ -100,34 +95,18 @@ apple-test: $(ROOT)/fpc/test/run_apple_m4v_test$(EXEEXT)
 
 gui: $(GUI_BIN)
 
-$(GUI_BIN): $(GUI_DEPS)
-	@test -n "$(LAZARUS_VERSION)" -o "$(LAZARUS_DIR)" != "$(LAZARUS_PREFIX)/" || { echo "ERROR: could not auto-detect LAZARUS_VERSION under $(LAZARUS_PREFIX)."; echo "Set LAZARUS_VERSION or LAZARUS_DIR explicitly."; exit 1; }
-	@test -d "$(LCL_UNITS_DIR)" || { echo "ERROR: LCL units not found: $(LCL_UNITS_DIR)"; echo "Set LAZARUS_DIR/LAZARUS_VERSION/LCL_UNITS_DIR as needed."; exit 1; }
-	@test -d "$(WIDGETSET_UNITS_DIR)" || { echo "ERROR: widgetset units not found: $(WIDGETSET_UNITS_DIR)"; echo "Set LCL_WIDGETSET (e.g. gtk2, gtk3, qt5) or override WIDGETSET_UNITS_DIR."; exit 1; }
-	@test -d "$(LAZUTIL_UNITS_DIR)" || { echo "ERROR: lazutils units not found: $(LAZUTIL_UNITS_DIR)"; echo "Override LAZUTIL_UNITS_DIR if your distro layout differs."; exit 1; }
-	@if [ ! -f "$(GUI_RES)" ]; then \
-		if command -v lazres >/dev/null 2>&1; then \
-			lazres "$(GUI_RES)" "$(ROOT)/fpc/gui/form.lfm"; \
-		elif [ -x "$(LAZARUS_DIR)/lazres" ]; then \
-			"$(LAZARUS_DIR)/lazres" "$(GUI_RES)" "$(ROOT)/fpc/gui/form.lfm"; \
-		else \
-			echo "ERROR: lazres not found to generate $(GUI_RES)."; \
-			echo "Install Lazarus tools or generate form.res manually."; \
-			exit 1; \
-		fi; \
+gui-app: $(GUI_BIN)
+	@if [ "$(UNAME_S)" = "Darwin" ]; then \
+		"$(ROOT)/fpc/build/package_macos_app.sh" "$(GUI_BIN)"; \
+	else \
+		echo "Skipping gui-app packaging on non-Darwin host."; \
 	fi
+
+$(GUI_BIN): $(GUI_DEPS)
+	@command -v "$(LAZBUILD)" >/dev/null 2>&1 || { echo "ERROR: lazbuild not found in PATH."; exit 1; }
 	@mkdir -p "$(ROOT)/fpc/gui" "$(UNIT_BASE)/gui"
-	$(FPC) $(GUI_FPCFLAGS) \
-		-Fu"$(ROOT)/fpc/gui" \
-		$(COMMON_FU) \
-		-Fu"$(LCL_UNITS_DIR)" \
-		-Fu"$(WIDGETSET_UNITS_DIR)" \
-		-Fu"$(LAZUTIL_UNITS_DIR)" \
-		$(GUI_EXTRA_FU) \
-		-FU"$(UNIT_BASE)/gui" \
-		-FE"$(ROOT)/fpc/gui" \
-		-o"$@" \
-		"$(GUI_MAIN)"
+	cd "$(ROOT)" && "$(LAZBUILD)" $(LAZBUILD_FLAGS) "$(GUI_PROJECT)"
+	@test -f "$@" || { echo "ERROR: lazbuild finished but GUI binary not found at $@"; exit 1; }
 
 $(CLI_BIN): $(CLI_DEPS)
 	@mkdir -p "$(ROOT)/fpc/cli" "$(UNIT_BASE)/cli"
@@ -156,3 +135,4 @@ $(ROOT)/fpc/test/%$(EXEEXT): $(ROOT)/fpc/test/%.pas $(TEST_SHARED_DEPS)
 clean:
 	rm -rf "$(UNIT_BASE)"
 	rm -f "$(CLI_BIN)" "$(LIB_OUT)" "$(GUI_BIN)" "$(GUI_RES)" $(TEST_BINS)
+	rm -rf "$(ROOT)/fpc/gui/form.app"

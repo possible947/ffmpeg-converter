@@ -12,6 +12,7 @@ implementation
 
 uses
   BaseUnix,
+  fs_utils,
   SysUtils;
 
 procedure ClearScreen;
@@ -68,8 +69,8 @@ end;
 function ReadOutputDir(out OutDir: string; out Status: LongInt): Boolean;
 var
   Tmp: string;
-  HomeDir: string;
-  Info: Stat;
+  ResolvedDir: string;
+  DirError: string;
 begin
   Status := 0;
   OutDir := '';
@@ -82,45 +83,14 @@ begin
   ReadLn(Tmp);
   Tmp := Trim(Tmp);
 
-  if Tmp = '' then
+  if not EnsureOutputDirWritable(Tmp, ResolvedDir, DirError) then
   begin
-    HomeDir := GetEnvironmentVariable('HOME');
-    if HomeDir = '' then
-      Exit(False);
-    Tmp := IncludeTrailingPathDelimiter(HomeDir) + 'ffmpeg_converter';
-  end;
-
-  if fpStat(PChar(Tmp), Info) <> 0 then
-  begin
-    if fpgeterrno = ESysENOENT then
-    begin
-      if not CreateDir(Tmp) then
-      begin
-        WriteLn('mkdir failed: ', SysErrorMessage(fpgeterrno));
-        Exit(False);
-      end;
-    end
-    else
-    begin
-      WriteLn('stat failed: ', SysErrorMessage(fpgeterrno));
-      Exit(False);
-    end;
-  end
-  else if not FPS_ISDIR(Info.st_mode) then
-  begin
-    WriteLn('Error: ''', Tmp, ''' exists but is not a directory.');
-    Exit(False);
-  end;
-
-  if fpAccess(PChar(Tmp), W_OK) <> 0 then
-  begin
-    WriteLn('access failed: ', SysErrorMessage(fpgeterrno));
-    Status := 0;
+    WriteLn('Error: ', DirError);
     Exit(False);
   end;
 
   Status := 1;
-  OutDir := Tmp;
+  OutDir := ResolvedDir;
   Result := True;
 end;
 

@@ -13,6 +13,22 @@ struct Converter {
     int stop_flag;
 };
 
+static const char* get_ffmpeg_bin(void) {
+    const char* v = getenv("FFMPEG");
+    if (v && v[0] != '\0') return v;
+
+    v = getenv("FFMPEG_BIN");
+    return (v && v[0] != '\0') ? v : "ffmpeg";
+}
+
+static const char* get_ffprobe_bin(void) {
+    const char* v = getenv("FFPROBE");
+    if (v && v[0] != '\0') return v;
+
+    v = getenv("FFPROBE_BIN");
+    return (v && v[0] != '\0') ? v : "ffprobe";
+}
+
 // ------------------------------------------------------------
 //  Create / Destroy
 // ------------------------------------------------------------
@@ -113,10 +129,11 @@ static void format_eta(double eta, char *buf, size_t sz) {
 // ------------------------------------------------------------
 static double get_duration(const char *input) {
     char cmd[2048];
+    const char *ffprobe_bin = get_ffprobe_bin();
     snprintf(cmd, sizeof(cmd),
-             "ffprobe -v error -show_entries format=duration "
+             "\"%s\" -v error -show_entries format=duration "
              "-of default=noprint_wrappers=1:nokey=1 \"%s\" 2>/dev/null",
-             input);
+             ffprobe_bin, input);
 
     FILE *fp = popen(cmd, "r");
     if (!fp) return 0.0;
@@ -274,9 +291,10 @@ static ConverterError peak_two_pass(
         c->cb.on_stage("peak analysis");
 
     char cmd[2048];
+    const char *ffmpeg_bin = get_ffmpeg_bin();
     snprintf(cmd, sizeof(cmd),
-        "ffmpeg -vn -i \"%s\" -af volumedetect -f null - 2>&1",
-        input);
+        "\"%s\" -vn -i \"%s\" -af volumedetect -f null - 2>&1",
+        ffmpeg_bin, input);
 
     double duration = get_duration(input);
     FILE* fp = popen(cmd, "r");
@@ -360,11 +378,12 @@ static ConverterError loudnorm_two_pass(
         c->cb.on_stage("loudnorm analysis");
 
     char cmd[2048];
+    const char *ffmpeg_bin = get_ffmpeg_bin();
     snprintf(cmd, sizeof(cmd),
-        "ffmpeg -vn -i \"%s\" -af "
+        "\"%s\" -vn -i \"%s\" -af "
         "\"loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:print_format=json\" "
         "-f null - 2>&1",
-        input, I_target, TP_target, LRA_target);
+        ffmpeg_bin, input, I_target, TP_target, LRA_target);
 
     double duration = get_duration(input);
     FILE* fp = popen(cmd, "r");
@@ -463,6 +482,7 @@ static void build_ffmpeg_cmd(
     size_t cmd_out_sz
 ) {
     const ConvertOptions* opts = &c->opts;
+    const char* ffmpeg_bin = get_ffmpeg_bin();
 
     char cmd[16384];
     cmd[0] = 0;
@@ -473,11 +493,16 @@ static void build_ffmpeg_cmd(
         if (!device || device[0] == '\0')
             device = "/dev/dri/renderD128";
         snprintf(cmd, sizeof(cmd),
-                 "ffmpeg -vaapi_device \"%s\" -i \"%s\" ",
-                 device, input);
+                 "\"%s\" -vaapi_device \"%s\" -i \"%s\" ",
+                 ffmpeg_bin, device, input);
     } else {
-        snprintf(cmd, sizeof(cmd), "ffmpeg -i \"%s\" ", input);
+        snprintf(cmd, sizeof(cmd), "\"%s\" -i \"%s\" ", ffmpeg_bin, input);
     }
+
+    if (opts->overwrite)
+        strcat(cmd, "-y ");
+    else
+        strcat(cmd, "-n ");
 
     // map
     strcat(cmd, "-map 0:v:0 ");

@@ -8,7 +8,7 @@ This document describes the current state of the Free Pascal (`fpc/`) implementa
 - CLI flows are implemented and validated with local parity-oriented scripts.
 - GUI flow exists (Lazarus/LCL) and includes Apple M4V batch behavior from file lists.
 - Shared library wrapper exists for external integration.
-- Version baseline for this snapshot: `0.2.0` (from `fpc/build/fpmake.pp`).
+- Version baseline: `2.0.0`. See `fpc/CHANGELOG.md` for full history.
 
 ## Top-Level Layout (`fpc/`)
 - `build/`: build metadata and make helper (`fpmake.pp`, `Makefile`).

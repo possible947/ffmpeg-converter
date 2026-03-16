@@ -23,6 +23,8 @@ uses
   BaseUnix,
   SysUtils,
   path_utils,
+  fs_utils,
+  tool_paths,
   converter_cmd_builder,
   converter_analysis,
   converter_runner;
@@ -192,8 +194,13 @@ var
   I: LongInt;
   InputFile: string;
   OutputFile: string;
+  EffectiveOutDir: string;
+  DirError: string;
   Cmd: string;
   Err: TConverterError;
+  ErrorLogPath: string;
+  ErrorLogNotice: string;
+  Tools: TToolPaths;
   Gain: Double;
   AudioNorm: string;
   FileOpts: TConvertOptions;
@@ -207,6 +214,8 @@ begin
   for I := 0 to file_count - 1 do
   begin
     InputFile := string(PPAnsiCharArray(files)^[I]);
+
+    Tools := ResolveToolPaths;
 
     if Assigned(Ctx^.Cb.on_file_begin) then
       Ctx^.Cb.on_file_begin(PAnsiChar(AnsiString(InputFile)), I + 1, file_count);
@@ -222,7 +231,15 @@ begin
       Continue;
     end;
 
-    OutputFile := MakeOutputName(InputFile, ArrToStr(Ctx^.Opts.codec), ArrToStr(Ctx^.Opts.output_dir));
+    if not EnsureOutputDirWritable(ArrToStr(Ctx^.Opts.output_dir), EffectiveOutDir, DirError) then
+    begin
+      EmitError(Ctx, 'output preflight failed: ' + DirError, ERR_INVALID_OPTIONS);
+      if Assigned(Ctx^.Cb.on_file_end) then
+        Ctx^.Cb.on_file_end(PAnsiChar(AnsiString(InputFile)), ERR_INVALID_OPTIONS);
+      Continue;
+    end;
+
+    OutputFile := MakeOutputName(InputFile, ArrToStr(Ctx^.Opts.codec), EffectiveOutDir);
     Err := CheckOutputExists(Ctx, OutputFile);
     if Err = ERR_OUTPUT_EXISTS then
     begin
@@ -235,6 +252,8 @@ begin
       Exit(ERR_SKIP_FILE);
 
     FileOpts := Ctx^.Opts;
+    StrPLCopy(@FileOpts.output_dir[0], EffectiveOutDir, Length(FileOpts.output_dir) - 1);
+    FileOpts.output_dir_status := 1;
     FileOpts.gain := 0.0;
     FileOpts.I_target := 0.0;
     FileOpts.TP_target := 0.0;
@@ -251,10 +270,17 @@ begin
       if Assigned(Ctx^.Cb.on_stage) then
         Ctx^.Cb.on_stage('peak analysis');
 
-      Err := RunPeakTwoPass(InputFile, Gain);
+      Err := RunPeakTwoPass(InputFile, EffectiveOutDir, ErrorLogPath, ErrorLogNotice, Gain);
       if Err <> ERR_OK then
       begin
-        EmitError(Ctx, 'peak analysis failed', Err);
+        if ErrorLogPath <> '' then
+          EmitError(Ctx, 'peak analysis failed; log: ' + ErrorLogPath, Err)
+        else
+          EmitError(Ctx, 'peak analysis failed', Err);
+
+        if ErrorLogNotice <> '' then
+          EmitError(Ctx, ErrorLogNotice, Err);
+
         if Assigned(Ctx^.Cb.on_file_end) then
           Ctx^.Cb.on_file_end(PAnsiChar(AnsiString(InputFile)), Err);
         Continue;
@@ -271,10 +297,17 @@ begin
         Ctx^.Cb.on_stage('loudnorm analysis');
 
       ApplyGenreTargets(FileOpts);
-      Err := RunLoudnormTwoPass(InputFile, FileOpts);
+      Err := RunLoudnormTwoPass(InputFile, EffectiveOutDir, ErrorLogPath, ErrorLogNotice, FileOpts);
       if Err <> ERR_OK then
       begin
-        EmitError(Ctx, 'loudnorm analysis failed', Err);
+        if ErrorLogPath <> '' then
+          EmitError(Ctx, 'loudnorm analysis failed; log: ' + ErrorLogPath, Err)
+        else
+          EmitError(Ctx, 'loudnorm analysis failed', Err);
+
+        if ErrorLogNotice <> '' then
+          EmitError(Ctx, ErrorLogNotice, Err);
+
         if Assigned(Ctx^.Cb.on_file_end) then
           Ctx^.Cb.on_file_end(PAnsiChar(AnsiString(InputFile)), Err);
         Continue;
@@ -290,15 +323,21 @@ begin
       FileOpts.use_aac_for_h265 := 0;
 
     Cmd := BuildFfmpegCommand(FileOpts, InputFile, OutputFile);
-    if Assigned(Ctx^.Cb.on_message) then
-      Ctx^.Cb.on_message('ffmpeg command built');
 
     if Assigned(Ctx^.Cb.on_stage) then
       Ctx^.Cb.on_stage('encoding');
 
-    Err := RunEncode(Cmd);
+    Err := RunEncode(Cmd, InputFile, OutputFile, EffectiveOutDir, ErrorLogPath, ErrorLogNotice);
     if Err <> ERR_OK then
-      EmitError(Ctx, 'ffmpeg failed', Err)
+    begin
+      if ErrorLogPath <> '' then
+        EmitError(Ctx, 'ffmpeg failed; log: ' + ErrorLogPath, Err)
+      else
+        EmitError(Ctx, 'ffmpeg failed', Err);
+
+      if ErrorLogNotice <> '' then
+        EmitError(Ctx, ErrorLogNotice, Err);
+    end
     else if Assigned(Ctx^.Cb.on_message) then
       Ctx^.Cb.on_message('encoding finished');
 

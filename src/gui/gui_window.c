@@ -7,11 +7,18 @@
 #include <stdlib.h>
 #include <glib.h>
 #include <gio/gio.h>
+#include <gtk/deprecated/gtkcomboboxtext.h>
+
+#ifndef GTK_DISABLE_DEPRECATED
+#include <gtk/deprecated/gtkcombobox.h>
+#endif
 
 /* Forward declarations */
 static void update_dependent_widgets(AppWidgets *w);
-static void on_codec_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
-static void on_audio_norm_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
+static void on_codec_changed(GtkComboBox *obj, AppWidgets *w);
+static void on_audio_norm_changed(GtkComboBox *obj, AppWidgets *w);
+static gboolean update_dependent_widgets_idle(gpointer data);
+static void schedule_update_dependent_widgets(AppWidgets *w);
 static void on_add_files_clicked(GtkButton *button, AppWidgets *w);
 static void on_add_files_response(GObject *source, GAsyncResult *res, AppWidgets *w);
 static void on_output_dir_clicked(GtkButton *button, AppWidgets *w);
@@ -39,59 +46,58 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
 
     /* ---------- Codec combo ---------- */
     {
-        const char *items[] = {"copy", "prores", "prores_ks", "h265_mi50", NULL};
-        GtkStringList *model = gtk_string_list_new(items);
-        w->codec_combo = gtk_drop_down_new(G_LIST_MODEL(model), NULL);
-        g_object_unref(model);
-        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->codec_combo), 0);
-        g_signal_connect(w->codec_combo, "notify::selected", G_CALLBACK(on_codec_changed), w);
+        w->codec_combo = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "copy");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores_ks");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h265_mi50");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(w->codec_combo), 0);
+        g_signal_connect(w->codec_combo, "changed", G_CALLBACK(on_codec_changed), w);
     }
 
     /* ---------- Profile combo ---------- */
     {
-        const char *items[] = {"lt", "standard", "hq", "4444", NULL};
-        GtkStringList *model = gtk_string_list_new(items);
-        w->profile_combo = gtk_drop_down_new(G_LIST_MODEL(model), NULL);
-        g_object_unref(model);
-        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 1);
+        w->profile_combo = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->profile_combo), "lt");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->profile_combo), "standard");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->profile_combo), "hq");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->profile_combo), "4444");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(w->profile_combo), 1);
     }
     /* Initially disabled for copy/h265 */
     gtk_widget_set_sensitive(w->profile_combo, FALSE);
 
     /* ---------- Deblock combo ---------- */
     {
-        const char *items[] = {"none", "weak", "strong", NULL};
-        GtkStringList *model = gtk_string_list_new(items);
-        w->deblock_combo = gtk_drop_down_new(G_LIST_MODEL(model), NULL);
-        g_object_unref(model);
-        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->deblock_combo), 0);
+        w->deblock_combo = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->deblock_combo), "none");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->deblock_combo), "weak");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->deblock_combo), "strong");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(w->deblock_combo), 0);
     }
     gtk_widget_set_sensitive(w->deblock_combo, FALSE);
 
     /* ---------- Audio norm combo ---------- */
     {
-        const char *items[] = {
-            "none",
-            "peak_norm",
-            "peak_norm_2pass",
-            "loudness_norm",
-            "loudness_norm_2pass",
-            NULL
-        };
-        GtkStringList *model = gtk_string_list_new(items);
-        w->audio_norm_combo = gtk_drop_down_new(G_LIST_MODEL(model), NULL);
-        g_object_unref(model);
-        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_norm_combo), 0);
-        g_signal_connect(w->audio_norm_combo, "notify::selected", G_CALLBACK(on_audio_norm_changed), w);
+        w->audio_norm_combo = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "none");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "peak_norm");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "peak_norm_2pass");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "loudness_norm");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "loudness_norm_2pass");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(w->audio_norm_combo), 0);
+        g_signal_connect(w->audio_norm_combo, "changed", G_CALLBACK(on_audio_norm_changed), w);
     }
 
     /* ---------- Genre combo ---------- */
     {
-        const char *items[] = {"edm", "rock", "hiphop", "classical", "podcast", NULL};
-        GtkStringList *model = gtk_string_list_new(items);
-        w->genre_combo = gtk_drop_down_new(G_LIST_MODEL(model), NULL);
-        g_object_unref(model);
-        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->genre_combo), 0);
+        w->genre_combo = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "edm");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "rock");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "hiphop");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "classical");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "podcast");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(w->genre_combo), 0);
     }
     gtk_widget_set_sensitive(w->genre_combo, FALSE);
 
@@ -204,14 +210,8 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), w->status_label, 0, r, 6, 1);
     r++;
 
-    /* Wrap everything in a scrolled window */
-    GtkWidget *scroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), grid);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
-                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-
     GtkWidget *window = gtk_application_window_new(app);
-    gtk_window_set_child(GTK_WINDOW(window), scroller);
+    gtk_window_set_child(GTK_WINDOW(window), grid);
 
     /* Return the window widget */
     return window;
@@ -222,6 +222,9 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
 /* ------------------------------------------------------------------ */
 static void update_dependent_widgets(AppWidgets *w)
 {
+    if (!w || w->shutting_down)
+        return;
+
     char *codec = get_dropdown_text(w->codec_combo);
 
     /* Profile & Deblock only for prores / prores_ks */
@@ -239,24 +242,48 @@ static void update_dependent_widgets(AppWidgets *w)
     g_free(codec);
 }
 
+static gboolean update_dependent_widgets_idle(gpointer data)
+{
+    AppWidgets *w = (AppWidgets *)data;
+    if (!w)
+        return G_SOURCE_REMOVE;
+
+    w->dependent_update_source_id = 0;
+    update_dependent_widgets(w);
+    return G_SOURCE_REMOVE;
+}
+
+static void schedule_update_dependent_widgets(AppWidgets *w)
+{
+    if (!w || w->shutting_down)
+        return;
+
+    if (w->dependent_update_source_id != 0)
+        return;
+
+    w->dependent_update_source_id =
+        g_idle_add_full(G_PRIORITY_DEFAULT_IDLE,
+                        update_dependent_widgets_idle,
+                        w,
+                        NULL);
+}
+
 /* ------------------------------------------------------------------ */
 /* Callback: codec combo changed                                       */
 /* ------------------------------------------------------------------ */
-static void on_codec_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
+static void on_codec_changed(GtkComboBox *obj, AppWidgets *w)
 {
     (void)obj;
-    (void)pspec;
-    update_dependent_widgets(w);
+    schedule_update_dependent_widgets(w);
 }
 
 /* ------------------------------------------------------------------ */
 /* Callback: audio_norm combo changed                                   */
 /* ------------------------------------------------------------------ */
-static void on_audio_norm_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
+static void on_audio_norm_changed(GtkComboBox *obj, AppWidgets *w)
 {
     (void)obj;
-    (void)pspec;
-    update_dependent_widgets(w);
+    schedule_update_dependent_widgets(w);
 }
 
 /* ------------------------------------------------------------------ */
@@ -388,6 +415,8 @@ void collect_options_from_gui(AppWidgets *w,
                               char ***out_files,
                               int   *out_count)
 {
+    memset(opts, 0, sizeof(*opts));
+
     /* ----- codec ----- */
     char *codec = get_dropdown_text(w->codec_combo);
     g_strlcpy(opts->codec, codec ? codec : "", sizeof(opts->codec));
@@ -395,14 +424,16 @@ void collect_options_from_gui(AppWidgets *w,
 
     /* ----- profile ----- */
     if (gtk_widget_get_sensitive(w->profile_combo)) {
-        opts->profile = (int)gtk_drop_down_get_selected(GTK_DROP_DOWN(w->profile_combo)) + 1;
+        int active = gtk_combo_box_get_active(GTK_COMBO_BOX(w->profile_combo));
+        opts->profile = active >= 0 ? active + 1 : 0;
     } else {
         opts->profile = 0;   /* not used for copy/h265 */
     }
 
     /* ----- deblock ----- */
     if (gtk_widget_get_sensitive(w->deblock_combo)) {
-        opts->deblock = (int)gtk_drop_down_get_selected(GTK_DROP_DOWN(w->deblock_combo)) + 1;
+        int active = gtk_combo_box_get_active(GTK_COMBO_BOX(w->deblock_combo));
+        opts->deblock = active >= 0 ? active + 1 : 0;
     } else {
         opts->deblock = 0;
     }
@@ -414,7 +445,8 @@ void collect_options_from_gui(AppWidgets *w,
 
     /* ----- genre ----- */
     if (gtk_widget_get_sensitive(w->genre_combo)) {
-        opts->genre = (int)gtk_drop_down_get_selected(GTK_DROP_DOWN(w->genre_combo)) + 1;
+        int active = gtk_combo_box_get_active(GTK_COMBO_BOX(w->genre_combo));
+        opts->genre = active >= 0 ? active + 1 : 0;
     } else {
         opts->genre = 0;
     }
@@ -465,11 +497,8 @@ static void set_output_dir(AppWidgets *w, const char *path)
 
 static char *get_dropdown_text(GtkWidget *dropdown)
 {
-    GObject *item = gtk_drop_down_get_selected_item(GTK_DROP_DOWN(dropdown));
-    if (!item)
+    char *text = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(dropdown));
+    if (!text)
         return g_strdup("");
-
-    const char *text = gtk_string_object_get_string(GTK_STRING_OBJECT(item));
-    char *copy = g_strdup(text ? text : "");
-    return copy;
+    return text;
 }

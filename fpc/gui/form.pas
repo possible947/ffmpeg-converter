@@ -129,8 +129,10 @@ implementation
 uses
   Math,
   converter_api_c,
+  fs_utils,
   path_utils,
-  process_utils;
+  process_utils,
+  tool_paths;
 
 type
   PLogData = ^TLogData;
@@ -187,7 +189,7 @@ begin
   if MainOutputDir <> '' then
     Result := MainOutputDir
   else
-    Result := ExtractFileDir(InputFile);
+    Result := '';
 end;
 
 function BuildAppleOutputName(const SourceFile, TargetDir: string): string;
@@ -247,6 +249,9 @@ var
   CodecName: string;
   CmdRes: TRunResult;
   MainOutputDir: string;
+  Tools: TToolPaths;
+  ResolvedOutDir: string;
+  OutDirError: string;
 
   procedure AddError(const S: string);
   begin
@@ -308,6 +313,8 @@ begin
   CodecName := string(PAnsiChar(@FConvertOpts.codec[0]));
   for I := 0 to High(FFiles) do
   begin
+    Tools := ResolveToolPaths;
+
     if FUseEditFlow then
     begin
       if MainOutputDir = '' then
@@ -315,13 +322,19 @@ begin
         IncFail('Missing output folder for edit-before-mux mode.');
         Continue;
       end;
-      SourceFile := MakeOutputName(string(FFiles[I]), CodecName, MainOutputDir);
+      if not EnsureOutputDirWritable(MainOutputDir, ResolvedOutDir, OutDirError) then
+      begin
+        IncFail('Output preflight failed: ' + OutDirError);
+        Continue;
+      end;
+
+      SourceFile := MakeOutputName(string(FFiles[I]), CodecName, ResolvedOutDir);
       if not FileExists(SourceFile) then
       begin
         IncFail('Main worker output not found: ' + SourceFile);
         Continue;
       end;
-      OutputDir := MainOutputDir;
+      OutputDir := ResolvedOutDir;
     end
     else
     begin
@@ -333,11 +346,12 @@ begin
       end;
 
       OutputDir := ResolveOutputDirForInput(SourceFile, MainOutputDir);
-      if (OutputDir <> '') and (not DirectoryExists(OutputDir)) and (not ForceDirectories(OutputDir)) then
+      if not EnsureOutputDirWritable(OutputDir, ResolvedOutDir, OutDirError) then
       begin
-        IncFail('Cannot create output folder: ' + OutputDir);
+        IncFail('Output preflight failed: ' + OutDirError);
         Continue;
       end;
+      OutputDir := ResolvedOutDir;
     end;
 
     if FUseEditFlow then
@@ -671,13 +685,20 @@ end;
 { TMainForm }
 
 procedure TMainForm.FormCreate(Sender: TObject);
+var
+  Tools: TToolPaths;
 begin
   GMainForm := Self;
-  FOutputDir := '';
+  ApplyBundledToolEnvironment;
+  FOutputDir := DefaultOutputDir;
   FWorker := nil;
   FAppleWorker := nil;
   SetupControls;
   UpdateDependentWidgets;
+  Tools := ResolveToolPaths;
+  UiLog('Startup ffmpeg=' + Tools.FfmpegBin);
+  UiLog('Startup ffprobe=' + Tools.FfprobeBin);
+  UiLog('Startup PATH=' + Tools.PathValue);
 end;
 
 procedure TMainForm.SetupControls;
@@ -724,7 +745,10 @@ begin
   cmbGenre.Items.Add('podcast');
   cmbGenre.ItemIndex := 0;
 
-  lblOutputDirValue.Caption := '(same as input)';
+  if FOutputDir <> '' then
+    lblOutputDirValue.Caption := FOutputDir
+  else
+    lblOutputDirValue.Caption := '(default unavailable)';
   lblProgressText.Caption := '0%';
   lblStatus.Caption := 'Ready';
   chkM4VEditBeforeMux.Checked := False;
@@ -746,6 +770,9 @@ begin
 end;
 
 procedure TMainForm.BuildCurrentOptions(out Opts: TConvertOptions);
+var
+  ResolvedDir: string;
+  DirError: string;
 begin
   InitDefaultOptions(Opts);
 
@@ -771,10 +798,16 @@ begin
   Opts.genre := cmbGenre.ItemIndex + 1;
   Opts.overwrite := Ord(chkOverwrite.Checked);
 
-  if FOutputDir <> '' then
+  if EnsureOutputDirWritable(FOutputDir, ResolvedDir, DirError) then
   begin
-    SetAnsiField(Opts.output_dir, FOutputDir);
+    SetAnsiField(Opts.output_dir, ResolvedDir);
     Opts.output_dir_status := 1;
+    FOutputDir := ResolvedDir;
+  end
+  else
+  begin
+    SetAnsiField(Opts.output_dir, '');
+    Opts.output_dir_status := 0;
   end;
 end;
 
@@ -856,6 +889,8 @@ var
   Opts: TConvertOptions;
   FileArr: array of string;
   Count: Integer;
+  ResolvedDir: string;
+  DirError: string;
 begin
   if Assigned(FAppleWorker) then
   begin
@@ -871,6 +906,15 @@ begin
 
   SetLength(FileArr, lstFiles.Items.Count);
   CollectOptions(Opts, FileArr, Count);
+
+  if not EnsureOutputDirWritable(string(PAnsiChar(@Opts.output_dir[0])), ResolvedDir, DirError) then
+  begin
+    MessageDlg('Output preflight failed: ' + DirError, mtError, [mbOK], 0);
+    Exit;
+  end;
+  SetAnsiField(Opts.output_dir, ResolvedDir);
+  FOutputDir := ResolvedDir;
+  lblOutputDirValue.Caption := FOutputDir;
 
   lstLog.Clear;
   pbProgress.Position := 0;
@@ -898,6 +942,8 @@ var
   I: Integer;
   ConvertOpts: TConvertOptions;
   Opts: TAppleM4VOptions;
+  ResolvedDir: string;
+  DirError: string;
 begin
   if Assigned(FAppleWorker) then
   begin
@@ -918,6 +964,15 @@ begin
   end;
 
   BuildCurrentOptions(ConvertOpts);
+  if not EnsureOutputDirWritable(string(PAnsiChar(@ConvertOpts.output_dir[0])), ResolvedDir, DirError) then
+  begin
+    MessageDlg('Output preflight failed: ' + DirError, mtError, [mbOK], 0);
+    Exit;
+  end;
+  SetAnsiField(ConvertOpts.output_dir, ResolvedDir);
+  FOutputDir := ResolvedDir;
+  lblOutputDirValue.Caption := FOutputDir;
+
   if chkM4VEditBeforeMux.Checked and (Trim(string(PAnsiChar(@ConvertOpts.output_dir[0]))) = '') then
   begin
     MessageDlg('For "m4v edit" mode, select output folder first. This folder is used for both main and Apple outputs.', mtWarning, [mbOK], 0);

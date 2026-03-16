@@ -6,8 +6,10 @@ interface
 
 uses converter_types;
 
-function RunPeakTwoPass(const InputFile: string; out Gain: Double): TConverterError;
-function RunLoudnormTwoPass(const InputFile: string; var Opts: TConvertOptions): TConverterError;
+function RunPeakTwoPass(const InputFile, FallbackLogDir: string;
+  out ErrorLogPath, ErrorLogNotice: string; out Gain: Double): TConverterError;
+function RunLoudnormTwoPass(const InputFile, FallbackLogDir: string;
+  out ErrorLogPath, ErrorLogNotice: string; var Opts: TConvertOptions): TConverterError;
 function ExtractNumberAfterToken(const Text, Token: string; out V: Double): Boolean;
 function ExtractLoudnormJson(const OutputText: string; out JsonText: string): Boolean;
 
@@ -21,19 +23,6 @@ uses
   path_utils,
   tool_paths,
   loudnorm_json;
-
-procedure WriteDebugDump(const FileName, Content: string);
-var
-  Dump: TextFile;
-begin
-  AssignFile(Dump, FileName);
-  Rewrite(Dump);
-  try
-    Write(Dump, Content);
-  finally
-    CloseFile(Dump);
-  end;
-end;
 
 function ParseFloatInvariant(const S: string; out V: Double): Boolean;
 var
@@ -83,33 +72,44 @@ begin
   Result := ParseFloatInvariant(Num, V);
 end;
 
-function RunPeakTwoPass(const InputFile: string; out Gain: Double): TConverterError;
+function RunPeakTwoPass(const InputFile, FallbackLogDir: string;
+  out ErrorLogPath, ErrorLogNotice: string; out Gain: Double): TConverterError;
 var
-  FfmpegBin: string;
+  Tools: TToolPaths;
+  Cmd: string;
   R: TRunResult;
+  LogInfo: TCommandErrorLog;
   V: Double;
 begin
+  ErrorLogPath := '';
+  ErrorLogNotice := '';
   Gain := 0.0;
-  FfmpegBin := ResolveFfmpegBin;
-  R := RunCommandCapture(QuoteForShell(FfmpegBin) + ' -nostdin -vn -i ' + QuoteForShell(InputFile) + ' -af volumedetect -f null - 2>&1');
+  Tools := ResolveToolPaths;
+  Cmd := QuoteForShell(Tools.FfmpegBin) + ' -nostdin -vn -i ' + QuoteForShell(InputFile) + ' -af volumedetect -f null - 2>&1';
+  R := RunCommandCapture(Cmd);
 
   if R.ExitCode <> 0 then
   begin
-    WriteDebugDump('/tmp/ffc_peak_fail.log', R.OutputText);
+    FillChar(LogInfo, SizeOf(LogInfo), 0);
+    LogInfo.CommandLine := Cmd;
+    LogInfo.StdOutErr := R.OutputText;
+    LogInfo.ExitCode := R.ExitCode;
+    LogInfo.FfmpegBin := Tools.FfmpegBin;
+    LogInfo.FfprobeBin := Tools.FfprobeBin;
+    LogInfo.InputFile := InputFile;
+    LogInfo.WorkingDir := GetCurrentDir;
+    LogInfo.PathValue := Tools.PathValue;
+    LogInfo.ContextNote := 'peak analysis failed';
+    if not WriteCommandErrorLog(LogInfo, ProgramDirectory, FallbackLogDir, ErrorLogPath, ErrorLogNotice) then
+      ErrorLogPath := '';
     Exit(ERR_PEAK_ANALYSIS_FAILED);
   end;
 
   if not ExtractNumberAfterToken(R.OutputText, 'max_volume:', V) then
-  begin
-    WriteDebugDump('/tmp/ffc_peak_fail.log', R.OutputText);
     Exit(ERR_PEAK_ANALYSIS_FAILED);
-  end;
 
   if IsNan(V) or IsInfinite(V) then
-  begin
-    WriteDebugDump('/tmp/ffc_peak_fail.log', R.OutputText);
     Exit(ERR_PEAK_ANALYSIS_FAILED);
-  end;
 
   Gain := -3.0 - V;
   Result := ERR_OK;
@@ -189,49 +189,57 @@ begin
   until False;
 end;
 
-function RunLoudnormTwoPass(const InputFile: string; var Opts: TConvertOptions): TConverterError;
+function RunLoudnormTwoPass(const InputFile, FallbackLogDir: string;
+  out ErrorLogPath, ErrorLogNotice: string; var Opts: TConvertOptions): TConverterError;
 var
   Fmt: TFormatSettings;
-  FfmpegBin: string;
+  Tools: TToolPaths;
+  Cmd: string;
   R: TRunResult;
+  LogInfo: TCommandErrorLog;
   Metrics: TLoudnormMetrics;
   JsonText: string;
 begin
+  ErrorLogPath := '';
+  ErrorLogNotice := '';
+
   Fmt := DefaultFormatSettings;
   Fmt.DecimalSeparator := '.';
-  FfmpegBin := ResolveFfmpegBin;
+  Tools := ResolveToolPaths;
 
-  R := RunCommandCapture(
-    Format('%s -nostdin -vn -i %s -af "loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:print_format=json" -f null - 2>&1',
-      [QuoteForShell(FfmpegBin), QuoteForShell(InputFile), Opts.I_target, Opts.TP_target, Opts.LRA_target], Fmt));
+  Cmd := Format('%s -nostdin -vn -i %s -af "loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:print_format=json" -f null - 2>&1',
+    [QuoteForShell(Tools.FfmpegBin), QuoteForShell(InputFile), Opts.I_target, Opts.TP_target, Opts.LRA_target], Fmt);
+  R := RunCommandCapture(Cmd);
 
   if R.ExitCode <> 0 then
   begin
-    WriteDebugDump('/tmp/ffc_loud_fail.log', R.OutputText);
+    FillChar(LogInfo, SizeOf(LogInfo), 0);
+    LogInfo.CommandLine := Cmd;
+    LogInfo.StdOutErr := R.OutputText;
+    LogInfo.ExitCode := R.ExitCode;
+    LogInfo.FfmpegBin := Tools.FfmpegBin;
+    LogInfo.FfprobeBin := Tools.FfprobeBin;
+    LogInfo.InputFile := InputFile;
+    LogInfo.WorkingDir := GetCurrentDir;
+    LogInfo.PathValue := Tools.PathValue;
+    LogInfo.ContextNote := 'loudnorm analysis failed';
+    if not WriteCommandErrorLog(LogInfo, ProgramDirectory, FallbackLogDir, ErrorLogPath, ErrorLogNotice) then
+      ErrorLogPath := '';
     Exit(ERR_LOUDNORM_ANALYSIS_FAILED);
   end;
 
   if not ExtractLoudnormJson(R.OutputText, JsonText) then
-  begin
-    WriteDebugDump('/tmp/ffc_loud_fail.log', R.OutputText);
     Exit(ERR_LOUDNORM_ANALYSIS_FAILED);
-  end;
 
   if not TryParseLoudnormJson(JsonText, Metrics) then
-  begin
-    WriteDebugDump('/tmp/ffc_loud_fail.log', R.OutputText);
     Exit(ERR_LOUDNORM_ANALYSIS_FAILED);
-  end;
 
   if IsNan(Metrics.InputI) or IsInfinite(Metrics.InputI) or
      IsNan(Metrics.InputTP) or IsInfinite(Metrics.InputTP) or
      IsNan(Metrics.InputLRA) or IsInfinite(Metrics.InputLRA) or
      IsNan(Metrics.InputThresh) or IsInfinite(Metrics.InputThresh) or
      IsNan(Metrics.TargetOffset) or IsInfinite(Metrics.TargetOffset) then
-  begin
-    WriteDebugDump('/tmp/ffc_loud_fail.log', R.OutputText);
     Exit(ERR_LOUDNORM_ANALYSIS_FAILED);
-  end;
 
   Opts.measured_I := Metrics.InputI;
   Opts.measured_TP := Metrics.InputTP;

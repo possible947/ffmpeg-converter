@@ -166,7 +166,7 @@ static void on_complete(void)
 static gboolean update_log_idle(gpointer data)
 {
     LogUpdateData *payload = (LogUpdateData *)data;
-    if (!payload || !payload->w || !payload->msg)
+    if (!payload || !payload->w || !payload->msg || payload->w->shutting_down)
         return G_SOURCE_REMOVE;
 
     AppWidgets *w = payload->w;
@@ -198,7 +198,7 @@ static void format_eta(float eta, char *buf, size_t sz)
 static gboolean update_progress_idle(gpointer data)
 {
     ProgressUpdateData *payload = (ProgressUpdateData *)data;
-    if (!payload || !payload->w)
+    if (!payload || !payload->w || payload->w->shutting_down)
         return G_SOURCE_REMOVE;
 
     AppWidgets *w = payload->w;
@@ -226,7 +226,7 @@ static gboolean update_progress_idle(gpointer data)
 static gboolean update_stage_idle(gpointer data)
 {
     StageUpdateData *payload = (StageUpdateData *)data;
-    if (!payload || !payload->w || !payload->stage)
+    if (!payload || !payload->w || !payload->stage || payload->w->shutting_down)
         return G_SOURCE_REMOVE;
 
     gtk_progress_bar_set_text(GTK_PROGRESS_BAR(payload->w->progress_bar), payload->stage);
@@ -246,7 +246,7 @@ static gboolean set_widget_sensitive_idle(gpointer data)
 static gboolean clear_file_list_idle(gpointer data)
 {
     AppWidgets *w = (AppWidgets *)data;
-    if (!w)
+    if (!w || w->shutting_down)
         return G_SOURCE_REMOVE;
 
     clear_file_list(w);
@@ -256,7 +256,7 @@ static gboolean clear_file_list_idle(gpointer data)
 static gboolean update_status_idle(gpointer data)
 {
     StatusUpdateData *payload = (StatusUpdateData *)data;
-    if (!payload || !payload->w || !payload->text)
+    if (!payload || !payload->w || !payload->text || payload->w->shutting_down)
         return G_SOURCE_REMOVE;
 
     gtk_label_set_text(GTK_LABEL(payload->w->status_label), payload->text);
@@ -343,13 +343,19 @@ static gpointer run_converter(gpointer user_data)
     }
 
     /* Clean up */
+    g_mutex_lock(&w->thread_lock);
+    if (w->current_converter == c)
+        w->current_converter = NULL;
+    g_mutex_unlock(&w->thread_lock);
+
     converter_destroy(c);
     for (int i = 0; i < file_count; ++i)
         g_free(file_list[i]);
     g_free(file_list);
 
     g_mutex_lock(&w->thread_lock);
-    w->current_converter = NULL;
+    if (w->worker_thread == g_thread_self())
+        w->worker_thread = NULL;
     g_mutex_unlock(&w->thread_lock);
 
     return NULL;
@@ -360,6 +366,16 @@ static gpointer run_converter(gpointer user_data)
 /* ------------------------------------------------------------------ */
 void start_conversion(AppWidgets *w)
 {
+    if (!w || w->shutting_down)
+        return;
+
+    g_mutex_lock(&w->thread_lock);
+    if (w->worker_thread != NULL) {
+        g_mutex_unlock(&w->thread_lock);
+        return;
+    }
+    g_mutex_unlock(&w->thread_lock);
+
     /* Disable start, enable stop */
     gtk_widget_set_sensitive(w->start_btn, FALSE);
     gtk_widget_set_sensitive(w->stop_btn, TRUE);
@@ -378,6 +394,9 @@ void start_conversion(AppWidgets *w)
 
 void stop_conversion(AppWidgets *w)
 {
+    if (!w)
+        return;
+
     /* Signal converter to stop */
     g_mutex_lock(&w->thread_lock);
     if (w->current_converter)
@@ -389,4 +408,24 @@ void stop_conversion(AppWidgets *w)
     gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(w->progress_bar), 0.0);
     gtk_progress_bar_set_text(GTK_PROGRESS_BAR(w->progress_bar), "Stopped");
     gtk_label_set_text(GTK_LABEL(w->status_label), "Stopped");
+}
+
+void shutdown_conversion(AppWidgets *w)
+{
+    if (!w)
+        return;
+
+    g_mutex_lock(&w->thread_lock);
+    w->shutting_down = TRUE;
+    g_widgets = NULL;
+
+    if (w->current_converter)
+        converter_stop(w->current_converter);
+
+    GThread *thread = w->worker_thread;
+    w->worker_thread = NULL;
+    g_mutex_unlock(&w->thread_lock);
+
+    if (thread)
+        g_thread_join(thread);
 }

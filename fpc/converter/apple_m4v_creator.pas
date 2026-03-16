@@ -19,6 +19,7 @@ type
 
 function DefaultAppleM4VOptions: TAppleM4VOptions;
 function CreateAppleM4V(const InputFile, OutputFile: string; const Opts: TAppleM4VOptions; out ErrorText: string): Boolean;
+function ResolveAppleM4VTools(out FfmpegBin, FfprobeBin: string): Boolean;
 
 implementation
 
@@ -26,8 +27,10 @@ uses
   Classes,
   fpjson,
   jsonparser,
+  fs_utils,
   path_utils,
-  process_utils;
+  process_utils,
+  tool_paths;
 
 function DefaultAppleM4VOptions: TAppleM4VOptions;
 begin
@@ -39,30 +42,14 @@ begin
   Result.AddChapters := True;
 end;
 
-function FindFfmpegPair(out FfmpegBin, FfprobeBin: string): Boolean;
-const
-  CANDIDATES: array[0..3] of string = ('ffmpeg8', 'ffmpeg7', 'ffmpeg6', 'ffmpeg');
+function ResolveAppleM4VTools(out FfmpegBin, FfprobeBin: string): Boolean;
 var
-  I: Integer;
-  ProbeCandidate: string;
-  R: TRunResult;
+  Tools: TToolPaths;
 begin
-  FfmpegBin := '';
-  FfprobeBin := '';
-
-  for I := Low(CANDIDATES) to High(CANDIDATES) do
-  begin
-    ProbeCandidate := StringReplace(CANDIDATES[I], 'ffmpeg', 'ffprobe', []);
-    R := RunCommandCapture('command -v ' + CANDIDATES[I] + ' >/dev/null 2>&1 && command -v ' + ProbeCandidate + ' >/dev/null 2>&1');
-    if R.ExitCode = 0 then
-    begin
-      FfmpegBin := CANDIDATES[I];
-      FfprobeBin := ProbeCandidate;
-      Exit(True);
-    end;
-  end;
-
-  Result := False;
+  Tools := ResolveToolPaths;
+  FfmpegBin := Tools.FfmpegBin;
+  FfprobeBin := Tools.FfprobeBin;
+  Result := (Trim(FfmpegBin) <> '') and (Trim(FfprobeBin) <> '');
 end;
 
 function ParseRateToFps(const RateStr: string): Double;
@@ -97,21 +84,55 @@ begin
   Result := N / D;
 end;
 
-function ProbeFps(const FfprobeBin, InputFile: string): Double;
+procedure LogFailedCommand(const Cmd: string; const R: TRunResult; const FfmpegBin, FfprobeBin,
+  InputFile, OutputFile, FallbackLogDir, ContextNote: string);
+var
+  Tools: TToolPaths;
+  LogInfo: TCommandErrorLog;
+  DummyPath: string;
+  DummyError: string;
+begin
+  Tools := ResolveToolPaths;
+  FillChar(LogInfo, SizeOf(LogInfo), 0);
+  LogInfo.CommandLine := Cmd;
+  LogInfo.StdOutErr := R.OutputText;
+  LogInfo.ExitCode := R.ExitCode;
+  LogInfo.FfmpegBin := FfmpegBin;
+  if LogInfo.FfmpegBin = '' then
+    LogInfo.FfmpegBin := Tools.FfmpegBin;
+  LogInfo.FfprobeBin := FfprobeBin;
+  if LogInfo.FfprobeBin = '' then
+    LogInfo.FfprobeBin := Tools.FfprobeBin;
+  LogInfo.InputFile := InputFile;
+  LogInfo.OutputFile := OutputFile;
+  LogInfo.WorkingDir := GetCurrentDir;
+  LogInfo.PathValue := Tools.PathValue;
+  LogInfo.ContextNote := ContextNote;
+  WriteCommandErrorLog(LogInfo, ProgramDirectory, FallbackLogDir, DummyPath, DummyError);
+end;
+
+function ProbeFps(const FfprobeBin, InputFile, FallbackLogDir: string): Double;
 var
   R: TRunResult;
   Rate: string;
+  Cmd: string;
 begin
-  R := RunCommandCapture(
-    FfprobeBin + ' -v error -select_streams v:0 -show_entries stream=avg_frame_rate ' +
-    '-of default=noprint_wrappers=1:nokey=1 ' + QuoteForShell(InputFile) + ' 2>/dev/null');
+  Cmd := QuoteForShell(FfprobeBin) +
+    ' -v error -select_streams v:0 -show_entries stream=avg_frame_rate ' +
+    '-of default=noprint_wrappers=1:nokey=1 ' + QuoteForShell(InputFile) + ' 2>/dev/null';
+  R := RunCommandCapture(Cmd);
+  if R.ExitCode <> 0 then
+    LogFailedCommand(Cmd, R, '', FfprobeBin, InputFile, '', FallbackLogDir, 'ffprobe avg_frame_rate failed');
 
   Rate := Trim(R.OutputText);
   if (Rate = '') or (Rate = '0/0') then
   begin
-    R := RunCommandCapture(
-      FfprobeBin + ' -v error -select_streams v:0 -show_entries stream=r_frame_rate ' +
-      '-of default=noprint_wrappers=1:nokey=1 ' + QuoteForShell(InputFile) + ' 2>/dev/null');
+    Cmd := QuoteForShell(FfprobeBin) +
+      ' -v error -select_streams v:0 -show_entries stream=r_frame_rate ' +
+      '-of default=noprint_wrappers=1:nokey=1 ' + QuoteForShell(InputFile) + ' 2>/dev/null';
+    R := RunCommandCapture(Cmd);
+    if R.ExitCode <> 0 then
+      LogFailedCommand(Cmd, R, '', FfprobeBin, InputFile, '', FallbackLogDir, 'ffprobe r_frame_rate failed');
     Rate := Trim(R.OutputText);
   end;
 
@@ -148,14 +169,41 @@ begin
   RunCommandCapture('/bin/rm -rf ' + QuoteForShell(WorkDir));
 end;
 
-function RunStep(const Cmd, ErrorPrefix: string; out ErrorText: string): Boolean;
+function RunStep(const Cmd, ErrorPrefix, FfmpegBin, FfprobeBin, InputFile, OutputFile, FallbackLogDir: string;
+  out ErrorText: string): Boolean;
 var
   R: TRunResult;
+  Tools: TToolPaths;
+  LogInfo: TCommandErrorLog;
+  ErrorLogPath: string;
+  ErrorLogNotice: string;
 begin
   R := RunCommandCapture(Cmd);
   if R.ExitCode <> 0 then
   begin
+    Tools := ResolveToolPaths;
+    FillChar(LogInfo, SizeOf(LogInfo), 0);
+    LogInfo.CommandLine := Cmd;
+    LogInfo.StdOutErr := R.OutputText;
+    LogInfo.ExitCode := R.ExitCode;
+    LogInfo.FfmpegBin := FfmpegBin;
+    if LogInfo.FfmpegBin = '' then
+      LogInfo.FfmpegBin := Tools.FfmpegBin;
+    LogInfo.FfprobeBin := FfprobeBin;
+    if LogInfo.FfprobeBin = '' then
+      LogInfo.FfprobeBin := Tools.FfprobeBin;
+    LogInfo.InputFile := InputFile;
+    LogInfo.OutputFile := OutputFile;
+    LogInfo.WorkingDir := GetCurrentDir;
+    LogInfo.PathValue := Tools.PathValue;
+    LogInfo.ContextNote := ErrorPrefix;
+    WriteCommandErrorLog(LogInfo, ProgramDirectory, FallbackLogDir, ErrorLogPath, ErrorLogNotice);
+
     ErrorText := ErrorPrefix + sLineBreak + Trim(R.OutputText);
+    if ErrorLogPath <> '' then
+      ErrorText += sLineBreak + 'Error log: ' + ErrorLogPath;
+    if ErrorLogNotice <> '' then
+      ErrorText += sLineBreak + ErrorLogNotice;
     Exit(False);
   end;
   Result := True;
@@ -271,6 +319,8 @@ function CreateAppleM4V(const InputFile, OutputFile: string; const Opts: TAppleM
 var
   FfmpegBin: string;
   FfprobeBin: string;
+  Mp4BoxBin: string;
+  Tools: TToolPaths;
   R: TRunResult;
   Fps: Double;
   FpsStr: string;
@@ -282,6 +332,9 @@ var
   ChaptersJson: string;
   ChaptersTxt: string;
   Cmd: string;
+  EffectiveOutputDir: string;
+  EffectiveOutputFile: string;
+  OutDirError: string;
 begin
   Result := False;
   ErrorText := '';
@@ -292,20 +345,33 @@ begin
     Exit(False);
   end;
 
-  R := RunCommandCapture('command -v MP4Box >/dev/null 2>&1');
-  if R.ExitCode <> 0 then
+  Tools := ResolveToolPaths;
+  FfmpegBin := Tools.FfmpegBin;
+  FfprobeBin := Tools.FfprobeBin;
+  Mp4BoxBin := Tools.Mp4BoxBin;
+
+  if (FfmpegBin = '') or (FfprobeBin = '') then
   begin
-    ErrorText := 'MP4Box not found in PATH (install GPAC).';
+    ErrorText := 'ffmpeg/ffprobe not found.';
     Exit(False);
   end;
 
-  if not FindFfmpegPair(FfmpegBin, FfprobeBin) then
+  if Mp4BoxBin = '' then
   begin
-    ErrorText := 'ffmpeg/ffprobe not found (tried ffmpeg8/7/6/ffmpeg).';
+    ErrorText := 'MP4Box not found. Install GPAC (sudo port install gpac) or place MP4Box in the app bundle.';
     Exit(False);
   end;
 
-  Fps := ProbeFps(FfprobeBin, InputFile);
+  EffectiveOutputDir := ExtractFileDir(OutputFile);
+  if not EnsureOutputDirWritable(EffectiveOutputDir, EffectiveOutputDir, OutDirError) then
+  begin
+    ErrorText := 'Output preflight failed: ' + OutDirError;
+    Exit(False);
+  end;
+
+  EffectiveOutputFile := IncludeTrailingPathDelimiter(EffectiveOutputDir) + ExtractFileName(OutputFile);
+
+  Fps := ProbeFps(FfprobeBin, InputFile, EffectiveOutputDir);
   Fmt := DefaultFormatSettings;
   Fmt.DecimalSeparator := '.';
   FpsStr := Format('%.6f', [Fps], Fmt);
@@ -323,45 +389,48 @@ begin
     ChaptersJson := IncludeTrailingPathDelimiter(WorkDir) + 'chapters.json';
     ChaptersTxt := IncludeTrailingPathDelimiter(WorkDir) + 'chapters.txt';
 
-    Cmd := FfmpegBin + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
+    Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
       Format(' -map 0:v:%d -c:v copy -an -sn -dn -f mp4 ', [Opts.VideoTrackIndex]) +
       QuoteForShell(VideoMp4);
-    if not RunStep(Cmd, 'Video copy step failed.', ErrorText) then
+    if not RunStep(Cmd, 'Video copy step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
       Exit(False);
 
-    Cmd := FfmpegBin + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
+    Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
       Format(' -map 0:a:%d -c:a aac -profile:a aac_low -q:a %d -f mp4 ', [Opts.AudioTrackIndex, Opts.AacQuality]) +
       QuoteForShell(AacM4a);
-    if not RunStep(Cmd, 'AAC encoding step failed.', ErrorText) then
+    if not RunStep(Cmd, 'AAC encoding step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
       Exit(False);
 
-    Cmd := FfmpegBin + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
+    Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
       Format(' -map 0:a:%d -c:a ac3 -b:a %dk -f mp4 ', [Opts.AudioTrackIndex, Opts.Ac3BitrateKbps]) +
       QuoteForShell(Ac3Mp4);
-    if not RunStep(Cmd, 'AC3 encoding step failed.', ErrorText) then
+    if not RunStep(Cmd, 'AC3 encoding step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
       Exit(False);
 
-    Cmd := 'MP4Box -new -brand "M4V :0" -ab mp42 -ab isom ' +
+    Cmd := QuoteForShell(Mp4BoxBin) + ' -new -brand "M4V :0" -ab mp42 -ab isom ' +
       '-add ' + QuoteForShell(VideoMp4 + '#video:fps=' + FpsStr + ':name=Video') + ' ' +
       '-add ' + QuoteForShell(AacM4a + '#audio:name=AAC:lang=' + Opts.AudioLang) + ' ' +
       '-add ' + QuoteForShell(Ac3Mp4 + '#audio:name=AC3 ' + IntToStr(Opts.Ac3BitrateKbps) + 'k:lang=' + Opts.AudioLang) + ' ' +
-      QuoteForShell(OutputFile);
-    if not RunStep(Cmd, 'MP4Box mux step failed.', ErrorText) then
+      QuoteForShell(EffectiveOutputFile);
+    if not RunStep(Cmd, 'MP4Box mux step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
       Exit(False);
 
     if Opts.AddChapters then
     begin
-      R := RunCommandCapture(
-        FfprobeBin + ' -v error -print_format json -show_chapters ' +
-        QuoteForShell(InputFile) + ' > ' + QuoteForShell(ChaptersJson));
+      Cmd := QuoteForShell(FfprobeBin) + ' -v error -print_format json -show_chapters ' +
+        QuoteForShell(InputFile) + ' > ' + QuoteForShell(ChaptersJson);
+      R := RunCommandCapture(Cmd);
       if R.ExitCode = 0 then
       begin
         if BuildChapterText(ChaptersJson, ChaptersTxt) and (FileExists(ChaptersTxt)) then
         begin
-          Cmd := 'MP4Box -chap ' + QuoteForShell(ChaptersTxt) + ' ' + QuoteForShell(OutputFile);
+          Cmd := QuoteForShell(Mp4BoxBin) + ' -chap ' + QuoteForShell(ChaptersTxt) + ' ' + QuoteForShell(EffectiveOutputFile);
           RunCommandCapture(Cmd);
         end;
       end;
+      if R.ExitCode <> 0 then
+        LogFailedCommand(Cmd, R, FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir,
+          'ffprobe chapter extraction failed');
     end;
 
     Result := True;

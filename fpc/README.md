@@ -39,7 +39,15 @@ fpc -Cg -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/convert
 ### GUI (requires Lazarus IDE or lazbuild)
 
 ```bash
-lazbuild ./fpc/gui/form.lpi
+cd ./fpc/build
+make gui-app
+```
+
+Direct lazbuild invocation is also supported:
+
+```bash
+lazbuild -B ./fpc/gui/form.lpi
+bash ./fpc/build/package_macos_app.sh ./fpc/gui/ffmpeg_converter_gui
 ```
 
 ### Tests
@@ -100,7 +108,9 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
 ## macOS Notes
 
 - Pascal runtime now resolves `ffmpeg`/`ffprobe` robustly for GUI/CLI launches,
-	including common Homebrew paths (`/opt/homebrew/bin`, `/usr/local/bin`) when
-	GUI apps start with a limited `PATH`.
+	including `.app` bundled tools in `Contents/Resources/bin` and common Homebrew
+	paths (`/opt/homebrew/bin`, `/usr/local/bin`) when GUI apps start with a
+	limited `PATH`.
+- Recommended Pascal GUI build flow on macOS is `lazbuild` + `package_macos_app.sh`.
 - CLI `-o/--output` now creates missing output directories before conversion and
 	fails early with a clear error if the directory is invalid or not writable.

@@ -23,9 +23,17 @@ add_subdirectory(platform)
 # CLI (после объявления библиотек)
 add_subdirectory(cli)
 
-# GUI (enabled by default on Linux and macOS)
-option(ENABLE_GUI "Build GTK GUI" ON)
-if (ENABLE_GUI AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+# GUI split by platform:
+# - Linux keeps GTK4 GUI
+# - macOS uses native Cocoa GUI
+option(ENABLE_LINUX_GUI "Build Linux GTK GUI" ON)
+option(ENABLE_MACOS_NATIVE_GUI "Build macOS native GUI" ON)
+
+if (ENABLE_LINUX_GUI AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	add_subdirectory(gui)
+endif()
+
+if (ENABLE_MACOS_NATIVE_GUI AND CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+	add_subdirectory(gui_macos_native)
 endif()
 

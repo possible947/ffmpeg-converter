@@ -1,0 +1,104 @@
+# Changelog — ffmpeg_converter (Free Pascal)
+
+All notable changes to the Free Pascal implementation are documented here.
+Format based on [Keep a Changelog](https://keepachangelog.com/).
+
+---
+
+## [2.0.0] — 2026-03-16
+
+### Added
+- macOS `.app` bundle packaging via `fpc/build/package_macos_app.sh`:
+  - Bundles `ffmpeg` and `ffprobe` from project root into `Contents/Resources/bin/`.
+  - Bundles `MP4Box` (GPAC) and all its dylib dependencies (94 libs) into
+    `Contents/Resources/bin/` + `Contents/Resources/lib/` with patched `@rpath`.
+- `ApplyBundledToolEnvironment` in `tool_paths.pas`: auto-detects `Resources/bin`
+  from within the running `.app` bundle and sets `FFMPEG`, `FFPROBE`, `FFMPEG_BIN`,
+  `FFPROBE_BIN` env vars plus prepends `Resources/bin` to `PATH`.
+- `ResolveMp4BoxBin` in `tool_paths.pas`: bundle-aware resolution of `MP4Box`
+  binary before system PATH fallback.
+- `Mp4BoxBin` field in `TToolPaths` record.
+- `apple_m4v_creator.pas`: uses resolved `Mp4BoxBin` absolute path instead of
+  bare `MP4Box` shell name — works from Finder launch without system PATH.
+- GUI (`form.pas`): calls `ApplyBundledToolEnvironment` at startup so all
+  subprocess calls find bundled tools regardless of launch method.
+
+### Changed
+- `apple_m4v_creator.pas`: MP4Box path validation uses `ResolveToolPaths` instead
+  of `command -v MP4Box` shell check.
+- `package_macos_app.sh`: recursive dylib bundler using `otool -L` +
+  `install_name_tool` to make MP4Box self-contained inside the bundle.
+- Audio filter pipeline updated to require `ffmpeg` built with `--enable-libsoxr`
+  (soxr resampler is part of the defined normalization logic).
+- All debug `on_message` calls removed from `converter_core.pas`
+  (`job ffmpeg=`, `job ffprobe=`, `job PATH=`, `ffmpeg command built`).
+- All debug `QueueLog` calls removed from `form.pas`
+  (`Apple job ffmpeg=`, `Apple job ffprobe=`, `Apple job PATH=`).
+
+---
+
+## [1.3.0] — 2026-03-14
+
+### Added
+- Real-time progress reporting in `converter_runner.pas` via incremental stdout
+  read loop during ffmpeg encode (replaces synthetic 100% callback).
+- `ProbeDuration` call before encoding for accurate ETA computation.
+- `RunEncodeWithProgress` replacing blocking `RunEncode`.
+
+### Fixed
+- `QuoteForShell` (PROC-1): replaced double-quote wrapping with single-quote
+  strategy to prevent shell injection on filenames with `$`, backticks, etc.
+- `RunCommandCapture` (PATH-1): replaced `poWaitOnExit` with incremental
+  read loop to eliminate pipe deadlock on large output (>64 KB).
+
+---
+
+## [1.2.0] — 2026-03-12
+
+### Added
+- Apple M4V creator (`apple_m4v_creator.pas`): multi-step pipeline —
+  video copy → AAC encode → AC3 encode → MP4Box mux → optional chapter import.
+- Chapter extraction from source via `ffprobe -show_chapters` + JSON parse.
+- Edit-before-mux mode in GUI for Apple M4V workflow.
+- `fpc/build/package_macos_app.sh`: initial macOS `.app` packager.
+
+### Fixed
+- Audio normalization (workstream B audit):
+  - All five modes (`none`, `peak_norm`, `peak_norm_2pass`, `loudness_norm`,
+    `loudness_norm_2pass`) validated against C implementation as source of truth.
+  - `loudnorm` 2-pass parameter mapping corrected.
+- Chapter import (workstream A audit):
+  - Canonical data path: `ffprobe` → `chapters.json` → parse → `chapters.txt`
+    → `MP4Box -chap`.
+  - Removed duplicate stdout/file data paths.
+
+---
+
+## [1.1.0] — 2026-03-10
+
+### Added
+- Lazarus/LCL GUI (`fpc/gui/form.pas`) with threaded conversion workers.
+- Threaded background conversion with `TThread`-based workers.
+- Progress display: encode percent, FPS, ETA.
+- Apple M4V workflow UI (edit-before-mux option).
+- Drag-and-drop file loading in Lazarus GUI.
+
+### Changed
+- `converter_core.pas` refactored to support per-file state reset in batch mode.
+- Separated loudnorm JSON parsing into `fpc/json/loudnorm_json.pas`.
+
+---
+
+## [1.0.0] — 2026-02-01
+
+### Added
+- Initial Free Pascal port of `ffmpeg_converter`.
+- CLI with full argument parsing (`-c`, `-p`, `-d`, `-a`, `-g`, `--overwrite`, `-o`)
+  and interactive 9-step menu.
+- Converter core: file validation, overwrite checks, peak/loudnorm 2-pass analysis,
+  command builder, encode runner.
+- Shared library with C ABI export (`converter_pas.lpr`, `converter_pas.h`).
+- Reusable helpers: `fs_utils`, `path_utils`, `process_utils`, `time_utils`.
+- Loudnorm JSON parser (`fpjson`/`jsonparser`).
+- Unit tests: `test_cmd_builder`, `test_path_parse`, `test_cli_mode_matrix`.
+- Integration test scripts: `test_cli_args_matrix.sh`, `check_gui_cli_issues.sh`.

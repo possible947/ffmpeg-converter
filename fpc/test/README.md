@@ -15,6 +15,10 @@ This folder contains parity-oriented tests for the Pascal port.
 - `test_cli_mode_matrix`
 - `test_analysis_parsers`
 - `test_path_parse`
+- `test_default_output_preflight`
+- `test_output_preflight_rules`
+- `test_error_log_creation`
+- `test_unified_tool_resolver`
 - `run_apple_m4v_test`
 
 Build all test binaries:

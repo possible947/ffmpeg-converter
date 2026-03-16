@@ -1,6 +1,106 @@
-# Подробное описание проекта: ffmpeg_converter
+# ffmpeg_converter — Developer Description
 
-**Версия: 1.0**
+A cross-platform CLI and GUI tool that builds and executes `ffmpeg` commands with
+a defined set of presets: ProRes (`prores`, `prores_ks`), stream copy, H.265 VAAPI
+(`h265_mi50`), peak and loudness audio normalization (including two-pass EBU R128
+loudnorm), progress reporting, and an interactive text menu.
+
+Two parallel implementations:
+- **C/CMake** (`src/`): original engine. Linux GTK4 GUI. macOS native Cocoa GUI.
+- **Free Pascal** (`fpc/`): full port. Lazarus/LCL GUI. macOS self-contained `.app`.
+
+---
+
+## Folder Structure
+
+### C source tree (`src/`)
+
+| Path | Role |
+|------|------|
+| `src/converter/` | Core C library — `converter.h` (public API), `converter.c` (file check, two-pass analysis, command build, ffmpeg launch + progress parse) |
+| `src/cli/linux/`, `src/cli/macos/` | Platform CLI entry points — argument parsing, interactive menu, callbacks |
+| `src/gui/` | Linux GTK4 GUI — app, window, callbacks, threading |
+| `src/gui_macos_native/` | macOS Cocoa/AppKit GUI — AppDelegate, window controller, progress, drag-and-drop |
+| `src/platform/` | Platform-specific progress implementations |
+| `src/progress/` | `progress.h` interface |
+| `src/ffmpeg_cmd/` | Command-building interface headers |
+| `src/core/`, `src/utils/`, `src/audio/`, `src/video/` | INTERFACE modules (include dirs, headers) |
+
+### Pascal source tree (`fpc/`)
+
+| Path | Role |
+|------|------|
+| `fpc/converter/` | Engine (`converter_core.pas`), C ABI export (`converter_pas.lpr`), Apple M4V creator |
+| `fpc/common/` | fs, path, process, time helpers |
+| `fpc/json/` | Loudnorm JSON parser |
+| `fpc/cli/` | Pascal CLI — args, menu, callbacks, progress |
+| `fpc/gui/` | Lazarus/LCL GUI (`form.lpi`) — packaged as `form.app` |
+| `fpc/build/` | Makefile, `package_macos_app.sh` (bundle packaging) |
+| `fpc/test/` | Unit and integration tests |
+
+---
+
+## Build & Dependencies
+
+### C/CMake
+```bash
+# Linux
+cmake -B build && cmake --build build --target linux_cli linux_gui
+
+# macOS (native GUI, no GTK)
+cmake -B build && cmake --build build --target macos_cli macos_gui_native
+cmake --install build   # → build/install/ffmpeg_converter_gui_macos.app
+```
+
+**Dependencies:**
+- `cmake` ≥ 3.16, C compiler.
+- `jansson` (for loudnorm JSON parsing).
+- `libgtk-4-dev` on Linux (for GUI).
+- macOS GUI: AppKit only, no GTK.
+
+### Free Pascal
+```bash
+make -C fpc/build cli          # CLI binary
+lazbuild fpc/gui/form.lpi      # GUI binary
+bash fpc/build/package_macos_app.sh  # .app bundle
+```
+
+**Dependencies:**
+- FPC + Lazarus (for GUI).
+- `MP4Box` from GPAC for bundle packaging.
+- `ffmpeg`, `ffprobe` static binaries at project root for bundling.
+
+---
+
+## Key Modules
+
+### converter_core (Pascal) / converter.c (C)
+- `converter_create` / `converter_destroy`
+- `converter_set_on_message_callback(text, level)`
+- `converter_set_on_progress_callback(file, percent, fps, eta)`
+- `converter_process_files(options, files)`
+- `converter_stop`
+- `converter_error_to_string`
+
+### Tool path resolution (macOS bundles)
+- C: `converter_bridge.m` resolves paths from `FFMPEG`/`FFPROBE`/`FFMPEG_BIN`/
+  `FFPROBE_BIN` env vars; prepends `Resources/bin` to `PATH`.
+- Pascal: `tool_paths.pas` resolves `ffmpeg`, `ffprobe`, `mp4box` relative to
+  `Contents/Resources/bin/` using CFBundle at runtime.
+
+### Apple M4V creator (Pascal only)
+Multi-step pipeline: ProRes pass → AAC audio → AC3 audio → `MP4Box` mux →
+optional chapter import. Implemented in `apple_m4v_creator.pas`.
+
+---
+
+## Platform Notes
+
+- `h265_mi50` requires VAAPI device (Linux).
+- macOS Pascal `.app` is self-contained — no system `ffmpeg` needed.
+- Bundled `ffmpeg`/`ffprobe` are Intel x86_64; run via Rosetta 2 on Apple Silicon.
+- Windows support is planned (see `WINDOWS_BRANCH.md`).
+
 
 Цель документа: дать разработчику полное представление о структуре репозитория, архитектуре кода, ключевых модулях, опциях командной строки и особенностях реализации.
 

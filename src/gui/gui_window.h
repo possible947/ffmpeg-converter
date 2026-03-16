@@ -44,6 +44,10 @@ typedef struct {
     GThread *worker_thread;
     GMutex   thread_lock;           /* protects worker_thread */
     Converter *current_converter;   /* protected by thread_lock */
+    gboolean shutting_down;         /* set during app shutdown */
+
+    /* Deferred UI updates to avoid re-entrancy in signal handlers */
+    guint dependent_update_source_id;
 } AppWidgets;
 
 /* Creation */
