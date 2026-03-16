@@ -14,8 +14,8 @@ enable_language(OBJC)
 
 # Keep jansson linkage aligned with the existing GUI targets.
 find_library(JANSSON_LIB jansson)
-set(BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/ffmpeg")
-set(BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/ffprobe")
+set(BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg")
+set(BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffprobe")
 
 add_executable(macos_gui_native MACOSX_BUNDLE
     main.m
@@ -46,7 +46,7 @@ if (EXISTS "${BUNDLED_FFMPEG}" AND EXISTS "${BUNDLED_FFPROBE}")
         COMMENT "Bundling ffmpeg/ffprobe into app Resources/bin"
     )
 else()
-    message(WARNING "Project ffmpeg/ffprobe not found in project root. App will rely on system PATH or FFMPEG/FFPROBE env vars.")
+    message(WARNING "src/platform/macos/bin/ffmpeg or ffprobe not found. App will rely on system PATH or FFMPEG/FFPROBE env vars.")
 endif()
 
 install(TARGETS macos_gui_native

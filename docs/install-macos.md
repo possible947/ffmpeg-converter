@@ -30,12 +30,13 @@ sudo port install cmake jansson pkgconfig
 ### 1.2 Prepare bundled ffmpeg/ffprobe (required for GUI bundling)
 
 The native macOS GUI bundles `ffmpeg` and `ffprobe` inside the `.app`.
-Place static binaries at the **project root** before building:
+Place static binaries in `src/platform/macos/bin/` before building:
 
 ```
 ffmpeg-converter/
-  ffmpeg          ← place here
-  ffprobe         ← place here
+  src/platform/macos/bin/
+    ffmpeg          ← place here
+    ffprobe         ← place here
 ```
 
 If these files are absent, CMake will emit a warning and the app will
@@ -90,8 +91,8 @@ open build/install/ffmpeg_converter_gui_macos.app
 
 ### 2.2 Prepare bundled ffmpeg/ffprobe
 
-Same as section 1.2 — place `ffmpeg` and `ffprobe` at the project root.
-The `package_macos_app.sh` script copies them into
+Same as section 1.2 — place `ffmpeg` and `ffprobe` in
+`src/platform/macos/bin/`. The `package_macos_app.sh` script copies them into
 `fpc/gui/form.app/Contents/Resources/bin/`.
 
 ### 2.3 Build

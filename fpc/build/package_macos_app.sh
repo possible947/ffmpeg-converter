@@ -10,8 +10,8 @@ RES_DIR="$CONTENTS_DIR/Resources"
 RES_BIN_DIR="$RES_DIR/bin"
 SRC_BIN="${1:-$ROOT/fpc/gui/ffmpeg_converter_gui}"
 DST_BIN="$MACOS_DIR/ffmpeg_converter_gui"
-PROJECT_FFMPEG="$ROOT/ffmpeg"
-PROJECT_FFPROBE="$ROOT/ffprobe"
+PROJECT_FFMPEG="$ROOT/src/platform/macos/bin/ffmpeg"
+PROJECT_FFPROBE="$ROOT/src/platform/macos/bin/ffprobe"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "Skipping macOS app packaging on non-Darwin host."
@@ -67,7 +67,7 @@ if [[ -f "$PROJECT_FFMPEG" && -f "$PROJECT_FFPROBE" ]]; then
   echo "Bundled tools: $RES_BIN_DIR/ffmpeg"
   echo "Bundled tools: $RES_BIN_DIR/ffprobe"
 else
-  echo "WARNING: ffmpeg/ffprobe not found in project root; app may depend on PATH."
+  echo "WARNING: ffmpeg/ffprobe not found in src/platform/macos/bin/; app may depend on PATH."
 fi
 
 # Bundle MP4Box (GPAC) from system and all its non-system dylib dependencies.

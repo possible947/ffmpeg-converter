@@ -7,9 +7,9 @@
 !fpc/build/fpmake.pp
 !fpc/build/package_macos_app.sh
 
-# Bundled ffmpeg/ffprobe source binaries (placed in project root for packaging)
-/ffmpeg
-/ffprobe
+# Bundled ffmpeg/ffprobe source binaries (stored in src/platform/macos/bin/)
+src/platform/macos/bin/ffmpeg
+src/platform/macos/bin/ffprobe
 
 # Pascal compiled units and intermediate files
 *.ppu
@@ -25,8 +25,10 @@ fpc/cli/ffmpeg_converter
 fpc/gui/form.app/
 fpc/gui/ffmpeg_converter_gui.app/
 
-# Generated dylib dependency/queue files (produced by package_macos_app.sh)
-src/platform/macos/bin/
+# Generated dylib dependency/queue files and bundled libs (produced by package_macos_app.sh)
+src/platform/macos/bin/.deps_ffmpeg7.txt
+src/platform/macos/bin/.queue_ffmpeg7.txt
+src/platform/macos/bin/lib/
 
 # Object files
 *.o
