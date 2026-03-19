@@ -16,10 +16,12 @@ enable_language(OBJC)
 find_library(JANSSON_LIB jansson)
 set(BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg")
 set(BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffprobe")
+set(BUNDLE_MP4BOX_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_mp4box_deps.sh")
 
 add_executable(macos_gui_native MACOSX_BUNDLE
     main.m
     converter_bridge.m
+    apple_m4v_creator.m
 )
 
 set_target_properties(macos_gui_native PROPERTIES
@@ -47,6 +49,15 @@ if (EXISTS "${BUNDLED_FFMPEG}" AND EXISTS "${BUNDLED_FFPROBE}")
     )
 else()
     message(WARNING "src/platform/macos/bin/ffmpeg or ffprobe not found. App will rely on system PATH or FFMPEG/FFPROBE env vars.")
+endif()
+
+if (EXISTS "${BUNDLE_MP4BOX_SCRIPT}")
+    add_custom_command(TARGET macos_gui_native POST_BUILD
+        COMMAND /bin/bash "${BUNDLE_MP4BOX_SCRIPT}" "$<TARGET_FILE_DIR:macos_gui_native>"
+        COMMENT "Bundling MP4Box and dependent dylibs into app Resources"
+    )
+else()
+    message(WARNING "bundle_mp4box_deps.sh not found; MP4Box will not be bundled into app.")
 endif()
 
 install(TARGETS macos_gui_native

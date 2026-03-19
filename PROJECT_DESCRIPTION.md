@@ -84,13 +84,27 @@ bash fpc/build/package_macos_app.sh  # .app bundle
 
 ### Tool path resolution (macOS bundles)
 - C: `converter_bridge.m` resolves paths from `FFMPEG`/`FFPROBE`/`FFMPEG_BIN`/
-  `FFPROBE_BIN` env vars; prepends `Resources/bin` to `PATH`.
+  `FFPROBE_BIN`/`MP4BOX_BIN` env vars; prepends `Resources/bin` to `PATH`.
 - Pascal: `tool_paths.pas` resolves `ffmpeg`, `ffprobe`, `mp4box` relative to
   `Contents/Resources/bin/` using CFBundle at runtime.
 
-### Apple M4V creator (Pascal only)
-Multi-step pipeline: ProRes pass → AAC audio → AC3 audio → `MP4Box` mux →
-optional chapter import. Implemented in `apple_m4v_creator.pas`.
+### Apple M4V creator (Pascal + C macOS native GUI)
+Multi-step pipeline: video copy → AAC audio → AC3 audio → `MP4Box` mux →
+optional chapter import.
+
+- Pascal implementation: `fpc/converter/apple_m4v_creator.pas`.
+- C macOS native GUI implementation: `src/gui_macos_native/apple_m4v_creator.m`,
+  orchestration in `src/gui_macos_native/converter_bridge.m` and UI integration
+  in `src/gui_macos_native/main.m`.
+
+Native C macOS GUI supports two Apple M4V modes:
+- Direct mode (`input -> .m4v`).
+- Edit-before-mux mode (`converter output -> .m4v -> cleanup`).
+
+Bundling status for C macOS native GUI:
+- `ffmpeg`/`ffprobe` bundled into `.app/Contents/Resources/bin`.
+- `MP4Box` and non-system dylib dependencies bundled by
+  `src/gui_macos_native/bundle_mp4box_deps.sh` (invoked by CMake post-build).
 
 ---
 

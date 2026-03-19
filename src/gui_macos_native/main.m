@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import "converter_bridge.h"
+#include <string.h>
 
 typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
 
@@ -72,11 +73,13 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
 @property (strong, nonatomic) NSPopUpButton *audioPopup;
 @property (strong, nonatomic) NSPopUpButton *genrePopup;
 @property (strong, nonatomic) NSButton *overwriteCheck;
+@property (strong, nonatomic) NSButton *m4vEditCheck;
 @property (strong, nonatomic) NSTextView *logView;
 @property (strong, nonatomic) NSTextField *statusLabel;
 @property (strong, nonatomic) NSProgressIndicator *progress;
 @property (strong, nonatomic) NSButton *startButton;
 @property (strong, nonatomic) NSButton *stopButton;
+@property (strong, nonatomic) NSButton *appleM4VButton;
 @property (strong, nonatomic) NSTableView *tableView;
 @property (strong, nonatomic) NSMutableArray<NSString *> *filePaths;
 @property (strong, nonatomic) NSButton *chooseOutputButton;
@@ -85,17 +88,65 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
 @property (strong, nonatomic) NSButton *clearButton;
 @property (assign, nonatomic) BOOL terminateAfterStop;
  - (void)addInputPaths:(NSArray<NSString *> *)paths;
+ - (BOOL)promptAppleM4VOptions:(AppleM4VOptions *)options;
 @end
 
 @implementation AppDelegate
 
+static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
+    if (!outValue) {
+        return NO;
+    }
+
+    NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0) {
+        return NO;
+    }
+
+    NSScanner *scanner = [NSScanner scannerWithString:trimmed];
+    NSInteger value = 0;
+    if (![scanner scanInteger:&value] || !scanner.isAtEnd) {
+        return NO;
+    }
+
+    *outValue = value;
+    return YES;
+}
+
 - (void)setRunningUIState:(BOOL)running {
     [self.startButton setEnabled:!running];
     [self.stopButton setEnabled:running];
+    [self.appleM4VButton setEnabled:!running];
 
     [self.codecPopup setEnabled:!running];
     [self.audioPopup setEnabled:!running];
     [self.overwriteCheck setEnabled:!running];
+    [self.m4vEditCheck setEnabled:!running];
+    [self.chooseOutputButton setEnabled:!running];
+    [self.addFilesButton setEnabled:!running];
+    [self.removeButton setEnabled:!running];
+    [self.clearButton setEnabled:!running];
+    [self.tableView setEnabled:!running];
+    [(DropWindow *)self.window setDropEnabled:!running];
+
+    if (!running) {
+        [self updateDependentControls];
+    } else {
+        [self.profilePopup setEnabled:NO];
+        [self.deblockPopup setEnabled:NO];
+        [self.genrePopup setEnabled:NO];
+    }
+}
+
+- (void)setAppleM4VUIState:(BOOL)running {
+    [self.startButton setEnabled:!running];
+    [self.stopButton setEnabled:running];
+    [self.appleM4VButton setEnabled:!running];
+
+    [self.codecPopup setEnabled:!running];
+    [self.audioPopup setEnabled:!running];
+    [self.overwriteCheck setEnabled:!running];
+    [self.m4vEditCheck setEnabled:!running];
     [self.chooseOutputButton setEnabled:!running];
     [self.addFilesButton setEnabled:!running];
     [self.removeButton setEnabled:!running];
@@ -209,6 +260,12 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
     [self.overwriteCheck setState:NSControlStateValueOff];
     [content addSubview:self.overwriteCheck];
 
+    self.m4vEditCheck = [[NSButton alloc] initWithFrame:NSMakeRect(524, 500, 260, 20)];
+    [self.m4vEditCheck setButtonType:NSButtonTypeSwitch];
+    [self.m4vEditCheck setTitle:@"m4v edit (main -> m4v)"];
+    [self.m4vEditCheck setState:NSControlStateValueOff];
+    [content addSubview:self.m4vEditCheck];
+
     NSString *defaultOutput = [self.bridge defaultOutputDirectory];
 
     NSTextField *outputLabelTitle = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 490, 74, 24)];
@@ -281,6 +338,13 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
     [self.stopButton setAction:@selector(onStopClicked:)];
     [content addSubview:self.stopButton];
 
+    self.appleM4VButton = [[NSButton alloc] initWithFrame:NSMakeRect(224, 182, 160, 32)];
+    [self.appleM4VButton setTitle:@"Apple m4v creator"];
+    [self.appleM4VButton setBezelStyle:NSBezelStyleRounded];
+    [self.appleM4VButton setTarget:self];
+    [self.appleM4VButton setAction:@selector(onAppleM4VClicked:)];
+    [content addSubview:self.appleM4VButton];
+
     self.progress = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(16, 154, 766, 20)];
     [self.progress setIndeterminate:NO];
     [self.progress setMinValue:0.0];
@@ -322,8 +386,8 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
         return;
     }
 
-    if ([self.bridge isRunning]) {
-        [self appendLogLine:@"Conversion is already running"];
+    if ([self.bridge isRunning] || [self.bridge isAppleM4VRunning]) {
+        [self appendLogLine:@"Another job is already running"];
         return;
     }
 
@@ -410,9 +474,234 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
 
 - (void)onStopClicked:(id)sender {
     (void)sender;
-    [self.bridge stopConversion];
-    [self appendLogLine:@"Stop requested"];
-    [self.statusLabel setStringValue:@"Stopping..."];
+    if ([self.bridge isRunning]) {
+        [self.bridge stopConversion];
+        [self appendLogLine:@"Stop requested"];
+        [self.statusLabel setStringValue:@"Stopping..."];
+        return;
+    }
+
+    if ([self.bridge isAppleM4VRunning]) {
+        [self.bridge stopAppleM4V];
+        [self appendLogLine:@"Apple m4v stop requested"];
+        [self.statusLabel setStringValue:@"Apple m4v stopping..."];
+    }
+}
+
+- (void)onAppleM4VClicked:(id)sender {
+    (void)sender;
+
+    if (self.filePaths.count == 0) {
+        [self appendLogLine:@"No input files selected"];
+        [self.statusLabel setStringValue:@"No input files selected"];
+        return;
+    }
+
+    if ([self.bridge isRunning] || [self.bridge isAppleM4VRunning]) {
+        [self appendLogLine:@"Another job is already running"];
+        [self.statusLabel setStringValue:@"Another job is already running"];
+        return;
+    }
+
+    BOOL overwrite = (self.overwriteCheck.state == NSControlStateValueOn);
+    BOOL editBeforeMux = (self.m4vEditCheck.state == NSControlStateValueOn);
+    NSString *outputDir = self.outputLabel.stringValue ?: @"";
+    if (outputDir.length == 0) {
+        outputDir = [self.bridge defaultOutputDirectory];
+        [self.outputLabel setStringValue:outputDir];
+    }
+
+    NSError *dirError = nil;
+    BOOL outputOk = [[NSFileManager defaultManager] createDirectoryAtPath:outputDir
+                                              withIntermediateDirectories:YES
+                                                               attributes:nil
+                                                                    error:&dirError];
+    if (!outputOk) {
+        NSString *msg = [NSString stringWithFormat:@"Output dir error: %@", dirError.localizedDescription ?: @"unknown"];
+        [self appendLogLine:msg];
+        [self.statusLabel setStringValue:msg];
+        return;
+    }
+
+    AppleM4VOptions appleOptions = AppleM4VDefaultOptions();
+    if (![self promptAppleM4VOptions:&appleOptions]) {
+        [self appendLogLine:@"Apple m4v creator cancelled by user"];
+        [self.statusLabel setStringValue:@"Ready"];
+        return;
+    }
+
+    NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSInteger profile = self.profilePopup.isEnabled ? (NSInteger)self.profilePopup.indexOfSelectedItem + 1 : 0;
+    NSInteger deblock = self.deblockPopup.isEnabled ? (NSInteger)self.deblockPopup.indexOfSelectedItem + 1 : 0;
+    NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
+    NSInteger genre = self.genrePopup.isEnabled ? (NSInteger)self.genrePopup.indexOfSelectedItem + 1 : 0;
+
+    ConvertOptions convertOptions = [self.bridge makeOptionsWithCodec:codec
+                                                               profile:profile
+                                                               deblock:deblock
+                                                             audioNorm:audioNorm
+                                                                 genre:genre
+                                                             overwrite:overwrite
+                                                             outputDir:outputDir];
+
+    [self setAppleM4VUIState:YES];
+    [self.progress setDoubleValue:0.0];
+    [self.statusLabel setStringValue:@"Apple m4v creator: starting..."];
+    [self appendLogLine:editBeforeMux ? @"Apple m4v creator started (edit-before-mux mode)" : @"Apple m4v creator started (direct mode)"];
+
+    __weak typeof(self) weakSelf = self;
+    [self.bridge startAppleM4VForFiles:[self.filePaths copy]
+                             outputDir:outputDir
+                             overwrite:overwrite
+                         editBeforeMux:editBeforeMux
+                         convertOptions:convertOptions
+                           appleOptions:appleOptions
+                                   log:^(NSString *line) {
+                                       [weakSelf appendLogLine:line];
+                                   }
+                                 stage:^(NSString *stage) {
+                                     [weakSelf.statusLabel setStringValue:[NSString stringWithFormat:@"Stage: %@", stage]];
+                                 }
+                                status:^(NSString *status) {
+                                    [weakSelf.statusLabel setStringValue:status];
+                                }
+                            completion:^(BOOL success, NSString *message) {
+                                [weakSelf setAppleM4VUIState:NO];
+                                if (success) {
+                                    [weakSelf.progress setDoubleValue:100.0];
+                                    [weakSelf.statusLabel setStringValue:@"Apple m4v completed"];
+                                    [weakSelf appendLogLine:message ?: @"Apple m4v completed"];
+                                } else if ([message isEqualToString:@"Stopped"]) {
+                                    [weakSelf.statusLabel setStringValue:@"Apple m4v stopped"];
+                                    [weakSelf appendLogLine:@"Apple m4v stopped"];
+                                } else {
+                                    [weakSelf.statusLabel setStringValue:[NSString stringWithFormat:@"Apple m4v finished: %@", message ?: @"unknown"]];
+                                    [weakSelf appendLogLine:[NSString stringWithFormat:@"Apple m4v finished with errors: %@", message ?: @"unknown"]];
+                                }
+
+                                if (weakSelf.terminateAfterStop) {
+                                    weakSelf.terminateAfterStop = NO;
+                                    [NSApp terminate:nil];
+                                }
+                            }];
+}
+
+- (BOOL)promptAppleM4VOptions:(AppleM4VOptions *)options {
+    if (!options) {
+        return NO;
+    }
+
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"Apple m4v creator options";
+    alert.informativeText = @"Set track and audio parameters for Apple M4V mux.";
+    [alert addButtonWithTitle:@"Start"];
+    [alert addButtonWithTitle:@"Cancel"];
+
+    NSView *container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 360, 170)];
+
+    NSArray<NSString *> *labels = @[
+        @"Video track index:",
+        @"Audio track index:",
+        @"AAC quality (1..9):",
+        @"AC3 bitrate kbps:",
+        @"Audio language:",
+    ];
+
+    NSMutableArray<NSTextField *> *fields = [[NSMutableArray alloc] init];
+    NSArray<NSString *> *defaults = @[
+        [NSString stringWithFormat:@"%ld", (long)options->videoTrackIndex],
+        [NSString stringWithFormat:@"%ld", (long)options->audioTrackIndex],
+        [NSString stringWithFormat:@"%ld", (long)options->aacQuality],
+        [NSString stringWithFormat:@"%ld", (long)options->ac3BitrateKbps],
+        options->audioLang[0] != '\0' ? [NSString stringWithUTF8String:options->audioLang] : @"rus"
+    ];
+
+    CGFloat y = 138;
+    for (NSInteger i = 0; i < (NSInteger)labels.count; i++) {
+        NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(0, y, 170, 22)];
+        label.stringValue = labels[(NSUInteger)i];
+        label.bezeled = NO;
+        label.editable = NO;
+        label.drawsBackground = NO;
+        [container addSubview:label];
+
+        NSTextField *input = [[NSTextField alloc] initWithFrame:NSMakeRect(178, y - 1, 180, 24)];
+        input.stringValue = defaults[(NSUInteger)i];
+        [container addSubview:input];
+        [fields addObject:input];
+
+        y -= 28;
+    }
+
+    NSButton *chaptersCheck = [[NSButton alloc] initWithFrame:NSMakeRect(0, 2, 240, 22)];
+    [chaptersCheck setButtonType:NSButtonTypeSwitch];
+    [chaptersCheck setTitle:@"Import chapters"];
+    [chaptersCheck setState:options->addChapters ? NSControlStateValueOn : NSControlStateValueOff];
+    [container addSubview:chaptersCheck];
+
+    alert.accessoryView = container;
+
+    NSModalResponse response = [alert runModal];
+    if (response != NSAlertFirstButtonReturn) {
+        return NO;
+    }
+
+    NSInteger vIndex = 0;
+    NSInteger aIndex = 0;
+    NSInteger aacQ = 0;
+    NSInteger ac3 = 0;
+
+    if (!parseStrictInteger(fields[0].stringValue, &vIndex)) {
+        [self appendLogLine:@"Apple m4v options error: invalid video track index"];
+        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
+        return NO;
+    }
+    if (!parseStrictInteger(fields[1].stringValue, &aIndex)) {
+        [self appendLogLine:@"Apple m4v options error: invalid audio track index"];
+        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
+        return NO;
+    }
+    if (!parseStrictInteger(fields[2].stringValue, &aacQ)) {
+        [self appendLogLine:@"Apple m4v options error: invalid AAC quality"];
+        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
+        return NO;
+    }
+    if (!parseStrictInteger(fields[3].stringValue, &ac3)) {
+        [self appendLogLine:@"Apple m4v options error: invalid AC3 bitrate"];
+        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
+        return NO;
+    }
+    NSString *lang = [fields[4].stringValue.lowercaseString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+
+    if (vIndex < 0 || aIndex < 0) {
+        [self appendLogLine:@"Apple m4v options error: track index must be >= 0"];
+        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
+        return NO;
+    }
+    if (aacQ < 1 || aacQ > 9) {
+        [self appendLogLine:@"Apple m4v options error: AAC quality must be 1..9"];
+        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
+        return NO;
+    }
+    if (ac3 < 96) {
+        [self appendLogLine:@"Apple m4v options error: AC3 bitrate must be >= 96 kbps"];
+        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
+        return NO;
+    }
+    if (lang.length == 0) {
+        [self appendLogLine:@"Apple m4v options error: audio language cannot be empty"];
+        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
+        return NO;
+    }
+
+    options->videoTrackIndex = vIndex;
+    options->audioTrackIndex = aIndex;
+    options->aacQuality = aacQ;
+    options->ac3BitrateKbps = ac3;
+    memset(options->audioLang, 0, sizeof(options->audioLang));
+    strncpy(options->audioLang, lang.UTF8String, sizeof(options->audioLang) - 1);
+    options->addChapters = (chaptersCheck.state == NSControlStateValueOn);
+    return YES;
 }
 
 - (void)onChooseOutputClicked:(id)sender {
@@ -534,6 +823,11 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
         [self.bridge stopConversion];
         return NO;
     }
+    if ([self.bridge isAppleM4VRunning]) {
+        self.terminateAfterStop = YES;
+        [self.bridge stopAppleM4V];
+        return NO;
+    }
     return YES;
 }
 
@@ -544,6 +838,13 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
         [self.bridge stopConversion];
         [self.statusLabel setStringValue:@"Stopping before quit..."];
         [self appendLogLine:@"Quit requested while conversion is running. Stop requested."];
+        return NSTerminateCancel;
+    }
+    if ([self.bridge isAppleM4VRunning]) {
+        self.terminateAfterStop = YES;
+        [self.bridge stopAppleM4V];
+        [self.statusLabel setStringValue:@"Stopping Apple m4v before quit..."];
+        [self appendLogLine:@"Quit requested while Apple m4v is running. Stop requested."];
         return NSTerminateCancel;
     }
     return NSTerminateNow;

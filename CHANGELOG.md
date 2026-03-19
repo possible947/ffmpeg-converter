@@ -5,6 +5,41 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.1.0] — 2026-03-19
+
+### Added
+- Apple M4V creator workflow in native macOS C GUI (`main.m`, `converter_bridge.m`,
+  `apple_m4v_creator.m`):
+  - Direct mode (`source -> .m4v`)
+  - Edit-before-mux mode (`main converter -> .m4v -> intermediate cleanup`)
+- Apple M4V options dialog in native macOS GUI:
+  - Video track index
+  - Audio track index
+  - AAC quality
+  - AC3 bitrate
+  - Audio language
+  - Chapter import toggle
+- New native backend module for Apple M4V pipeline:
+  - `src/gui_macos_native/apple_m4v_creator.h`
+  - `src/gui_macos_native/apple_m4v_creator.m`
+- New packaging helper for MP4Box and dylib dependencies:
+  - `src/gui_macos_native/bundle_mp4box_deps.sh`
+
+### Changed
+- `src/gui_macos_native/CMakeLists.txt` now runs post-build MP4Box bundling into
+  app `Contents/Resources`.
+- Native macOS GUI run-state management now blocks concurrent standard conversion
+  and Apple M4V workflows.
+- Native macOS tool environment setup now resolves and exports `MP4BOX_BIN` in
+  addition to ffmpeg/ffprobe variables.
+
+### Documentation
+- Added technical design and implementation status document for native macOS
+  Apple M4V workflow:
+  - `docs/macos-native-apple-m4v-design.md`
+
+---
+
 ## [2.0.0] — 2026-03-16
 
 ### Added

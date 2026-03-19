@@ -3,6 +3,7 @@
 
 #import <Foundation/Foundation.h>
 #import "converter.h"
+#import "apple_m4v_creator.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -25,6 +26,7 @@ typedef void (^BridgeCompletionHandler)(BOOL success, NSString *message);
                              outputDir:(NSString *)outputDir;
 
 - (BOOL)isRunning;
+- (BOOL)isAppleM4VRunning;
 - (void)startConversionWithOptions:(ConvertOptions)options
                                                          files:(NSArray<NSString *> *)files
                                                                 log:(BridgeLogHandler)logHandler
@@ -32,7 +34,20 @@ typedef void (^BridgeCompletionHandler)(BOOL success, NSString *message);
                                                      progress:(BridgeProgressHandler)progressHandler
                                                          status:(BridgeStatusHandler)statusHandler
                                                  completion:(BridgeCompletionHandler)completionHandler;
+
+- (void)startAppleM4VForFiles:(NSArray<NSString *> *)files
+                     outputDir:(NSString *)outputDir
+                     overwrite:(BOOL)overwrite
+                                editBeforeMux:(BOOL)editBeforeMux
+                                convertOptions:(ConvertOptions)convertOptions
+                                    appleOptions:(AppleM4VOptions)appleOptions
+                           log:(BridgeLogHandler)logHandler
+                         stage:(BridgeStageHandler)stageHandler
+                        status:(BridgeStatusHandler)statusHandler
+                    completion:(BridgeCompletionHandler)completionHandler;
+
 - (void)stopConversion;
+- (void)stopAppleM4V;
 
 @end
 

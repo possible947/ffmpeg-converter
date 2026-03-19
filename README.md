@@ -20,9 +20,9 @@ Two independent implementations share the same conversion logic and CLI behavior
 - CLI with argument parsing and interactive menu.
 - **Linux GUI** — GTK4 (C implementation).
 - **macOS GUI** — native Cocoa/AppKit, self-contained `.app` bundle with bundled
-  `ffmpeg`, `ffprobe`, and `MP4Box` (Pascal implementation).
+  `ffmpeg`, `ffprobe`, and `MP4Box` (C native implementation).
 - Apple M4V creator: multi-step pipeline (video copy + AAC + AC3 + MP4Box mux
-  + optional chapter import).
+  + optional chapter import) in both Pascal GUI and C native macOS GUI.
 
 ---
 
@@ -32,6 +32,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - `cmake` ≥ 3.16, C compiler (clang/gcc).
 - `jansson` library (JSON parsing for loudnorm).
 - `ffmpeg` + `ffprobe` — bundled inside macOS app bundle; required in PATH for CLI.
+- `MP4Box` (GPAC) for Apple M4V packaging/runtime on macOS native GUI.
 - Linux GUI only: `libgtk-4-dev` (or distro equivalent).
 
 ### Free Pascal path
@@ -123,6 +124,8 @@ third_party/   Vendored jansson (C path)
   [docs/install-macos.md](docs/install-macos.md),
   [docs/install-windows.md](docs/install-windows.md)
 - C architecture: [PROJECT_OVERVIEW_DETAILED.md](PROJECT_OVERVIEW_DETAILED.md)
+- C developer description: [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md)
+- Native macOS Apple M4V design/status: [docs/macos-native-apple-m4v-design.md](docs/macos-native-apple-m4v-design.md)
 - Pascal port: [fpc/README.md](fpc/README.md)
 - Pascal converter library: [fpc/converter/CONVERTER_LIBRARY_DETAIL.md](fpc/converter/CONVERTER_LIBRARY_DETAIL.md)
 - C changelog: [CHANGELOG.md](CHANGELOG.md)
@@ -135,6 +138,8 @@ third_party/   Vendored jansson (C path)
 - `h265_mi50` requires VAAPI. Default device: `/dev/dri/renderD128`. Override
   via `VAAPI_DEVICE` environment variable.
 - Loudness 2-pass requires `ffmpeg` and `jansson`.
+- The macOS native C `.app` bundle includes ffmpeg/ffprobe and attempts to bundle
+  MP4Box + dependent dylibs at build time.
 - The macOS Pascal `.app` bundle is fully self-contained — no system ffmpeg needed.
 - Bundled ffmpeg/ffprobe targets Intel x86_64; runs via Rosetta 2 on Apple Silicon.
 
