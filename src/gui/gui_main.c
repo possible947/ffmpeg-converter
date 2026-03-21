@@ -22,7 +22,7 @@ int main(int argc, char **argv)
     g_setenv("GSK_RENDERER", "cairo", FALSE);
 #endif
 
-    app = gtk_application_new("com.example.ffmpeg_converter.gui", G_APPLICATION_DEFAULT_FLAGS);
+    app = gtk_application_new("com.example.ffmpeg_converter.gui", G_APPLICATION_FLAGS_NONE);
     g_signal_connect(app, "activate", G_CALLBACK(activate_cb), NULL);
     g_signal_connect(app, "shutdown", G_CALLBACK(on_app_shutdown), NULL);
 

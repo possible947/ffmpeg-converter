@@ -7,11 +7,8 @@
 #include <stdlib.h>
 #include <glib.h>
 #include <gio/gio.h>
-#include <gtk/deprecated/gtkcomboboxtext.h>
-
-#ifndef GTK_DISABLE_DEPRECATED
-#include <gtk/deprecated/gtkcombobox.h>
-#endif
+/* GTK4 main header includes all necessary types and functions */
+#include <gtk/gtk.h>
 
 /* Forward declarations */
 static void update_dependent_widgets(AppWidgets *w);
@@ -289,86 +286,107 @@ static void on_audio_norm_changed(GtkComboBox *obj, AppWidgets *w)
 /* ------------------------------------------------------------------ */
 /* Add files button                                                    */
 /* ------------------------------------------------------------------ */
+static void on_file_chooser_response(GtkDialog *dialog, gint response_id, AppWidgets *w)
+{
+    if (response_id == GTK_RESPONSE_ACCEPT) {
+        GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
+        GListModel *files = gtk_file_chooser_get_files(chooser);
+        
+        guint n_items = g_list_model_get_n_items(files);
+        for (guint i = 0; i < n_items; ++i) {
+            GFile *file = (GFile *)g_list_model_get_item(files, i);
+            char *path = g_file_get_path(file);
+            if (path) {
+                /* Add to listbox */
+                char *path_copy = g_strdup(path);
+                GtkWidget *label = gtk_label_new(path_copy);
+                gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+                gtk_widget_set_halign(label, GTK_ALIGN_START);
+                gtk_list_box_append(GTK_LIST_BOX(w->file_listbox), label);
+                g_object_set_data(G_OBJECT(label), "file_path", path_copy);
+                /* Store copy */
+                g_ptr_array_add(w->file_paths, path_copy);
+            }
+            g_free(path);
+            g_object_unref(file);
+        }
+        g_object_unref(files);
+    }
+    gtk_window_destroy(GTK_WINDOW(dialog));
+}
+
 static void on_add_files_clicked(GtkButton *button, AppWidgets *w)
 {
     (void)button;
-    GtkFileDialog *dialog = gtk_file_dialog_new();
-    GFile *initial = g_file_new_for_path(g_get_home_dir());
-    gtk_file_dialog_set_initial_folder(dialog, initial);
-    g_object_unref(initial);
-
-    gtk_file_dialog_open_multiple(dialog, GTK_WINDOW(w->window), NULL,
-                                  (GAsyncReadyCallback)on_add_files_response, w);
+    GtkWidget *dialog = gtk_file_chooser_dialog_new(
+        "Select Files",
+        GTK_WINDOW(w->window),
+        GTK_FILE_CHOOSER_ACTION_OPEN,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Open", GTK_RESPONSE_ACCEPT,
+        NULL
+    );
+    
+    gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), TRUE);
+    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog),
+                                        g_file_new_for_path(g_get_home_dir()), NULL);
+    
+    g_signal_connect(dialog, "response", G_CALLBACK(on_file_chooser_response), w);
+    gtk_widget_show(dialog);
 }
 
 static void on_add_files_response(GObject *source, GAsyncResult *res, AppWidgets *w)
 {
-    GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
-    GError *error = NULL;
-    GListModel *files = gtk_file_dialog_open_multiple_finish(dialog, res, &error);
-    if (error) {
-        g_error_free(error);
-        g_object_unref(dialog);
-        return;
-    }
+    /* This function is deprecated, kept for compatibility */
+    (void)source;
+    (void)res;
+    (void)w;
+}
 
-    guint n_items = g_list_model_get_n_items(files);
-    for (guint i = 0; i < n_items; ++i) {
-        GFile *file = g_list_model_get_item(files, i);
-        char *path = g_file_get_path(file);
-        if (path) {
-            /* Add to listbox */
-            char *path_copy = g_strdup(path);
-            GtkWidget *label = gtk_label_new(path_copy);
-            gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
-            gtk_widget_set_halign(label, GTK_ALIGN_START);
-            gtk_list_box_append(GTK_LIST_BOX(w->file_listbox), label);
-            g_object_set_data(G_OBJECT(label), "file_path", path_copy);
-            /* Store copy */
-            g_ptr_array_add(w->file_paths, path_copy);
+static void on_folder_chooser_response(GtkDialog *dialog, gint response_id, AppWidgets *w)
+{
+    if (response_id == GTK_RESPONSE_ACCEPT) {
+        GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
+        GFile *file = gtk_file_chooser_get_file(chooser);
+        if (file) {
+            char *path = g_file_get_path(file);
+            if (path)
+                set_output_dir(w, path);
+            g_free(path);
+            g_object_unref(file);
         }
-        g_free(path);
-        g_object_unref(file);
     }
-
-    g_object_unref(files);
-    g_object_unref(dialog);
+    gtk_window_destroy(GTK_WINDOW(dialog));
 }
 
 static void on_output_dir_clicked(GtkButton *button, AppWidgets *w)
 {
     (void)button;
-    GtkFileDialog *dialog = gtk_file_dialog_new();
+    GtkWidget *dialog = gtk_file_chooser_dialog_new(
+        "Select Output Directory",
+        GTK_WINDOW(w->window),
+        GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Select", GTK_RESPONSE_ACCEPT,
+        NULL
+    );
+    
     if (w->output_dir_path && w->output_dir_path[0] != '\0') {
         GFile *current = g_file_new_for_path(w->output_dir_path);
-        gtk_file_dialog_set_initial_folder(dialog, current);
+        gtk_file_chooser_set_file(GTK_FILE_CHOOSER(dialog), current, NULL);
         g_object_unref(current);
     }
-
-    gtk_file_dialog_select_folder(dialog, GTK_WINDOW(w->window), NULL,
-                                  (GAsyncReadyCallback)on_output_dir_response, w);
+    
+    g_signal_connect(dialog, "response", G_CALLBACK(on_folder_chooser_response), w);
+    gtk_widget_show(dialog);
 }
 
 static void on_output_dir_response(GObject *source, GAsyncResult *res, AppWidgets *w)
 {
-    GtkFileDialog *dialog = GTK_FILE_DIALOG(source);
-    GError *error = NULL;
-    GFile *file = gtk_file_dialog_select_folder_finish(dialog, res, &error);
-    if (error) {
-        g_error_free(error);
-        g_object_unref(dialog);
-        return;
-    }
-
-    if (file) {
-        char *path = g_file_get_path(file);
-        if (path)
-            set_output_dir(w, path);
-        g_free(path);
-        g_object_unref(file);
-    }
-
-    g_object_unref(dialog);
+    /* This function is deprecated, kept for compatibility */
+    (void)source;
+    (void)res;
+    (void)w;
 }
 
 static void on_remove_file_clicked(GtkButton *button, AppWidgets *w)
