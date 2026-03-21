@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h>
 
 struct Converter {
     ConvertOptions opts;
@@ -122,6 +123,82 @@ static void format_eta(double eta, char *buf, size_t sz) {
     int m = (t % 3600) / 60;
     int s = t % 60;
     snprintf(buf, sz, "ETA %02d:%02d:%02d", h, m, s);
+}
+
+// ------------------------------------------------------------
+//  Output dir preflight
+// ------------------------------------------------------------
+static int mkdir_p(const char* path) {
+    if (!path || path[0] == '\0')
+        return -1;
+
+    char tmp[1024];
+    size_t len = strlen(path);
+    if (len >= sizeof(tmp)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+
+    strcpy(tmp, path);
+
+    if (len > 1 && tmp[len - 1] == '/')
+        tmp[len - 1] = '\0';
+
+    for (char* p = tmp + 1; *p; ++p) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(tmp, 0755) != 0 && errno != EEXIST)
+                return -1;
+            *p = '/';
+        }
+    }
+
+    if (mkdir(tmp, 0755) != 0 && errno != EEXIST)
+        return -1;
+
+    return 0;
+}
+
+static ConverterError ensure_output_dir_writable(
+    Converter* c,
+    const ConvertOptions* opts,
+    char* out_dir,
+    size_t out_dir_sz
+) {
+    if (!opts || !out_dir || out_dir_sz == 0)
+        return ERR_INVALID_OPTIONS;
+
+    const char* configured = opts->output_dir;
+    if (!configured || configured[0] == '\0') {
+        const char* home = getenv("HOME");
+        if (!home || home[0] == '\0')
+            home = ".";
+        snprintf(out_dir, out_dir_sz, "%s/ffmpeg_converter", home);
+    } else {
+        strncpy(out_dir, configured, out_dir_sz - 1);
+        out_dir[out_dir_sz - 1] = '\0';
+    }
+
+    if (mkdir_p(out_dir) != 0) {
+        if (c->cb.on_error)
+            c->cb.on_error("output preflight failed: cannot create output directory", ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
+
+    struct stat st;
+    if (stat(out_dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        if (c->cb.on_error)
+            c->cb.on_error("output preflight failed: output path is not a directory", ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
+
+    if (access(out_dir, W_OK) != 0) {
+        if (c->cb.on_error)
+            c->cb.on_error("output preflight failed: output directory not writable", ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
+
+    return ERR_OK;
 }
 
 // ------------------------------------------------------------
@@ -591,6 +668,9 @@ static void build_ffmpeg_cmd(
         strcat(cmd, tmp);
     }
 
+    // ffmpeg progress options must be placed before output
+    strcat(cmd, "-progress pipe:1 -nostats -nostdin ");
+
     // output
     strcat(cmd, "\"");
     strcat(cmd, output);
@@ -617,7 +697,7 @@ static ConverterError run_ffmpeg_encode_with_progress(
         c->cb.on_stage("encoding");
 
     char cmd[8192];
-    snprintf(cmd, sizeof(cmd), "%s -progress pipe:1 -nostats -nostdin 2>&1", cmd_base);
+    snprintf(cmd, sizeof(cmd), "%s 2>&1", cmd_base);
 
     FILE* fp = popen(cmd, "r");
     if (!fp) {
@@ -700,6 +780,16 @@ ConverterError converter_process_files(
 
     c->stop_flag = 0;
 
+    char effective_output_dir[1024];
+    ConverterError preflight_err = ensure_output_dir_writable(
+        c,
+        &c->opts,
+        effective_output_dir,
+        sizeof(effective_output_dir)
+    );
+    if (preflight_err != ERR_OK)
+        return preflight_err;
+
     for (int i = 0; i < file_count; i++) {
 
         const char* input = files[i];
@@ -722,7 +812,10 @@ ConverterError converter_process_files(
 
         // generate output name
         char output[1024];
-        make_output_name(input, &c->opts, output, sizeof(output));
+        ConvertOptions file_opts = c->opts;
+        strncpy(file_opts.output_dir, effective_output_dir, sizeof(file_opts.output_dir) - 1);
+        file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = 0;
+        make_output_name(input, &file_opts, output, sizeof(output));
 
         // check output existence
         err = check_output_exists(c, output);
