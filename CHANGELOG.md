@@ -5,6 +5,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- Converter output directory preflight in C core (`src/converter/converter.c`):
+  - default output directory fallback to `$HOME/ffmpeg_converter` when `-o` is
+    not specified;
+  - missing output directory is created before encoding;
+  - output path writability is validated early.
+- ffmpeg command construction in C core:
+  - progress flags (`-progress pipe:1 -nostats -nostdin`) are now injected
+    before output argument to keep ffmpeg CLI syntax valid.
+
+### Documentation
+- Synchronized project docs with current behavior (CLI syntax, output directory
+  semantics, C vs Pascal feature boundaries).
+- Clarified canonical bundled ffmpeg/ffprobe source path for macOS packaging:
+  `src/platform/macos/bin/`.
+
+---
+
 ## [2.1.0] — 2026-03-19
 
 ### Added
@@ -54,7 +74,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Fixed-size compact window layout for HiDPI / 4K displays.
 - CMake option `ENABLE_MACOS_NATIVE_GUI` (default ON) for the native GUI target.
 - CMake option `ENABLE_LINUX_GUI` (default ON) for the Linux GTK4 GUI target.
-- Source binaries for macOS bundling stored at project root (`ffmpeg`, `ffprobe`).
+- Source binaries for macOS bundling stored in
+  `src/platform/macos/bin/` (`ffmpeg`, `ffprobe`).
 
 ### Changed
 - Build split: macOS builds `macos_gui_native` target; Linux builds `linux_gui`.

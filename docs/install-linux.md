@@ -50,6 +50,9 @@ Artifacts:
 ## 3. Runtime Notes
 - Ensure `ffmpeg` and `ffprobe` are available in `PATH`.
 - `h265_mi50` uses VAAPI by default (`/dev/dri/renderD128`).
+- C CLI inputs are positional (`ffmpeg_converter [options] file1 file2 ...`).
+- `-o/--output` sets output directory; if omitted, default is
+	`$HOME/ffmpeg_converter` (created automatically).
 
 ## 4. Validation
 ```bash

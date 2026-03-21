@@ -1,225 +1,88 @@
----
----
----
+# C Implementation (src)
 
-# 📘 **README.md**
+This directory contains the C/CMake implementation of ffmpeg_converter.
 
-```markdown
-# ffmpeg_converter
+## Overview
 
-`ffmpeg_converter` — кроссплатформенный CLI‑инструмент для перекодирования видео с использованием внешнего бинарника **ffmpeg**.  
-Проект построен на модульной архитектуре: заголовки лежат в модулях, а реализация — в платформенных каталогах.
+C path provides:
+- Core converter engine (`src/converter/`).
+- CLI frontends (`src/cli/linux`, `src/cli/macos`, `src/cli/windows`).
+- Linux GTK4 GUI (`src/gui/`).
+- Native macOS Cocoa GUI (`src/gui_macos_native/`).
 
----
+## Build Targets
 
-## 🚀 Возможности
-
-- Формирование оптимизированных команд ffmpeg
-- Поддержка ProRes и других кодеков
-- В случае использования copy, prores, prores_ks видео кодеков аудио кодируется как pcm_s16.
-- Вслучае использования h265_mi50 видео кодека аудио кодируется как AAC Q2.
-- Нормализация аудио (peak, loudnorm, 2‑pass)
-- Прогресс‑бар с FPS и ETA
-- Кроссплатформенная архитектура (Linux, macOS, Windows)
-- Чистая модульная структура
-
----
-
-## 📂 Структура проекта
-
-```
-src/
-  core/           # Заголовки базовой логики
-  utils/          # Заголовки утилит
-  progress/       # Заголовки прогресс-бара
-  audio/          # Заголовки аудио-логики
-  video/          # Заголовки видео-логики
-  ffmpeg_cmd/     # Заголовки формирования команд ffmpeg
-
-  platform/
-    linux/        # Реализация модулей для Linux (.c)
-    macos/        # Реализация модулей для macOS (.c)
-    windows/      # Реализация для Windows (позже)
-
-  cli/
-    linux/        # CLI для Linux
-    macos/        # CLI для macOS
-    windows/      # CLI для Windows
-```
-
----
-
-## 🛠 Сборка
-
-### Linux
+From repository root:
 
 ```bash
-mkdir build
-cd build
-cmake ..
-cmake --build . --target linux_cli
+cmake -B build
 ```
 
-### macOS (MacPorts)
+Linux:
 
 ```bash
-mkdir build
-cd build
-cmake ..
-cmake --build . --target macos_cli
+cmake --build build --target linux_cli
+cmake --build build --target linux_gui
 ```
 
-### Windows  
-| `h265_mi50` | строка | Кодек H.265 с настройкой MI‑50 (пример: `--codec h265_mi50`) |
-
-### 🎬 8. Конвертация с использованием H.265 MI‑50
+macOS:
 
 ```bash
-./ffmpeg_converter \
-  --input "input.mov" \
-  --codec "h265_mi50" \
-  --output "output_hevc.mkv"
+cmake --build build --target macos_cli
+cmake --build build --target macos_gui_native
+cmake --install build
 ```
-> **Новый кодек**: `h265_mi50` – H.265 с предустановкой MI‑50, автоматически применяет параметры для оптимального качества и размера.
-| `h265_mi50` | строка | Кодек H.265 с настройкой MI‑50 (пример: `--codec h265_mi50`) |
-(в разработке)
 
----
+Notes:
+- Linux GUI target is controlled by `ENABLE_LINUX_GUI`.
+- Native macOS GUI target is controlled by `ENABLE_MACOS_NATIVE_GUI`.
 
-## 📦 Зависимости
+## CLI Behavior (Current)
 
-### Обязательные
-- **ffmpeg** (внешний бинарник)
-- **jansson**
-
-### Linux
-- ffmpeg в PATH
-- libjansson.so
-
-### macOS (MacPorts)
-- `/opt/local/bin/ffmpeg`
-- `/opt/local/lib/libjansson.dylib`
-
----
-
-## 🧩 Архитектура
-
-Проект использует **INTERFACE‑библиотеки** для модулей.  
-Это позволяет:
-
-- хранить `.h` в модулях,
-- хранить `.c` в `src/platform/<platform>/`,
-- собирать разные бинарники для разных ОС,
-- не тянуть лишние зависимости.
-
----
-
-## 🧰 Параметры CLI
-
-| Параметр | Тип | Описание |
-|---------|------|----------|
-| `--input` | строка | Путь к входному файлу |
-| `--output` | строка | Путь к выходному файлу |
-| `--codec` | строка | Кодек видео (`copy`, `prores`, `prores_ks`) |
-| `--profile` | число | Профиль ProRes (0–5) |
-| `--audio-norm` | строка | Режим нормализации (`none`, `peak_norm`, `peak_norm_2pass`, `loudness_norm`, `loudness_norm_2pass`) |
-| `--gain` | число | Усиление (для peak_norm_2pass) |
-| `--I` | число | Целевой Integrated Loudness (для loudnorm_2pass) |
-| `--TP` | число | True Peak |
-| `--LRA` | число | Loudness Range |
-| `--thresh` | число | Порог loudnorm |
-| `--offset` | число | Смещение loudnorm |
-| `--deblock` | число | 0 — нет, 2 — weak, 3 — strong |
-| `--dry-run` | флаг | Показать команду ffmpeg без запуска |
-
----
-
-## 📚 Примеры использования
-
-### ▶️ 1. Конвертация с копированием видеопотока и нормализацией аудио
+Usage:
 
 ```bash
-./ffmpeg_converter \
-  --input "input.mov" \
-  --codec "copy" \
-  --audio-norm "peak_norm" \
-  --output "output.mov"
+ffmpeg_converter [options] file1 file2 ...
 ```
 
----
+Supported options:
+- `-c, --codec <copy|prores|prores_ks|h265_mi50>`
+- `-p, --profile <lt|standard|hq|4444>`
+- `-d, --deblock <none|weak|strong>`
+- `-a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>`
+- `-g, --genre <edm|rock|hiphop|classical|podcast>`
+- `--overwrite`
+- `-o, --output <directory>`
+- `-h, --help`
 
-### 🎚 2. Двухпроходная нормализация громкости (EBU R128)
+Important:
+- Inputs are positional files, not `--input` pairs.
+- `-o/--output` sets output directory, not a single output filename.
+- If output directory is not set, converter uses default `$HOME/ffmpeg_converter`
+  and creates it when missing.
 
-```bash
-./ffmpeg_converter \
-  --input "input.mov" \
-  --codec "prores_ks" \
-  --profile 3 \
-  --audio-norm "loudness_norm_2pass" \
-  --output "output.mov"
-```
+## Converter Engine Notes
 
----
+`src/converter/converter.c`:
+- Validates input files.
+- Runs optional peak/loudnorm 2-pass analysis.
+- Builds ffmpeg command line.
+- Runs ffmpeg with `-progress pipe:1` and parses percent/fps/eta.
+- Performs output directory preflight (default dir fallback, create, writable check).
 
-### 🎞 3. Применение фильтра Deblock
+## macOS Native GUI Notes
 
-```bash
-./ffmpeg_converter \
-  --input "input.mov" \
-  --codec "prores" \
-  --profile 2 \
-  --deblock 3 \
-  --output "clean.mov"
-```
+`src/gui_macos_native` supports:
+- Standard conversion flow through converter bridge.
+- Apple M4V creator flow:
+  - Direct mode (`input -> .m4v`).
+  - Edit-before-mux mode (`converter output -> .m4v -> cleanup`).
 
----
+At runtime it resolves/bundles:
+- `ffmpeg`, `ffprobe`.
+- `MP4Box` (for Apple M4V).
 
-### 🔊 4. Изменение уровня громкости (peak_norm_2pass)
+## Known Non-Goals in C Path
 
-```bash
-./ffmpeg_converter \
-  --input "input.wav" \
-  --audio-norm "peak_norm_2pass" \
-  --gain -3.0 \
-  --output "normalized.wav"
-```
-
----
-
-### 🧪 5. Просмотр сформированной команды ffmpeg (debug)
-
-```bash
-./ffmpeg_converter --dry-run \
-  --input "input.mov" \
-  --codec "prores_ks" \
-  --profile 4 \
-  --output "test.mov"
-```
-
----
-
-### 📈 6. Отображение прогресса кодирования
-
-```bash
-./ffmpeg_converter --input in.mov --output out.mov
-```
-
----
-
-### 🧩 7. Использование нестандартного пути к ffmpeg
-
-```bash
-FFMPEG=/opt/local/bin/ffmpeg8 ./ffmpeg_converter \
-  --input in.mov \
-  --output out.mov
-```
-
----
-
-## 📄 Лицензия
-
-MIT (или другая — укажи при необходимости)
-```
-
----
-
+- No `--dry-run` option in current C CLI.
+- Windows GUI is not implemented in C path.

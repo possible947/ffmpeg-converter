@@ -5,11 +5,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+- macOS Pascal app packaging input path for bundled ffmpeg/ffprobe is
+  documented and aligned with the current script behavior:
+  `src/platform/macos/bin/ffmpeg` and `src/platform/macos/bin/ffprobe`.
+
+---
+
 ## [2.0.0] — 2026-03-16
 
 ### Added
 - macOS `.app` bundle packaging via `fpc/build/package_macos_app.sh`:
-  - Bundles `ffmpeg` and `ffprobe` from project root into `Contents/Resources/bin/`.
+  - Bundles `ffmpeg` and `ffprobe` from `src/platform/macos/bin/` into
+    `Contents/Resources/bin/`.
   - Bundles `MP4Box` (GPAC) and all its dylib dependencies (94 libs) into
     `Contents/Resources/bin/` + `Contents/Resources/lib/` with patched `@rpath`.
 - `ApplyBundledToolEnvironment` in `tool_paths.pas`: auto-detects `Resources/bin`

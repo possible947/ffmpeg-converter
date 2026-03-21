@@ -41,5 +41,11 @@ Notes:
 ## 3. GUI Notes
 If Lazarus GUI build reports missing `Interfaces` or `Forms`, install full Lazarus/LCL widgetset packages for the active compiler/toolchain.
 
-## 4. CI/Release Notes
+## 4. CLI Behavior Notes
+- C CLI uses positional inputs: `ffmpeg_converter [options] file1 file2 ...`.
+- `-o/--output` expects output directory path.
+- If output directory is not set, default output directory is
+	`$HOME/ffmpeg_converter` on Unix-like hosts.
+
+## 5. CI/Release Notes
 See `WINDOWS_BRANCH.md` for Windows release/tag workflow details in GitHub Actions.

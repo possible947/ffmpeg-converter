@@ -157,6 +157,12 @@ export FFPROBE=/path/to/ffprobe
 ./fpc/cli/ffmpeg_converter input.mov
 ```
 
+For C CLI (`build/src/cli/ffmpeg_converter`):
+- Inputs are positional (`ffmpeg_converter [options] file1 file2 ...`).
+- `-o/--output` sets output directory.
+- If `-o` is not specified, default output directory is `$HOME/ffmpeg_converter`
+   and it is created automatically when missing.
+
 ---
 
 ## 4. Validation
