@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ComCtrls,
-  converter_types;
+  converter_types, apple_m4v_creator;
 
 type
   TMainForm = class;
@@ -25,6 +25,30 @@ type
     property ConverterHandle: Pointer read FConverter;
   end;
 
+  { TAppleM4VThread }
+
+  TAppleM4VThread = class(TThread)
+  private
+    FFiles: array of AnsiString;
+    FAppleOpts: TAppleM4VOptions;
+    FConvertOpts: TConvertOptions;
+    FUseEditFlow: Boolean;
+    FSuccess: Boolean;
+    FSuccessCount: Integer;
+    FFailCount: Integer;
+    FErrorText: string;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const Files: array of string; const AppleOpts: TAppleM4VOptions;
+      const ConvertOpts: TConvertOptions; UseEditFlow: Boolean);
+    property Success: Boolean read FSuccess;
+    property ErrorText: string read FErrorText;
+    property SuccessCount: Integer read FSuccessCount;
+    property FailCount: Integer read FFailCount;
+    property UseEditFlow: Boolean read FUseEditFlow;
+  end;
+
   { TMainForm }
 
   TMainForm = class(TForm)
@@ -35,6 +59,7 @@ type
     btnStart: TButton;
     btnStop: TButton;
     btnAppleM4VCreator: TButton;
+    chkM4VEditBeforeMux: TCheckBox;
     chkOverwrite: TCheckBox;
     cmbAudioNorm: TComboBox;
     cmbCodec: TComboBox;
@@ -57,9 +82,11 @@ type
   private
     FOutputDir: string;
     FWorker: TConverterThread;
+    FAppleWorker: TAppleM4VThread;
 
     procedure SetupControls;
     procedure UpdateDependentWidgets;
+    procedure BuildCurrentOptions(out Opts: TConvertOptions);
     procedure CollectOptions(out Opts: TConvertOptions; out Files: array of string; out Count: Integer);
 
     procedure CodecChanged(Sender: TObject);
@@ -72,7 +99,16 @@ type
     procedure StopClicked(Sender: TObject);
     procedure AppleM4VCreatorClicked(Sender: TObject);
     procedure WorkerTerminated(Sender: TObject);
+    procedure AppleWorkerTerminated(Sender: TObject);
     function PromptAppleM4VOptions(var Opts: TAppleM4VOptions): Boolean;
+    procedure SetAppleActionState(Busy: Boolean);
+    procedure AsyncLog(Data: PtrInt);
+    procedure AsyncStatus(Data: PtrInt);
+    procedure AsyncStage(Data: PtrInt);
+    procedure AsyncProgress(Data: PtrInt);
+    procedure AsyncFileBegin(Data: PtrInt);
+    procedure AsyncFileEnd(Data: PtrInt);
+    procedure AsyncComplete(Data: PtrInt);
 
     procedure UiLog(const S: string);
     procedure UiStatus(const S: string);
@@ -93,7 +129,10 @@ implementation
 uses
   Math,
   converter_api_c,
-  apple_m4v_creator;
+  fs_utils,
+  path_utils,
+  process_utils,
+  tool_paths;
 
 type
   PLogData = ^TLogData;
@@ -134,88 +173,309 @@ type
 var
   GMainForm: TMainForm = nil;
 
-procedure AsyncLog(Data: PtrInt);
+procedure SetAnsiField(var Dest: array of AnsiChar; const S: string); forward;
+procedure QueueLog(const S: string); forward;
+procedure CbFileBegin(filename: PAnsiChar; index, total: LongInt); cdecl; forward;
+procedure CbFileEnd(filename: PAnsiChar; status: TConverterError); cdecl; forward;
+procedure CbStage(stage_name: PAnsiChar); cdecl; forward;
+procedure CbProgressEncode(percent, fps, eta_seconds: Single); cdecl; forward;
+procedure CbProgressAnalysis(percent, eta_seconds: Single); cdecl; forward;
+procedure CbMessage(text: PAnsiChar); cdecl; forward;
+procedure CbError(text: PAnsiChar; code: TConverterError); cdecl; forward;
+procedure CbComplete; cdecl; forward;
+
+function ResolveOutputDirForInput(const InputFile, MainOutputDir: string): string;
+begin
+  if MainOutputDir <> '' then
+    Result := MainOutputDir
+  else
+    Result := '';
+end;
+
+function BuildAppleOutputName(const SourceFile, TargetDir: string): string;
+var
+  BaseName: string;
+begin
+  BaseName := ChangeFileExt(ExtractFileName(SourceFile), '');
+  Result := IncludeTrailingPathDelimiter(TargetDir) + BaseName + '.m4v';
+end;
+
+procedure SetupConverterCallbacks(var Cb: TConverterCallbacks);
+begin
+  FillChar(Cb, SizeOf(Cb), 0);
+  Cb.on_file_begin := @CbFileBegin;
+  Cb.on_file_end := @CbFileEnd;
+  Cb.on_stage := @CbStage;
+  Cb.on_progress_encode := @CbProgressEncode;
+  Cb.on_progress_analysis := @CbProgressAnalysis;
+  Cb.on_message := @CbMessage;
+  Cb.on_error := @CbError;
+  Cb.on_complete := @CbComplete;
+end;
+
+{ TAppleM4VThread }
+
+constructor TAppleM4VThread.Create(const Files: array of string;
+  const AppleOpts: TAppleM4VOptions; const ConvertOpts: TConvertOptions; UseEditFlow: Boolean);
+var
+  I: Integer;
+begin
+  inherited Create(True);
+  FreeOnTerminate := True;
+  SetLength(FFiles, Length(Files));
+  for I := 0 to High(Files) do
+    FFiles[I] := Files[I];
+  FAppleOpts := AppleOpts;
+  FConvertOpts := ConvertOpts;
+  FUseEditFlow := UseEditFlow;
+  FSuccess := False;
+  FSuccessCount := 0;
+  FFailCount := 0;
+  FErrorText := '';
+end;
+
+procedure TAppleM4VThread.Execute;
+var
+  I: Integer;
+  SourceFile: string;
+  OutputDir: string;
+  M4VOut: string;
+  ConvertedFile: string;
+  ErrText: string;
+  Err: TConverterError;
+  Conv: Pointer;
+  Cb: TConverterCallbacks;
+  TmpFiles: array of PAnsiChar;
+  CodecName: string;
+  CmdRes: TRunResult;
+  MainOutputDir: string;
+  Tools: TToolPaths;
+  ResolvedOutDir: string;
+  OutDirError: string;
+
+  procedure AddError(const S: string);
+  begin
+    if FErrorText = '' then
+      FErrorText := S
+    else
+      FErrorText := FErrorText + LineEnding + S;
+  end;
+
+  procedure IncFail(const S: string);
+  begin
+    Inc(FFailCount);
+    AddError(S);
+    QueueLog('Apple m4v creator ERROR: ' + S);
+  end;
+
+begin
+  MainOutputDir := Trim(string(PAnsiChar(@FConvertOpts.output_dir[0])));
+
+  if FUseEditFlow then
+  begin
+    QueueLog('Apple m4v creator: running main worker first...');
+    Conv := converter_create;
+    if Conv = nil then
+    begin
+      FErrorText := 'Failed to create converter handle for edit-before-mux flow.';
+      Exit;
+    end;
+
+    try
+      SetupConverterCallbacks(Cb);
+      converter_set_callbacks(Conv, @Cb);
+
+      Err := converter_set_options(Conv, @FConvertOpts);
+      if Err <> ERR_OK then
+      begin
+        FErrorText := 'Failed to set main worker options: ' + string(converter_error_string(Err));
+        Exit;
+      end;
+
+      SetLength(TmpFiles, Length(FFiles));
+      for I := 0 to High(FFiles) do
+        TmpFiles[I] := PAnsiChar(FFiles[I]);
+
+      if Length(TmpFiles) > 0 then
+      begin
+        Err := converter_process_files(Conv, @TmpFiles[0], Length(TmpFiles));
+        if Err <> ERR_OK then
+        begin
+          FErrorText := 'Main worker failed in edit-before-mux flow: ' + string(converter_error_string(Err));
+          Exit;
+        end;
+      end;
+    finally
+      converter_destroy(Conv);
+    end;
+  end;
+
+  CodecName := string(PAnsiChar(@FConvertOpts.codec[0]));
+  for I := 0 to High(FFiles) do
+  begin
+    Tools := ResolveToolPaths;
+
+    if FUseEditFlow then
+    begin
+      if MainOutputDir = '' then
+      begin
+        IncFail('Missing output folder for edit-before-mux mode.');
+        Continue;
+      end;
+      if not EnsureOutputDirWritable(MainOutputDir, ResolvedOutDir, OutDirError) then
+      begin
+        IncFail('Output preflight failed: ' + OutDirError);
+        Continue;
+      end;
+
+      SourceFile := MakeOutputName(string(FFiles[I]), CodecName, ResolvedOutDir);
+      if not FileExists(SourceFile) then
+      begin
+        IncFail('Main worker output not found: ' + SourceFile);
+        Continue;
+      end;
+      OutputDir := ResolvedOutDir;
+    end
+    else
+    begin
+      SourceFile := string(FFiles[I]);
+      if not FileExists(SourceFile) then
+      begin
+        IncFail('Input file not found: ' + SourceFile);
+        Continue;
+      end;
+
+      OutputDir := ResolveOutputDirForInput(SourceFile, MainOutputDir);
+      if not EnsureOutputDirWritable(OutputDir, ResolvedOutDir, OutDirError) then
+      begin
+        IncFail('Output preflight failed: ' + OutDirError);
+        Continue;
+      end;
+      OutputDir := ResolvedOutDir;
+    end;
+
+    if FUseEditFlow then
+      M4VOut := BuildAppleOutputName(string(FFiles[I]), OutputDir)
+    else
+      M4VOut := BuildAppleOutputName(SourceFile, OutputDir);
+
+    if FileExists(M4VOut) then
+    begin
+      if FConvertOpts.overwrite <> 0 then
+      begin
+        CmdRes := RunCommandCapture('/bin/rm -f ' + QuoteForShell(M4VOut));
+        if CmdRes.ExitCode <> 0 then
+        begin
+          IncFail('Cannot overwrite existing file: ' + M4VOut);
+          Continue;
+        end;
+      end
+      else
+      begin
+        IncFail('Output already exists (enable overwrite): ' + M4VOut);
+        Continue;
+      end;
+    end;
+
+    QueueLog(Format('Apple m4v creator [%d/%d]: %s -> %s', [I + 1, Length(FFiles), SourceFile, M4VOut]));
+    if not CreateAppleM4V(SourceFile, M4VOut, FAppleOpts, ErrText) then
+    begin
+      IncFail(ExtractFileName(SourceFile) + ': ' + ErrText);
+      Continue;
+    end;
+
+    Inc(FSuccessCount);
+    QueueLog('Apple m4v creator OK: ' + M4VOut);
+
+    if FUseEditFlow then
+    begin
+      ConvertedFile := SourceFile;
+      CmdRes := RunCommandCapture('/bin/rm -f ' + QuoteForShell(ConvertedFile));
+      if CmdRes.ExitCode <> 0 then
+        QueueLog('Apple m4v creator warning: failed to delete temp converted file: ' + ConvertedFile);
+    end;
+  end;
+
+  FSuccess := (FFailCount = 0) and (FSuccessCount > 0);
+  if (FSuccessCount = 0) and (FFailCount = 0) then
+    FErrorText := 'No files to process.';
+end;
+
+procedure TMainForm.AsyncLog(Data: PtrInt);
 var
   P: PLogData;
 begin
   P := PLogData(Data);
   try
-    if Assigned(GMainForm) then
-      GMainForm.UiLog(P^.Msg);
+    UiLog(P^.Msg);
   finally
     Dispose(P);
   end;
 end;
 
-procedure AsyncStatus(Data: PtrInt);
+procedure TMainForm.AsyncStatus(Data: PtrInt);
 var
   P: PStatusData;
 begin
   P := PStatusData(Data);
   try
-    if Assigned(GMainForm) then
-      GMainForm.UiStatus(P^.Text);
+    UiStatus(P^.Text);
   finally
     Dispose(P);
   end;
 end;
 
-procedure AsyncStage(Data: PtrInt);
+procedure TMainForm.AsyncStage(Data: PtrInt);
 var
   P: PStageData;
 begin
   P := PStageData(Data);
   try
-    if Assigned(GMainForm) then
-      GMainForm.UiStage(P^.Stage);
+    UiStage(P^.Stage);
   finally
     Dispose(P);
   end;
 end;
 
-procedure AsyncProgress(Data: PtrInt);
+procedure TMainForm.AsyncProgress(Data: PtrInt);
 var
   P: PProgressData;
 begin
   P := PProgressData(Data);
   try
-    if Assigned(GMainForm) then
-      GMainForm.UiProgress(P^.Percent, P^.Fps, P^.Eta);
+    UiProgress(P^.Percent, P^.Fps, P^.Eta);
   finally
     Dispose(P);
   end;
 end;
 
-procedure AsyncFileBegin(Data: PtrInt);
+procedure TMainForm.AsyncFileBegin(Data: PtrInt);
 var
   P: PFileBeginData;
 begin
   P := PFileBeginData(Data);
   try
-    if Assigned(GMainForm) then
-      GMainForm.UiFileBegin(P^.FileName, P^.Index, P^.Total);
+    UiFileBegin(P^.FileName, P^.Index, P^.Total);
   finally
     Dispose(P);
   end;
 end;
 
-procedure AsyncFileEnd(Data: PtrInt);
+procedure TMainForm.AsyncFileEnd(Data: PtrInt);
 var
   P: PFileEndData;
 begin
   P := PFileEndData(Data);
   try
-    if Assigned(GMainForm) then
-      GMainForm.UiFileEnd(P^.FileName, P^.Status);
+    UiFileEnd(P^.FileName, P^.Status);
   finally
     Dispose(P);
   end;
 end;
 
-procedure AsyncComplete(Data: PtrInt);
+procedure TMainForm.AsyncComplete(Data: PtrInt);
 begin
-  if Assigned(GMainForm) then
-    GMainForm.UiComplete;
+  UiComplete;
 end;
 
 procedure QueueLog(const S: string);
@@ -224,7 +484,10 @@ var
 begin
   New(P);
   P^.Msg := S;
-  Application.QueueAsyncCall(@AsyncLog, PtrInt(P));
+  if Assigned(GMainForm) then
+    Application.QueueAsyncCall(@GMainForm.AsyncLog, PtrInt(P))
+  else
+    Dispose(P);
 end;
 
 procedure QueueStatus(const S: string);
@@ -233,7 +496,10 @@ var
 begin
   New(P);
   P^.Text := S;
-  Application.QueueAsyncCall(@AsyncStatus, PtrInt(P));
+  if Assigned(GMainForm) then
+    Application.QueueAsyncCall(@GMainForm.AsyncStatus, PtrInt(P))
+  else
+    Dispose(P);
 end;
 
 procedure QueueStage(const S: string);
@@ -242,7 +508,10 @@ var
 begin
   New(P);
   P^.Stage := S;
-  Application.QueueAsyncCall(@AsyncStage, PtrInt(P));
+  if Assigned(GMainForm) then
+    Application.QueueAsyncCall(@GMainForm.AsyncStage, PtrInt(P))
+  else
+    Dispose(P);
 end;
 
 procedure QueueProgress(Percent, Fps, Eta: Single);
@@ -253,7 +522,10 @@ begin
   P^.Percent := Percent;
   P^.Fps := Fps;
   P^.Eta := Eta;
-  Application.QueueAsyncCall(@AsyncProgress, PtrInt(P));
+  if Assigned(GMainForm) then
+    Application.QueueAsyncCall(@GMainForm.AsyncProgress, PtrInt(P))
+  else
+    Dispose(P);
 end;
 
 procedure QueueFileBegin(const FileName: string; Index, Total: Integer);
@@ -264,7 +536,10 @@ begin
   P^.FileName := FileName;
   P^.Index := Index;
   P^.Total := Total;
-  Application.QueueAsyncCall(@AsyncFileBegin, PtrInt(P));
+  if Assigned(GMainForm) then
+    Application.QueueAsyncCall(@GMainForm.AsyncFileBegin, PtrInt(P))
+  else
+    Dispose(P);
 end;
 
 procedure QueueFileEnd(const FileName: string; Status: TConverterError);
@@ -274,12 +549,16 @@ begin
   New(P);
   P^.FileName := FileName;
   P^.Status := Status;
-  Application.QueueAsyncCall(@AsyncFileEnd, PtrInt(P));
+  if Assigned(GMainForm) then
+    Application.QueueAsyncCall(@GMainForm.AsyncFileEnd, PtrInt(P))
+  else
+    Dispose(P);
 end;
 
 procedure QueueComplete;
 begin
-  Application.QueueAsyncCall(@AsyncComplete, 0);
+  if Assigned(GMainForm) then
+    Application.QueueAsyncCall(@GMainForm.AsyncComplete, 0);
 end;
 
 procedure CbFileBegin(filename: PAnsiChar; index, total: LongInt); cdecl;
@@ -354,15 +633,7 @@ begin
     Exit;
   end;
 
-  FillChar(Cb, SizeOf(Cb), 0);
-  Cb.on_file_begin := @CbFileBegin;
-  Cb.on_file_end := @CbFileEnd;
-  Cb.on_stage := @CbStage;
-  Cb.on_progress_encode := @CbProgressEncode;
-  Cb.on_progress_analysis := @CbProgressAnalysis;
-  Cb.on_message := @CbMessage;
-  Cb.on_error := @CbError;
-  Cb.on_complete := @CbComplete;
+  SetupConverterCallbacks(Cb);
 
   converter_set_callbacks(FConverter, @Cb);
   converter_set_options(FConverter, @FOptions);
@@ -414,12 +685,20 @@ end;
 { TMainForm }
 
 procedure TMainForm.FormCreate(Sender: TObject);
+var
+  Tools: TToolPaths;
 begin
   GMainForm := Self;
-  FOutputDir := '';
+  ApplyBundledToolEnvironment;
+  FOutputDir := DefaultOutputDir;
   FWorker := nil;
+  FAppleWorker := nil;
   SetupControls;
   UpdateDependentWidgets;
+  Tools := ResolveToolPaths;
+  UiLog('Startup ffmpeg=' + Tools.FfmpegBin);
+  UiLog('Startup ffprobe=' + Tools.FfprobeBin);
+  UiLog('Startup PATH=' + Tools.PathValue);
 end;
 
 procedure TMainForm.SetupControls;
@@ -466,9 +745,13 @@ begin
   cmbGenre.Items.Add('podcast');
   cmbGenre.ItemIndex := 0;
 
-  lblOutputDirValue.Caption := '(same as input)';
+  if FOutputDir <> '' then
+    lblOutputDirValue.Caption := FOutputDir
+  else
+    lblOutputDirValue.Caption := '(default unavailable)';
   lblProgressText.Caption := '0%';
   lblStatus.Caption := 'Ready';
+  chkM4VEditBeforeMux.Checked := False;
   pbProgress.Min := 0;
   pbProgress.Max := 100;
   pbProgress.Position := 0;
@@ -486,22 +769,10 @@ begin
   btnAppleM4VCreator.OnClick := @AppleM4VCreatorClicked;
 end;
 
-procedure TMainForm.UpdateDependentWidgets;
+procedure TMainForm.BuildCurrentOptions(out Opts: TConvertOptions);
 var
-  CodecText: string;
-  AudioNormText: string;
-begin
-  CodecText := cmbCodec.Text;
-  AudioNormText := cmbAudioNorm.Text;
-
-  cmbProfile.Enabled := (CodecText <> 'copy') and (CodecText <> 'h265_mi50');
-  cmbDeblock.Enabled := (CodecText <> 'copy') and (CodecText <> 'h265_mi50');
-  cmbGenre.Enabled := (AudioNormText = 'loudness_norm_2pass');
-end;
-
-procedure TMainForm.CollectOptions(out Opts: TConvertOptions; out Files: array of string; out Count: Integer);
-var
-  I: Integer;
+  ResolvedDir: string;
+  DirError: string;
 begin
   InitDefaultOptions(Opts);
 
@@ -527,11 +798,37 @@ begin
   Opts.genre := cmbGenre.ItemIndex + 1;
   Opts.overwrite := Ord(chkOverwrite.Checked);
 
-  if FOutputDir <> '' then
+  if EnsureOutputDirWritable(FOutputDir, ResolvedDir, DirError) then
   begin
-    SetAnsiField(Opts.output_dir, FOutputDir);
+    SetAnsiField(Opts.output_dir, ResolvedDir);
     Opts.output_dir_status := 1;
+    FOutputDir := ResolvedDir;
+  end
+  else
+  begin
+    SetAnsiField(Opts.output_dir, '');
+    Opts.output_dir_status := 0;
   end;
+end;
+
+procedure TMainForm.UpdateDependentWidgets;
+var
+  CodecText: string;
+  AudioNormText: string;
+begin
+  CodecText := cmbCodec.Text;
+  AudioNormText := cmbAudioNorm.Text;
+
+  cmbProfile.Enabled := (CodecText <> 'copy') and (CodecText <> 'h265_mi50');
+  cmbDeblock.Enabled := (CodecText <> 'copy') and (CodecText <> 'h265_mi50');
+  cmbGenre.Enabled := (AudioNormText = 'loudness_norm_2pass');
+end;
+
+procedure TMainForm.CollectOptions(out Opts: TConvertOptions; out Files: array of string; out Count: Integer);
+var
+  I: Integer;
+begin
+  BuildCurrentOptions(Opts);
 
   Count := lstFiles.Items.Count;
   for I := 0 to Count - 1 do
@@ -592,7 +889,15 @@ var
   Opts: TConvertOptions;
   FileArr: array of string;
   Count: Integer;
+  ResolvedDir: string;
+  DirError: string;
 begin
+  if Assigned(FAppleWorker) then
+  begin
+    MessageDlg('Apple m4v creator is running. Please wait for completion first.', mtWarning, [mbOK], 0);
+    Exit;
+  end;
+
   if lstFiles.Items.Count = 0 then
   begin
     MessageDlg('No files selected.', mtWarning, [mbOK], 0);
@@ -601,6 +906,15 @@ begin
 
   SetLength(FileArr, lstFiles.Items.Count);
   CollectOptions(Opts, FileArr, Count);
+
+  if not EnsureOutputDirWritable(string(PAnsiChar(@Opts.output_dir[0])), ResolvedDir, DirError) then
+  begin
+    MessageDlg('Output preflight failed: ' + DirError, mtError, [mbOK], 0);
+    Exit;
+  end;
+  SetAnsiField(Opts.output_dir, ResolvedDir);
+  FOutputDir := ResolvedDir;
+  lblOutputDirValue.Caption := FOutputDir;
 
   lstLog.Clear;
   pbProgress.Position := 0;
@@ -624,57 +938,87 @@ end;
 
 procedure TMainForm.AppleM4VCreatorClicked(Sender: TObject);
 var
-  InDlg: TOpenDialog;
-  OutDlg: TSaveDialog;
-  InFile: string;
-  OutFile: string;
+  Files: array of string;
+  I: Integer;
+  ConvertOpts: TConvertOptions;
   Opts: TAppleM4VOptions;
-  ErrText: string;
+  ResolvedDir: string;
+  DirError: string;
 begin
-  InDlg := TOpenDialog.Create(Self);
-  OutDlg := TSaveDialog.Create(Self);
-  try
-    InDlg.Options := [ofFileMustExist, ofPathMustExist];
-    InDlg.Filter := 'Video files|*.mkv;*.mov;*.mp4;*.m4v|All files|*.*';
-    if not InDlg.Execute then
-      Exit;
-
-    InFile := InDlg.FileName;
-
-    OutDlg.Filter := 'Apple M4V|*.m4v|All files|*.*';
-    OutDlg.DefaultExt := 'm4v';
-    OutDlg.FileName := ChangeFileExt(ExtractFileName(InFile), '.m4v');
-    if not OutDlg.Execute then
-      Exit;
-
-    OutFile := OutDlg.FileName;
-
-    UiLog('Apple m4v creator: started for ' + InFile);
-    UiStatus('Apple m4v creator: processing...');
-
-    Opts := DefaultAppleM4VOptions;
-    if not PromptAppleM4VOptions(Opts) then
-    begin
-      UiLog('Apple m4v creator: cancelled by user.');
-      UiStatus('Ready');
-      Exit;
-    end;
-
-    if not CreateAppleM4V(InFile, OutFile, Opts, ErrText) then
-    begin
-      UiLog('Apple m4v creator ERROR: ' + ErrText);
-      UiStatus('Apple m4v creator: failed');
-      MessageDlg('Apple m4v creator failed:' + LineEnding + ErrText, mtError, [mbOK], 0);
-      Exit;
-    end;
-
-    UiLog('Apple m4v creator: done -> ' + OutFile);
-    UiStatus('Apple m4v creator: done');
-    MessageDlg('Apple-compatible M4V created:' + LineEnding + OutFile, mtInformation, [mbOK], 0);
-  finally
-    OutDlg.Free;
-    InDlg.Free;
+  if Assigned(FAppleWorker) then
+  begin
+    MessageDlg('Apple m4v creator is already running.', mtInformation, [mbOK], 0);
+    Exit;
   end;
+
+  if Assigned(FWorker) then
+  begin
+    MessageDlg('Main conversion is running. Please wait for completion first.', mtWarning, [mbOK], 0);
+    Exit;
+  end;
+
+  if lstFiles.Items.Count = 0 then
+  begin
+    MessageDlg('No files selected in file list.', mtWarning, [mbOK], 0);
+    Exit;
+  end;
+
+  BuildCurrentOptions(ConvertOpts);
+  if not EnsureOutputDirWritable(string(PAnsiChar(@ConvertOpts.output_dir[0])), ResolvedDir, DirError) then
+  begin
+    MessageDlg('Output preflight failed: ' + DirError, mtError, [mbOK], 0);
+    Exit;
+  end;
+  SetAnsiField(ConvertOpts.output_dir, ResolvedDir);
+  FOutputDir := ResolvedDir;
+  lblOutputDirValue.Caption := FOutputDir;
+
+  if chkM4VEditBeforeMux.Checked and (Trim(string(PAnsiChar(@ConvertOpts.output_dir[0]))) = '') then
+  begin
+    MessageDlg('For "m4v edit" mode, select output folder first. This folder is used for both main and Apple outputs.', mtWarning, [mbOK], 0);
+    Exit;
+  end;
+
+  Opts := DefaultAppleM4VOptions;
+  if not PromptAppleM4VOptions(Opts) then
+  begin
+    UiLog('Apple m4v creator: cancelled by user.');
+    UiStatus('Ready');
+    Exit;
+  end;
+
+  SetLength(Files, lstFiles.Items.Count);
+  for I := 0 to lstFiles.Items.Count - 1 do
+    Files[I] := lstFiles.Items[I];
+
+  UiLog(Format('Apple m4v creator: started for %d file(s).', [Length(Files)]));
+  if chkM4VEditBeforeMux.Checked then
+    UiLog('Apple m4v creator: edit-before-mux mode enabled (main worker -> m4v -> cleanup).')
+  else
+    UiLog('Apple m4v creator: direct mode enabled (source list -> m4v).');
+  UiStatus('Apple m4v creator: processing...');
+
+  SetAppleActionState(True);
+  FAppleWorker := TAppleM4VThread.Create(Files, Opts, ConvertOpts, chkM4VEditBeforeMux.Checked);
+  FAppleWorker.OnTerminate := @AppleWorkerTerminated;
+  FAppleWorker.Start;
+end;
+
+procedure TMainForm.SetAppleActionState(Busy: Boolean);
+begin
+  btnAppleM4VCreator.Enabled := not Busy;
+  btnAddFiles.Enabled := not Busy;
+  btnRemoveSelected.Enabled := not Busy;
+  btnClearList.Enabled := not Busy;
+  btnChooseOutputDir.Enabled := not Busy;
+
+  if Busy then
+  begin
+    btnStart.Enabled := False;
+    btnStop.Enabled := False;
+  end
+  else
+    SetRunningState(Assigned(FWorker));
 end;
 
 function TMainForm.PromptAppleM4VOptions(var Opts: TAppleM4VOptions): Boolean;
@@ -743,7 +1087,30 @@ end;
 procedure TMainForm.WorkerTerminated(Sender: TObject);
 begin
   FWorker := nil;
-  SetRunningState(False);
+  SetAppleActionState(Assigned(FAppleWorker));
+end;
+
+procedure TMainForm.AppleWorkerTerminated(Sender: TObject);
+var
+  W: TAppleM4VThread;
+begin
+  W := TAppleM4VThread(Sender);
+  if W.Success then
+  begin
+    UiLog(Format('Apple m4v creator: done (ok=%d, failed=%d).', [W.SuccessCount, W.FailCount]));
+    UiStatus('Apple m4v creator: done');
+    MessageDlg(Format('Apple m4v creator finished.' + LineEnding + 'Success: %d' + LineEnding + 'Failed: %d', [W.SuccessCount, W.FailCount]), mtInformation, [mbOK], 0);
+  end
+  else
+  begin
+    UiLog(Format('Apple m4v creator: finished with errors (ok=%d, failed=%d).', [W.SuccessCount, W.FailCount]));
+    UiLog('Apple m4v creator ERROR: ' + W.ErrorText);
+    UiStatus('Apple m4v creator: failed');
+    MessageDlg('Apple m4v creator failed:' + LineEnding + W.ErrorText, mtError, [mbOK], 0);
+  end;
+
+  FAppleWorker := nil;
+  SetAppleActionState(False);
 end;
 
 procedure TMainForm.UiLog(const S: string);
@@ -763,17 +1130,18 @@ begin
 end;
 
 procedure TMainForm.UiProgress(Percent, Fps, Eta: Single);
+var
+  EtaText: string;
 begin
   if Percent < 0 then Percent := 0;
   if Percent > 100 then Percent := 100;
   pbProgress.Position := Round(Percent);
+  EtaText := FormatEta(Eta);
 
   if Fps > 0 then
-    lblProgressText.Caption := Format('%.0f fps', [Fps])
+    lblProgressText.Caption := Format('%.0f fps | %s', [Fps, EtaText])
   else
-    lblProgressText.Caption := Format('%d%%', [Round(Percent)]);
-
-  lblStatus.Caption := FormatEta(Eta);
+    lblProgressText.Caption := Format('%d%% | %s', [Round(Percent), EtaText]);
 end;
 
 procedure TMainForm.UiFileBegin(const FileName: string; Index, Total: Integer);
@@ -788,6 +1156,12 @@ end;
 
 procedure TMainForm.UiComplete;
 begin
+  if Assigned(FAppleWorker) and (not Assigned(FWorker)) then
+  begin
+    UiLog('Main worker phase finished. Continuing Apple m4v phase...');
+    Exit;
+  end;
+
   UiLog('All files processed.');
   lblStatus.Caption := 'All files processed.';
   SetRunningState(False);

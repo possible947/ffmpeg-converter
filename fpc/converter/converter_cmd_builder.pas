@@ -92,6 +92,7 @@ begin
     Result += Format('-af "aresample=resampler=soxr:precision=28:cheby=1,loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:measured_I=%.2f:measured_TP=%.2f:measured_LRA=%.2f:measured_thresh=%.2f:offset=%.2f:linear=true" ',
       [Opts.I_target, Opts.TP_target, Opts.LRA_target, Opts.measured_I, Opts.measured_TP, Opts.measured_LRA, Opts.measured_thresh, Opts.measured_offset], Fmt);
 
+  Result += '-progress pipe:1 -nostats -nostdin ';
   Result += QuoteForShell(OutputFile);
 end;
 

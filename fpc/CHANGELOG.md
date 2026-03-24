@@ -12,6 +12,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   documented and aligned with the current script behavior:
   `src/platform/macos/bin/ffmpeg` and `src/platform/macos/bin/ffprobe`.
 
+### Fixed
+- Pascal GUI conversion progress/status flow:
+  - encode path now streams ffmpeg progress in real time instead of updating
+    only at completion;
+  - ffmpeg progress flags are injected before output argument to keep CLI syntax
+    valid;
+  - stage/status text delivery to GUI callbacks is stabilized for consistent
+    bottom status line rendering.
+
 ---
 
 ## [2.0.0] — 2026-03-16

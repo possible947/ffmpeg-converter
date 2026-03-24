@@ -63,6 +63,28 @@ begin
   Result := StrPas(@A[0]);
 end;
 
+procedure EmitMessage(Ctx: PConverterObj; const Msg: string);
+var
+  S: AnsiString;
+begin
+  if Assigned(Ctx^.Cb.on_message) then
+  begin
+    S := AnsiString(Msg);
+    Ctx^.Cb.on_message(PAnsiChar(S));
+  end;
+end;
+
+procedure EmitStage(Ctx: PConverterObj; const StageName: string);
+var
+  S: AnsiString;
+begin
+  if Assigned(Ctx^.Cb.on_stage) then
+  begin
+    S := AnsiString(StageName);
+    Ctx^.Cb.on_stage(PAnsiChar(S));
+  end;
+end;
+
 procedure EmitError(Ctx: PConverterObj; const Msg: string; Code: TConverterError);
 begin
   if Assigned(Ctx^.Cb.on_error) then
@@ -102,8 +124,7 @@ begin
   begin
     if Ctx^.Opts.overwrite = 0 then
     begin
-      if Assigned(Ctx^.Cb.on_message) then
-        Ctx^.Cb.on_message('output file exists - skipping');
+      EmitMessage(Ctx, 'output file exists - skipping');
       Exit(ERR_OUTPUT_EXISTS);
     end;
   end;
@@ -267,8 +288,7 @@ begin
     AudioNorm := ArrToStr(FileOpts.audio_norm);
     if AudioNorm = 'peak_norm_2pass' then
     begin
-      if Assigned(Ctx^.Cb.on_stage) then
-        Ctx^.Cb.on_stage('peak analysis');
+      EmitStage(Ctx, 'peak analysis');
 
       Err := RunPeakTwoPass(InputFile, EffectiveOutDir, ErrorLogPath, ErrorLogNotice, Gain);
       if Err <> ERR_OK then
@@ -293,8 +313,7 @@ begin
 
     if AudioNorm = 'loudness_norm_2pass' then
     begin
-      if Assigned(Ctx^.Cb.on_stage) then
-        Ctx^.Cb.on_stage('loudnorm analysis');
+      EmitStage(Ctx, 'loudnorm analysis');
 
       ApplyGenreTargets(FileOpts);
       Err := RunLoudnormTwoPass(InputFile, EffectiveOutDir, ErrorLogPath, ErrorLogNotice, FileOpts);
@@ -324,25 +343,32 @@ begin
 
     Cmd := BuildFfmpegCommand(FileOpts, InputFile, OutputFile);
 
-    if Assigned(Ctx^.Cb.on_stage) then
-      Ctx^.Cb.on_stage('encoding');
+    EmitStage(Ctx, 'encoding');
 
-    Err := RunEncode(Cmd, InputFile, OutputFile, EffectiveOutDir, ErrorLogPath, ErrorLogNotice);
+    Err := RunEncode(
+      Cmd,
+      InputFile,
+      OutputFile,
+      EffectiveOutDir,
+      Ctx^.Cb.on_progress_encode,
+      Ctx^.Cb.on_message,
+      @Ctx^.StopFlag,
+      ErrorLogPath,
+      ErrorLogNotice
+    );
     if Err <> ERR_OK then
     begin
-      if ErrorLogPath <> '' then
-        EmitError(Ctx, 'ffmpeg failed; log: ' + ErrorLogPath, Err)
-      else
-        EmitError(Ctx, 'ffmpeg failed', Err);
+      if Err <> ERR_SKIP_FILE then
+      begin
+        if ErrorLogPath <> '' then
+          EmitError(Ctx, 'ffmpeg failed; log: ' + ErrorLogPath, Err)
+        else
+          EmitError(Ctx, 'ffmpeg failed', Err);
 
-      if ErrorLogNotice <> '' then
-        EmitError(Ctx, ErrorLogNotice, Err);
-    end
-    else if Assigned(Ctx^.Cb.on_message) then
-      Ctx^.Cb.on_message('encoding finished');
-
-    if Assigned(Ctx^.Cb.on_progress_encode) then
-      Ctx^.Cb.on_progress_encode(100.0, 0.0, 0.0);
+        if ErrorLogNotice <> '' then
+          EmitError(Ctx, ErrorLogNotice, Err);
+      end;
+    end;
 
     if Assigned(Ctx^.Cb.on_file_end) then
       Ctx^.Cb.on_file_end(PAnsiChar(AnsiString(InputFile)), Err);

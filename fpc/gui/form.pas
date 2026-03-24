@@ -1130,17 +1130,18 @@ begin
 end;
 
 procedure TMainForm.UiProgress(Percent, Fps, Eta: Single);
+var
+  EtaText: string;
 begin
   if Percent < 0 then Percent := 0;
   if Percent > 100 then Percent := 100;
   pbProgress.Position := Round(Percent);
+  EtaText := FormatEta(Eta);
 
   if Fps > 0 then
-    lblProgressText.Caption := Format('%.0f fps', [Fps])
+    lblProgressText.Caption := Format('%.0f fps | %s', [Fps, EtaText])
   else
-    lblProgressText.Caption := Format('%d%%', [Round(Percent)]);
-
-  lblStatus.Caption := FormatEta(Eta);
+    lblProgressText.Caption := Format('%d%% | %s', [Round(Percent), EtaText]);
 end;
 
 procedure TMainForm.UiFileBegin(const FileName: string; Index, Total: Integer);
