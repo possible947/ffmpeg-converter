@@ -16,6 +16,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 
 - Video codecs: `copy`, `prores`, `prores_ks`, `h265_mi50` (H.265 VAAPI).
 - Audio normalization: `none`, `peak`, `peak 2-pass`, `loudness`, `loudness 2-pass`.
+- **Audio filter multithreading**: 2-pass analysis uses `-filter_threads N` (N = CPU/2) for parallel audio processing.
 - Encode progress: percent, FPS, ETA.
 - CLI with argument parsing and interactive menu.
 - **Linux GUI** — GTK4 (C implementation).
@@ -32,6 +33,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - `cmake` ≥ 3.16, C compiler (clang/gcc).
 - `jansson` library (JSON parsing for loudnorm).
 - `ffmpeg` + `ffprobe` — bundled inside macOS app bundle; required in PATH for CLI.
+  On macOS, priority order: macports FFmpeg8 (`/opt/local/bin/ffmpeg8`) → macports (`/opt/local/bin/ffmpeg`) → system PATH.
 - `MP4Box` (GPAC) for Apple M4V packaging/runtime on macOS native GUI.
 - Linux GUI only: `libgtk-4-dev` (or distro equivalent).
 

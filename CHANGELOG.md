@@ -7,6 +7,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Audio filter multithreading for 2-pass analysis:
+  - Added `-filter_threads N` flag to `peak_two_pass` and `loudnorm_two_pass`.
+  - CPU thread detection via `sysconf(_SC_NPROCESSORS_ONLN)` (Linux) or `sysctlbyname("hw.ncpu")` (macOS).
+  - Thread count = CPU cores / 2 (minimum 1).
+- macOS FFmpeg priority detection:
+  - Checks `/opt/local/bin/ffmpeg8` (macports FFmpeg8) first
+  - Falls back to `/opt/local/bin/ffmpeg` (macports)
+  - Falls back to bundled or system ffmpeg
+- Same priority order for ffprobe on macOS.
+
 ### Fixed
 - Converter output directory preflight in C core (`src/converter/converter.c`):
   - default output directory fallback to `$HOME/ffmpeg_converter` when `-o` is

@@ -7,6 +7,11 @@
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
+#include <libgen.h>
+
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 
 struct Converter {
     ConvertOptions opts;
@@ -14,12 +19,67 @@ struct Converter {
     int stop_flag;
 };
 
+static int is_executable(const char* path) {
+    return (access(path, X_OK) == 0);
+}
+
+static const char* get_exe_dir(void) {
+    static char exe_dir[1024] = {0};
+    static int initialized = 0;
+    
+    if (initialized) return exe_dir;
+    
+    char exe_path[1024];
+    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    if (len == -1) {
+        initialized = 1;
+        return exe_dir;
+    }
+    exe_path[len] = '\0';
+    
+    strncpy(exe_dir, dirname(exe_path), sizeof(exe_dir) - 1);
+    exe_dir[sizeof(exe_dir) - 1] = '\0';
+    initialized = 1;
+    
+    return exe_dir;
+}
+
+static const char* resolve_bundled_bin(const char* name) {
+    const char* exe_dir = get_exe_dir();
+    if (exe_dir[0] == '\0') return NULL;
+    
+    static char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", exe_dir, name);
+    
+    if (is_executable(path)) {
+        return path;
+    }
+    return NULL;
+}
+
 static const char* get_ffmpeg_bin(void) {
     const char* v = getenv("FFMPEG");
     if (v && v[0] != '\0') return v;
 
     v = getenv("FFMPEG_BIN");
-    return (v && v[0] != '\0') ? v : "ffmpeg";
+    if (v && v[0] != '\0') return v;
+
+#if defined(__APPLE__)
+    static char mp_bin[256];
+    if (access("/opt/local/bin/ffmpeg8", X_OK) == 0) {
+        snprintf(mp_bin, sizeof(mp_bin), "/opt/local/bin/ffmpeg8");
+        return mp_bin;
+    }
+    if (access("/opt/local/bin/ffmpeg", X_OK) == 0) {
+        snprintf(mp_bin, sizeof(mp_bin), "/opt/local/bin/ffmpeg");
+        return mp_bin;
+    }
+#endif
+
+    const char* bundled = resolve_bundled_bin("ffmpeg");
+    if (bundled) return bundled;
+
+    return "ffmpeg";
 }
 
 static const char* get_ffprobe_bin(void) {
@@ -27,7 +87,51 @@ static const char* get_ffprobe_bin(void) {
     if (v && v[0] != '\0') return v;
 
     v = getenv("FFPROBE_BIN");
-    return (v && v[0] != '\0') ? v : "ffprobe";
+    if (v && v[0] != '\0') return v;
+
+#if defined(__APPLE__)
+    static char mp_bin[256];
+    if (access("/opt/local/bin/ffprobe8", X_OK) == 0) {
+        snprintf(mp_bin, sizeof(mp_bin), "/opt/local/bin/ffprobe8");
+        return mp_bin;
+    }
+    if (access("/opt/local/bin/ffprobe", X_OK) == 0) {
+        snprintf(mp_bin, sizeof(mp_bin), "/opt/local/bin/ffprobe");
+        return mp_bin;
+    }
+#endif
+
+    const char* bundled = resolve_bundled_bin("ffprobe");
+    if (bundled) return bundled;
+
+    return "ffprobe";
+}
+
+// ------------------------------------------------------------
+//  CPU thread count for filter multithreading
+// ------------------------------------------------------------
+static int get_cpu_count(void) {
+#if defined(__APPLE__)
+    int count = 0;
+    size_t size = sizeof(count);
+    if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0 && count > 0) {
+        return count;
+    }
+    long num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    if (num_cpus < 1) return 1;
+    return (int)num_cpus;
+#else
+    long num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    if (num_cpus < 1) return 1;
+    return (int)num_cpus;
+#endif
+}
+
+int get_filter_threads(void) {
+    int cpus = get_cpu_count();
+    int threads = cpus / 2;
+    if (threads < 1) threads = 1;
+    return threads;
 }
 
 // ------------------------------------------------------------
@@ -369,9 +473,10 @@ static ConverterError peak_two_pass(
 
     char cmd[2048];
     const char *ffmpeg_bin = get_ffmpeg_bin();
+    int filter_threads = get_filter_threads();
     snprintf(cmd, sizeof(cmd),
-        "\"%s\" -vn -i \"%s\" -af volumedetect -f null - 2>&1",
-        ffmpeg_bin, input);
+        "\"%s\" -filter_threads %d -vn -i \"%s\" -af volumedetect -f null - 2>&1",
+        ffmpeg_bin, filter_threads, input);
 
     double duration = get_duration(input);
     FILE* fp = popen(cmd, "r");
@@ -456,11 +561,12 @@ static ConverterError loudnorm_two_pass(
 
     char cmd[2048];
     const char *ffmpeg_bin = get_ffmpeg_bin();
+    int filter_threads = get_filter_threads();
     snprintf(cmd, sizeof(cmd),
-        "\"%s\" -vn -i \"%s\" -af "
+        "\"%s\" -filter_threads %d -vn -i \"%s\" -af "
         "\"loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:print_format=json\" "
         "-f null - 2>&1",
-        ffmpeg_bin, input, I_target, TP_target, LRA_target);
+        ffmpeg_bin, filter_threads, input, I_target, TP_target, LRA_target);
 
     double duration = get_duration(input);
     FILE* fp = popen(cmd, "r");
