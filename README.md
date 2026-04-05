@@ -14,7 +14,8 @@ Two independent implementations share the same conversion logic and CLI behavior
 
 ## Features
 
-- Video codecs: `copy`, `prores`, `prores_ks`, `h265_mi50` (H.265 VAAPI).
+- Video codecs (cross-platform): `copy`, `prores`, `prores_ks`.
+- Video codecs (macOS VideoToolbox): `prores_videotoolbox`, `hevc_videotoolbox`.
 - Audio normalization: `none`, `peak`, `peak 2-pass`, `loudness`, `loudness 2-pass`.
 - **Audio filter multithreading**: 2-pass analysis uses `-filter_threads N` (N = CPU/2) for parallel audio processing.
 - Encode progress: percent, FPS, ETA.
@@ -88,7 +89,7 @@ bash fpc/build/package_macos_app.sh
 # CLI examples
 ./build/src/cli/ffmpeg_converter input.mov
 ./build/src/cli/ffmpeg_converter -c prores_ks -p hq -a loudnorm2 -g rock input.mov
-./build/src/cli/ffmpeg_converter -o /tmp/out -c h265_mi50 input.mov
+./build/src/cli/ffmpeg_converter -o /tmp/out -c hevc_videotoolbox input.mov  # macOS
 ```
 
 CLI notes:
@@ -144,8 +145,11 @@ third_party/   Vendored jansson (C path)
 
 ## Notes
 
-- `h265_mi50` requires VAAPI. Default device: `/dev/dri/renderD128`. Override
-  via `VAAPI_DEVICE` environment variable.
+- `hevc_videotoolbox` uses Apple VideoToolbox hardware encoder on macOS. Bitrate
+  is calculated automatically per-file using a sub-linear formula (base 35 Mbps
+  at 4K/24 fps), clamped to [2000, 80000] kbps.
+- `prores_videotoolbox` uses Apple's proprietary ProRes encoder (hardware on
+  Apple Silicon, software fallback on Intel via `-allow_sw 1`).
 - Loudness 2-pass requires `ffmpeg` and `jansson`.
 - The macOS native C `.app` bundle includes ffmpeg/ffprobe and attempts to bundle
   MP4Box + dependent dylibs at build time.

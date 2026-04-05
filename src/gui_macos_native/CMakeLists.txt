@@ -26,6 +26,7 @@ add_executable(macos_gui_native MACOSX_BUNDLE
 
 set_target_properties(macos_gui_native PROPERTIES
     OUTPUT_NAME "ffmpeg_converter_gui_macos"
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
 )
 
 target_compile_options(macos_gui_native PRIVATE -fobjc-arc)

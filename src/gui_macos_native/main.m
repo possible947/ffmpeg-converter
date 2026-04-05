@@ -199,8 +199,8 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     [codecLabel setDrawsBackground:NO];
     [content addSubview:codecLabel];
 
-    self.codecPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(82, 554, 150, 28) pullsDown:NO];
-    [self.codecPopup addItemsWithTitles:@[@"copy", @"prores", @"prores_ks", @"h265_mi50"]];
+    self.codecPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(82, 554, 160, 28) pullsDown:NO];
+    [self.codecPopup addItemsWithTitles:@[@"copy", @"prores", @"prores_ks", @"prores_videotoolbox", @"hevc_videotoolbox"]];
     [self.codecPopup setTarget:self];
     [self.codecPopup setAction:@selector(onCodecChanged:)];
     [content addSubview:self.codecPopup];
@@ -785,9 +785,15 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
 
 - (void)updateDependentControls {
     NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
-    BOOL profileEnabled = ![codec isEqualToString:@"copy"] && ![codec isEqualToString:@"h265_mi50"];
+    // Profile: prores software and prores_videotoolbox hardware share same profiles
+    BOOL profileEnabled = ([codec isEqualToString:@"prores"] ||
+                           [codec isEqualToString:@"prores_ks"] ||
+                           [codec isEqualToString:@"prores_videotoolbox"]);
+    // Deblock: software prores encoders only; hardware encoders skip
+    BOOL deblockEnabled = ([codec isEqualToString:@"prores"] ||
+                           [codec isEqualToString:@"prores_ks"]);
     [self.profilePopup setEnabled:profileEnabled];
-    [self.deblockPopup setEnabled:profileEnabled];
+    [self.deblockPopup setEnabled:deblockEnabled];
 
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     BOOL genreEnabled = [audioNorm isEqualToString:@"loudness_norm_2pass"];

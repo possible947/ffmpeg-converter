@@ -42,7 +42,9 @@ typedef enum {
 // ------------------------------------------------------------
 typedef struct {
     // VIDEO
-    char codec[32];     // "copy", "prores", "prores_ks"
+    char codec[32];     // "copy", "prores", "prores_ks",
+                        // "prores_videotoolbox" (macOS),
+                        // "hevc_videotoolbox"   (macOS)
     int  profile;       // 0=none, 1=lt, 2=standard, 3=hq, 4=4444
     int  deblock;       // 1=none, 2=weak, 3=strong
 
@@ -69,6 +71,7 @@ typedef struct {
     char output_dir[1024]; // optional output directory ("" = same as input)
     int output_dir_status;
     int use_aac_for_h265;
+    int hevc_vt_bitrate_kbps;  // calculated at runtime for hevc_videotoolbox
 
 } ConvertOptions;
 

@@ -8,6 +8,42 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- macOS VideoToolbox codec support (`prores_videotoolbox`, `hevc_videotoolbox`):
+  - `prores_videotoolbox`: uses Apple's proprietary ProRes encoder; passes
+    `-allow_sw 1` so software fallback is available on Intel Macs (hardware on
+    Apple Silicon).
+  - `hevc_videotoolbox`: uses Apple VideoToolbox H.265 encoder with automatic
+    per-file bitrate calculation (sub-linear formula: base 35 Mbps at 4K/24 fps,
+    exponent 0.75 on fps, clamped [2000, 80000] kbps). Output tagged `hvc1` for
+    maximum compatibility. Spatial AQ enabled.
+  - `get_video_info()`: new helper in `converter.c` (macOS-guarded) — calls
+    `ffprobe` to extract width, height, and frame rate for bitrate calculation.
+  - `calc_hevc_vt_bitrate_kbps()`: implements the sub-linear bitrate formula.
+- `src/gui_macos_native/Info.plist.in`: CMake-processed `Info.plist` template
+  with `CFBundleIdentifier = com.ffmpeg-converter.macos-gui`, fixing silent
+  NSOpenPanel failure caused by missing bundle identifier (macOS TCC).
+
+### Changed
+- macOS codec popup width adjusted to 160 px to prevent overlap with adjacent
+  column in the native GUI.
+- Native macOS GUI `onAddFilesClicked:` now uses `[NSOpenPanel runModal]`
+  instead of `beginSheetModalForWindow:`.
+- `src/gui_macos_native/CMakeLists.txt`: added `MACOSX_BUNDLE_INFO_PLIST`
+  property pointing to the new `Info.plist.in` template.
+- macOS codec popup items updated to: `copy`, `prores`, `prores_ks`,
+  `prores_videotoolbox`, `hevc_videotoolbox`.
+- macOS `updateDependentControls`: profile control enabled for `prores`,
+  `prores_ks`, and `prores_videotoolbox`; deblock enabled for `prores` and
+  `prores_ks` only (hardware encoders excluded).
+- macOS CLI usage and interactive menu updated for the new codec set.
+- Output extension mapping: `hevc_videotoolbox` → `.mp4`; `copy` → `.mkv`;
+  all other codecs → `.mov`.
+
+### Removed
+- `h265_mi50` (H.265 VAAPI) and all VAAPI-related command-line preamble removed
+  from `converter.c` macOS path. VAAPI was Linux-only and unused on macOS.
+
+### Added
 - Audio filter multithreading for 2-pass analysis:
   - Added `-filter_threads N` flag to `peak_two_pass` and `loudnorm_two_pass`.
   - CPU thread detection via `sysconf(_SC_NPROCESSORS_ONLN)` (Linux) or `sysctlbyname("hw.ncpu")` (macOS).

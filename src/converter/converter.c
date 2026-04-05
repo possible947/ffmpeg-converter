@@ -8,6 +8,9 @@
 #include <time.h>
 #include <errno.h>
 #include <libgen.h>
+#if defined(__APPLE__)
+#include <math.h>
+#endif
 
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
@@ -330,6 +333,71 @@ static double get_duration(const char *input) {
 }
 
 // ------------------------------------------------------------
+//  macOS VideoToolbox helpers
+// ------------------------------------------------------------
+#if defined(__APPLE__)
+
+// Probe width, height, fps (as double) of the first video stream.
+static void get_video_info(const char *input,
+                            int *out_width,
+                            int *out_height,
+                            double *out_fps)
+{
+    *out_width  = 0;
+    *out_height = 0;
+    *out_fps    = 0.0;
+
+    char cmd[2048];
+    const char *ffprobe_bin = get_ffprobe_bin();
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -v error -select_streams v:0"
+             " -show_entries stream=width,height,r_frame_rate"
+             " -of default=noprint_wrappers=1:nokey=1 \"%s\" 2>/dev/null",
+             ffprobe_bin, input);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return;
+
+    char line[256];
+    // line 1 = width
+    if (fgets(line, sizeof(line), fp)) *out_width  = atoi(line);
+    // line 2 = height
+    if (fgets(line, sizeof(line), fp)) *out_height = atoi(line);
+    // line 3 = r_frame_rate as "num/den"
+    if (fgets(line, sizeof(line), fp)) {
+        int num = 0, den = 1;
+        if (sscanf(line, "%d/%d", &num, &den) == 2 && den > 0)
+            *out_fps = (double)num / (double)den;
+        else
+            *out_fps = atof(line);
+    }
+    pclose(fp);
+}
+
+// Sub-linear bits-per-pixel formula:
+//   base = 35000 kbps @ 4K (3840x2160) 24 fps
+//   bitrate = base * (pixels / base_pixels) * (fps / base_fps)^0.75
+//   clamped to [2000, 80000] kbps
+static int calc_hevc_vt_bitrate_kbps(int width, int height, double fps)
+{
+    if (width <= 0 || height <= 0 || fps <= 0.0) return 35000;
+
+    const double BASE_KBPS   = 35000.0;
+    const double BASE_PIXELS = 3840.0 * 2160.0;
+    const double BASE_FPS    = 24.0;
+
+    double pixel_ratio = (double)(width * height) / BASE_PIXELS;
+    double fps_ratio   = pow(fps / BASE_FPS, 0.75);
+    double kbps        = BASE_KBPS * pixel_ratio * fps_ratio;
+
+    if (kbps < 2000.0)  kbps = 2000.0;
+    if (kbps > 80000.0) kbps = 80000.0;
+    return (int)kbps;
+}
+
+#endif /* __APPLE__ */
+
+// ------------------------------------------------------------
 //  File checks
 // ------------------------------------------------------------
 static ConverterError check_file(Converter* c, const char *file) {
@@ -397,21 +465,27 @@ static void make_output_name(
     
     if (base_len <= max_safe_base_len) {
         // Имя вписывается нормально
-        if (strcmp(opts->codec, "copy") == 0 ||
-            strcmp(opts->codec, "h265_mi50") == 0)
-            snprintf(filename, sizeof(filename), "%s_converted.mkv", base);
+        const char *ext;
+        if (strcmp(opts->codec, "copy") == 0)
+            ext = "mkv";
+        else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
+            ext = "mp4";
         else
-            snprintf(filename, sizeof(filename), "%s_converted.mov", base);
+            ext = "mov";
+        snprintf(filename, sizeof(filename), "%s_converted.%s", base, ext);
     } else {
         // Имя слишком длинное - усекаем
         char truncated[512];
         snprintf(truncated, sizeof(truncated), "%s", base);
-        
-        if (strcmp(opts->codec, "copy") == 0 ||
-            strcmp(opts->codec, "h265_mi50") == 0)
-            snprintf(filename, sizeof(filename), "%s_converted.mkv", truncated);
+
+        const char *ext;
+        if (strcmp(opts->codec, "copy") == 0)
+            ext = "mkv";
+        else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
+            ext = "mp4";
         else
-            snprintf(filename, sizeof(filename), "%s_converted.mov", truncated);
+            ext = "mov";
+        snprintf(filename, sizeof(filename), "%s_converted.%s", truncated, ext);
     }
 
     // 4. Если output_dir не указан
@@ -671,16 +745,7 @@ static void build_ffmpeg_cmd(
     cmd[0] = 0;
 
     // input
-    if (strcmp(opts->codec, "h265_mi50") == 0) {
-        const char* device = getenv("VAAPI_DEVICE");
-        if (!device || device[0] == '\0')
-            device = "/dev/dri/renderD128";
-        snprintf(cmd, sizeof(cmd),
-                 "\"%s\" -vaapi_device \"%s\" -i \"%s\" ",
-                 ffmpeg_bin, device, input);
-    } else {
-        snprintf(cmd, sizeof(cmd), "\"%s\" -i \"%s\" ", ffmpeg_bin, input);
-    }
+    snprintf(cmd, sizeof(cmd), "\"%s\" -i \"%s\" ", ffmpeg_bin, input);
 
     if (opts->overwrite)
         strcat(cmd, "-y ");
@@ -702,20 +767,30 @@ static void build_ffmpeg_cmd(
                  opts->codec, opts->profile);
         strcat(cmd, tmp);
     }
-    else if (strcmp(opts->codec, "h265_mi50") == 0)
+    else if (strcmp(opts->codec, "prores_videotoolbox") == 0)
     {
-        strcat(cmd,
-            "-c:v hevc_vaapi -rc_mode:v auto -qp 25 "
-            "-profile:v main -level:v 5.1 ");
+        char tmp[128];
+        snprintf(tmp, sizeof(tmp),
+                 "-c:v prores_videotoolbox -profile:v %d -allow_sw 1 ",
+                 opts->profile);
+        strcat(cmd, tmp);
+    }
+    else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
+    {
+        char tmp[128];
+        snprintf(tmp, sizeof(tmp),
+                 "-c:v hevc_videotoolbox -b:v %dk -tag:v hvc1 -spatial_aq 1 ",
+                 opts->hevc_vt_bitrate_kbps > 0 ? opts->hevc_vt_bitrate_kbps : 35000);
+        strcat(cmd, tmp);
     }
     else {
         strcat(cmd, "-c:v copy ");
     }
 
-    // deblock
-    if (strcmp(opts->codec, "h265_mi50") == 0) {
-        strcat(cmd, "-vf \"format=nv12,hwupload\" ");
-    } else {
+    // deblock (not applicable for hardware encoders)
+    if (strcmp(opts->codec, "hevc_videotoolbox") != 0 &&
+        strcmp(opts->codec, "prores_videotoolbox") != 0)
+    {
         if (opts->deblock == 2) {
             strcat(cmd,
                 "-vf \"deblock=filter=weak:block=4:planes=1\" ");
@@ -729,10 +804,10 @@ static void build_ffmpeg_cmd(
 
     // audio codec
     if (c->opts.use_aac_for_h265) {
-    strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
-        } else {
-    strcat(cmd, "-c:a pcm_s16le -ar 48000 ");
-        }
+        strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
+    } else {
+        strcat(cmd, "-c:a pcm_s16le -ar 48000 ");
+    }
 
     // audio normalization
     if (strcmp(opts->audio_norm, "none") == 0) {
@@ -1010,11 +1085,18 @@ ConverterError converter_process_files(
         //  Build ffmpeg command
         // ----------------------------------------------------
         char cmd[8192];
-        if (strcmp(c->opts.codec, "h265_mi50") == 0) {
-            c->opts.use_aac_for_h265 = 1;
+        c->opts.use_aac_for_h265 =
+            (strcmp(c->opts.codec, "hevc_videotoolbox") == 0) ? 1 : 0;
+#if defined(__APPLE__)
+        if (strcmp(c->opts.codec, "hevc_videotoolbox") == 0) {
+            int w = 0, h = 0;
+            double fps = 0.0;
+            get_video_info(input, &w, &h, &fps);
+            c->opts.hevc_vt_bitrate_kbps = calc_hevc_vt_bitrate_kbps(w, h, fps);
         } else {
-            c->opts.use_aac_for_h265 = 0;
+            c->opts.hevc_vt_bitrate_kbps = 0;
         }
+#endif
         build_ffmpeg_cmd(c, input, output, cmd, sizeof(cmd));
 
         // ----------------------------------------------------

@@ -67,7 +67,7 @@ static void cli_on_complete(void) {
 static void print_usage(void) {
     printf("Usage: ffmpeg_converter [options] file1 file2 ...\n\n");
     printf("Options:\n");
-    printf("  -c, --codec <copy|prores|prores_ks>\n");
+    printf("  -c, --codec <copy|prores|prores_ks|prores_videotoolbox|hevc_videotoolbox>\n");
     printf("  -p, --profile <lt|standard|hq|4444>\n");
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
@@ -117,6 +117,10 @@ static int parse_args(int argc, char** argv, ConvertOptions* opts,
                 strcpy(opts->codec, "prores");
             else if (!strcmp(argv[i], "prores_ks"))
                 strcpy(opts->codec, "prores_ks");
+            else if (!strcmp(argv[i], "prores_videotoolbox"))
+                strcpy(opts->codec, "prores_videotoolbox");
+            else if (!strcmp(argv[i], "hevc_videotoolbox"))
+                strcpy(opts->codec, "hevc_videotoolbox");
             else return 0;
 
             continue;
@@ -571,6 +575,8 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                 printf("  1. copy (default)\n");
                 printf("  2. prores\n");
                 printf("  3. prores_ks\n");
+                printf("  4. prores_videotoolbox\n");
+                printf("  5. hevc_videotoolbox\n");
                 printf("----------------------\n");
                 printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
                 {
@@ -579,6 +585,8 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                     else if (ch == '1') { codec = 1; step = 4; }
                     else if (ch == '2') { codec = 2; step = 2; }
                     else if (ch == '3') { codec = 3; step = 2; }
+                    else if (ch == '4') { codec = 4; step = 2; }
+                    else if (ch == '5') { codec = 5; step = 4; }
                     else if (ch == 'c' || ch == 'C') { 
                         if (temp_files) {
                             for (int i = 0; i < temp_file_count; i++) free(temp_files[i]);
@@ -604,11 +612,11 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                 printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
                 {
                     int ch = read_choice();
-                    if (ch == '\n') { profile = 2; step = 3; }
-                    else if (ch == '1') { profile = 1; step = 3; }
-                    else if (ch == '2') { profile = 2; step = 3; }
-                    else if (ch == '3') { profile = 3; step = 3; }
-                    else if (ch == '4') { profile = 4; step = 3; }
+                    if (ch == '\n') { profile = 2; step = (codec == 4) ? 4 : 3; }
+                    else if (ch == '1') { profile = 1; step = (codec == 4) ? 4 : 3; }
+                    else if (ch == '2') { profile = 2; step = (codec == 4) ? 4 : 3; }
+                    else if (ch == '3') { profile = 3; step = (codec == 4) ? 4 : 3; }
+                    else if (ch == '4') { profile = 4; step = (codec == 4) ? 4 : 3; }
                     else if (ch == 'c' || ch == 'C') { 
                         if (temp_files) {
                             for (int i = 0; i < temp_file_count; i++) free(temp_files[i]);
@@ -780,6 +788,8 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                         case 1: strcpy(opts->codec, "copy"); break;
                         case 2: strcpy(opts->codec, "prores"); break;
                         case 3: strcpy(opts->codec, "prores_ks"); break;
+                        case 4: strcpy(opts->codec, "prores_videotoolbox"); break;
+                        case 5: strcpy(opts->codec, "hevc_videotoolbox"); break;
                     }
                     opts->profile   = profile;
                     opts->deblock   = deblock;
