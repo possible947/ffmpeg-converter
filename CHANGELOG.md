@@ -8,6 +8,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- App icon for native macOS GUI (`src/gui_macos_native/icon.icns`):
+  - Source PNG (`icon.png`) converted to multi-resolution `.icns` via `iconutil`.
+  - Rounded corners (22.5% radius) and 10% transparent padding applied to match
+    Apple HIG proportions for macOS Sequoia.
+  - Bundled into `Contents/Resources/` via CMake `MACOSX_PACKAGE_LOCATION`.
+  - `CFBundleIconFile` key added to `Info.plist.in`.
 - macOS VideoToolbox codec support (`prores_videotoolbox`, `hevc_videotoolbox`):
   - `prores_videotoolbox`: uses Apple's proprietary ProRes encoder; passes
     `-allow_sw 1` so software fallback is available on Intel Macs (hardware on

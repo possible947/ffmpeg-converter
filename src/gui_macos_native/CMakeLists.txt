@@ -18,10 +18,14 @@ set(BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg")
 set(BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffprobe")
 set(BUNDLE_MP4BOX_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_mp4box_deps.sh")
 
+set(ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/icon.icns")
+set_source_files_properties("${ICON_FILE}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+
 add_executable(macos_gui_native MACOSX_BUNDLE
     main.m
     converter_bridge.m
     apple_m4v_creator.m
+    "${ICON_FILE}"
 )
 
 set_target_properties(macos_gui_native PROPERTIES

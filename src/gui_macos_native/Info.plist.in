@@ -28,5 +28,7 @@
     <string>ffmpeg-converter needs access to select media files for conversion.</string>
     <key>NSDownloadsFolderUsageDescription</key>
     <string>ffmpeg-converter needs access to select media files for conversion.</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
 </dict>
 </plist>
