@@ -17,6 +17,7 @@ find_library(JANSSON_LIB jansson)
 set(BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg")
 set(BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffprobe")
 set(BUNDLE_MP4BOX_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_mp4box_deps.sh")
+set(BUNDLE_MKVMERGE_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_mkvmerge_deps.sh")
 
 set(ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/icon.icns")
 set_source_files_properties("${ICON_FILE}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
@@ -41,6 +42,7 @@ target_include_directories(macos_gui_native
 
 target_link_libraries(macos_gui_native
     PRIVATE converter
+    PRIVATE mux
     PRIVATE ${JANSSON_LIB}
     PRIVATE "-framework Cocoa"
 )
@@ -63,6 +65,15 @@ if (EXISTS "${BUNDLE_MP4BOX_SCRIPT}")
     )
 else()
     message(WARNING "bundle_mp4box_deps.sh not found; MP4Box will not be bundled into app.")
+endif()
+
+if (EXISTS "${BUNDLE_MKVMERGE_SCRIPT}")
+    add_custom_command(TARGET macos_gui_native POST_BUILD
+        COMMAND /bin/bash "${BUNDLE_MKVMERGE_SCRIPT}" "$<TARGET_FILE_DIR:macos_gui_native>"
+        COMMENT "Bundling mkvmerge and dependent dylibs into app Resources"
+    )
+else()
+    message(WARNING "bundle_mkvmerge_deps.sh not found; mkvmerge will not be bundled into app.")
 endif()
 
 install(TARGETS macos_gui_native

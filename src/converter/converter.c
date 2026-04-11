@@ -98,6 +98,58 @@ static int codec_uses_aac_audio(const char* codec) {
            (strcmp(codec, "hevc_videotoolbox") == 0);
 }
 
+static const char* get_ffmpeg_bin(void);
+
+static int ffmpeg_encoder_available(const char* encoder_name) {
+    static int initialized = 0;
+    static int has_aac_at = 0;
+    static int has_libfdk_aac = 0;
+    static int has_aac = 0;
+
+    if (!encoder_name || encoder_name[0] == '\0') {
+        return 0;
+    }
+
+    if (!initialized) {
+        const char* ffmpeg_bin = get_ffmpeg_bin();
+        char cmd[2048];
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s\" -hide_banner -v error -encoders 2>/dev/null",
+                 ffmpeg_bin);
+
+        FILE* fp = popen(cmd, "r");
+        if (fp) {
+            char line[1024];
+            while (fgets(line, sizeof(line), fp)) {
+                if (!has_aac_at && strstr(line, " aac_at")) {
+                    has_aac_at = 1;
+                }
+                if (!has_libfdk_aac && strstr(line, " libfdk_aac")) {
+                    has_libfdk_aac = 1;
+                }
+                if (!has_aac && strstr(line, " aac ")) {
+                    has_aac = 1;
+                }
+            }
+            pclose(fp);
+        }
+
+        initialized = 1;
+    }
+
+    if (strcmp(encoder_name, "aac_at") == 0) {
+        return has_aac_at;
+    }
+    if (strcmp(encoder_name, "libfdk_aac") == 0) {
+        return has_libfdk_aac;
+    }
+    if (strcmp(encoder_name, "aac") == 0) {
+        return has_aac;
+    }
+
+    return 0;
+}
+
 static int is_executable(const char* path) {
     return (access(path, X_OK) == 0);
 }
@@ -875,6 +927,13 @@ static void build_ffmpeg_cmd(
     int is_fdk_single_audio_output =
         audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q5") ||
         audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2");
+    int prefer_fdk_q2 =
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2") ||
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2_ac3_640");
+    int fdk_vbr = prefer_fdk_q2 ? 2 : 5;
+    int has_aac_at = ffmpeg_encoder_available("aac_at");
+    int has_libfdk_aac = ffmpeg_encoder_available("libfdk_aac");
+    int has_native_aac = ffmpeg_encoder_available("aac");
     char audio_filter[1024];
 
     char cmd[16384];
@@ -917,18 +976,40 @@ static void build_ffmpeg_cmd(
     if (strcmp(opts->codec, "prores") == 0 ||
         strcmp(opts->codec, "prores_ks") == 0)
     {
-        char tmp[128];
-        snprintf(tmp, sizeof(tmp),
-                 "-c:v %s -profile:v %d ",
-                 opts->codec, opts->profile);
-        strcat(cmd, tmp);
+        int profile_value = opts->profile;
+        if (profile_value < 1 || profile_value > 4) {
+            profile_value = 2; // standard
+        }
+
+        if (strcmp(opts->codec, "prores_ks") == 0) {
+            const char* profile_name = "standard";
+            if (profile_value == 1) profile_name = "lt";
+            else if (profile_value == 3) profile_name = "hq";
+            else if (profile_value == 4) profile_name = "4444";
+
+            char tmp[160];
+            snprintf(tmp, sizeof(tmp),
+                     "-c:v prores_ks -profile:v %s ",
+                     profile_name);
+            strcat(cmd, tmp);
+        } else {
+            char tmp[128];
+            snprintf(tmp, sizeof(tmp),
+                     "-c:v prores -profile:v %d ",
+                     profile_value);
+            strcat(cmd, tmp);
+        }
     }
     else if (strcmp(opts->codec, "prores_videotoolbox") == 0)
     {
+        int profile_value = opts->profile;
+        if (profile_value < 1 || profile_value > 4) {
+            profile_value = 2; // standard
+        }
         char tmp[128];
         snprintf(tmp, sizeof(tmp),
                  "-c:v prores_videotoolbox -profile:v %d -allow_sw 1 ",
-                 opts->profile);
+                 profile_value);
         strcat(cmd, tmp);
     }
     else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
@@ -972,15 +1053,55 @@ static void build_ffmpeg_cmd(
 
     // audio codec
     if (is_dual_audio_output) {
-        strcat(cmd,
-            "-c:a:0 libfdk_aac -vbr:a:0 5 -ar:a:0 48000 "
-            "-c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 ");
+        if (has_aac_at) {
+            strcat(cmd, "-c:a:0 aac_at -q:a:0 2 -ar:a:0 48000 ");
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at");
+        } else if (has_libfdk_aac) {
+            char aac0_opts[128];
+            snprintf(aac0_opts, sizeof(aac0_opts),
+                     "-c:a:0 libfdk_aac -vbr:a:0 %d -ar:a:0 48000 ",
+                     fdk_vbr);
+            strcat(cmd, aac0_opts);
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
+        } else if (has_native_aac) {
+            strcat(cmd, "-c:a:0 aac -q:a:0 2 -ar:a:0 48000 ");
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac");
+        } else {
+            strcat(cmd, "-c:a:0 aac -q:a:0 2 -ar:a:0 48000 ");
+            if (c->cb.on_message) c->cb.on_message("AAC encoder fallback: native aac (unverified)");
+        }
+        strcat(cmd, "-c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 ");
     } else if (is_fdk_single_audio_output) {
-        strcat(cmd, "-c:a libfdk_aac -vbr 5 -ar 48000 ");
+        if (has_aac_at) {
+            strcat(cmd, "-c:a aac_at -q:a 2 -ar 48000 ");
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at");
+        } else if (has_libfdk_aac) {
+            char fdk_opts[128];
+            snprintf(fdk_opts, sizeof(fdk_opts), "-c:a libfdk_aac -vbr %d -ar 48000 ", fdk_vbr);
+            strcat(cmd, fdk_opts);
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
+        } else if (has_native_aac) {
+            strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac");
+        } else {
+            strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
+            if (c->cb.on_message) c->cb.on_message("AAC encoder fallback: native aac (unverified)");
+        }
     } else if (audio_output_mode_is(opts->audio_output_mode, "pcm")) {
         strcat(cmd, "-c:a pcm_s16le -ar 48000 ");
     } else if (c->opts.use_aac_for_h265) {
-        strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
+        if (has_aac_at) {
+            strcat(cmd, "-c:a aac_at -q:a 2 -ar 48000 ");
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at");
+        } else if (has_libfdk_aac) {
+            char fdk_opts[128];
+            snprintf(fdk_opts, sizeof(fdk_opts), "-c:a libfdk_aac -vbr %d -ar 48000 ", fdk_vbr);
+            strcat(cmd, fdk_opts);
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
+        } else {
+            strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac");
+        }
     } else {
         strcat(cmd, "-c:a pcm_s16le -ar 48000 ");
     }

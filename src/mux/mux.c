@@ -1,6 +1,7 @@
 #include "mux.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -238,17 +239,112 @@ static int run_mux_command(const char* cmd, const ConverterCallbacks* callbacks)
     return -1;
 }
 
+static const char* get_mux_ffprobe_bin(void)
+{
+#if defined(__linux__)
+    return linux_get_preferred_ffprobe_bin();
+#else
+    static char resolved[PATH_MAX];
+    const char* env;
+    const char* path_env;
+    char path_copy[8192];
+    char* dir;
+    char* saveptr = NULL;
+    const char* candidates[] = {
+        "/opt/local/bin/ffprobe8",
+        "/opt/local/bin/ffprobe",
+        "/opt/homebrew/bin/ffprobe",
+        "/usr/local/bin/ffprobe"
+    };
+    size_t i;
+
+    env = getenv("FFPROBE");
+    if (env && env[0] != '\0' && access(env, X_OK) == 0)
+        return env;
+    env = getenv("FFPROBE_BIN");
+    if (env && env[0] != '\0' && access(env, X_OK) == 0)
+        return env;
+
+    for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        if (access(candidates[i], X_OK) == 0)
+            return candidates[i];
+    }
+
+    path_env = getenv("PATH");
+    if (!path_env || path_env[0] == '\0')
+        return "ffprobe";
+
+    strncpy(path_copy, path_env, sizeof(path_copy) - 1);
+    path_copy[sizeof(path_copy) - 1] = '\0';
+    dir = strtok_r(path_copy, ":", &saveptr);
+    while (dir) {
+        if (dir[0] != '\0') {
+            snprintf(resolved, sizeof(resolved), "%s/ffprobe", dir);
+            if (access(resolved, X_OK) == 0)
+                return resolved;
+            snprintf(resolved, sizeof(resolved), "%s/ffprobe8", dir);
+            if (access(resolved, X_OK) == 0)
+                return resolved;
+        }
+        dir = strtok_r(NULL, ":", &saveptr);
+    }
+
+    return "ffprobe";
+#endif
+}
+
+static const char* get_mux_mkvmerge_bin(void)
+{
+#if defined(__linux__)
+    return linux_get_preferred_mkvmerge_bin();
+#else
+    static char resolved[PATH_MAX];
+    const char* env;
+    const char* path_env;
+    char path_copy[8192];
+    char* dir;
+    char* saveptr = NULL;
+    const char* candidates[] = {
+        "/opt/local/bin/mkvmerge",
+        "/opt/homebrew/bin/mkvmerge",
+        "/usr/local/bin/mkvmerge"
+    };
+    size_t i;
+
+    env = getenv("MKVMERGE_BIN");
+    if (env && env[0] != '\0' && access(env, X_OK) == 0)
+        return env;
+
+    for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        if (access(candidates[i], X_OK) == 0)
+            return candidates[i];
+    }
+
+    path_env = getenv("PATH");
+    if (!path_env || path_env[0] == '\0')
+        return "mkvmerge";
+
+    strncpy(path_copy, path_env, sizeof(path_copy) - 1);
+    path_copy[sizeof(path_copy) - 1] = '\0';
+    dir = strtok_r(path_copy, ":", &saveptr);
+    while (dir) {
+        if (dir[0] != '\0') {
+            snprintf(resolved, sizeof(resolved), "%s/mkvmerge", dir);
+            if (access(resolved, X_OK) == 0)
+                return resolved;
+        }
+        dir = strtok_r(NULL, ":", &saveptr);
+    }
+
+    return "mkvmerge";
+#endif
+}
+
 ConverterError mux_run_postprocess(
     const MuxOptions* opts,
     const ConvertOptions* convert_opts,
     const ConverterCallbacks* callbacks
 ) {
-#if !defined(__linux__)
-    (void)opts;
-    (void)convert_opts;
-    emit_error(callbacks, "mux post-process is only implemented on Linux in this session", ERR_INVALID_OPTIONS);
-    return ERR_INVALID_OPTIONS;
-#else
     const char* ffprobe_bin;
     const char* mkvmerge_bin;
     char rate[64];
@@ -275,8 +371,8 @@ ConverterError mux_run_postprocess(
         return ERR_INPUT_NOT_FOUND;
     }
 
-    ffprobe_bin = linux_get_preferred_ffprobe_bin();
-    mkvmerge_bin = linux_get_preferred_mkvmerge_bin();
+    ffprobe_bin = get_mux_ffprobe_bin();
+    mkvmerge_bin = get_mux_mkvmerge_bin();
     if (!mkvmerge_bin || mkvmerge_bin[0] == '\0') {
         emit_error(callbacks, "post-mux failed: mkvmerge not found", ERR_INVALID_OPTIONS);
         return ERR_INVALID_OPTIONS;
@@ -332,5 +428,4 @@ ConverterError mux_run_postprocess(
 
     emit_message(callbacks, "Post-mux completed");
     return ERR_OK;
-#endif
 }

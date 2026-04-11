@@ -10,6 +10,21 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **Free Pascal** (`fpc/`) — full FPC port with CLI, shared library, and
   Lazarus/LCL GUI for macOS (self-contained `.app` bundle).
 
+## macOS v2.2 Highlights
+
+- Native macOS GUI now supports `mux` workflow with replacement video track
+  and final `.mkv` output via `mkvmerge`.
+- Audio output modes in macOS native GUI are aligned with Linux:
+  `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`.
+- Apple M4V creator performs source codec preflight and accepts only
+  `h264`, `hevc`, `prores` without re-encode in this path.
+- AAC encoder selection for M4V and converter audio now uses runtime fallback:
+  `aac_at` -> `libfdk_aac` -> `aac`.
+- ProRes profile handling is hardened: invalid or missing profile defaults to
+  `standard`; `prores_ks` uses explicit profile names.
+- Native `.app` bundling includes `ffmpeg`/`ffprobe` and attempts to bundle
+  `mkvmerge` (with runtime fallback to `MKVMERGE_BIN` or PATH lookup).
+
 ---
 
 ## Features
@@ -139,9 +154,9 @@ third_party/   Vendored jansson (C path)
 - Install guides: [docs/install-linux.md](docs/install-linux.md),
   [docs/install-macos.md](docs/install-macos.md),
   [docs/install-windows.md](docs/install-windows.md)
-- C architecture: [PROJECT_OVERVIEW_DETAILED.md](PROJECT_OVERVIEW_DETAILED.md)
-- C developer description: [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md)
-- Native macOS Apple M4V design/status: [docs/macos-native-apple-m4v-design.md](docs/macos-native-apple-m4v-design.md)
+- C architecture: [docs/PROJECT_DESCRIPTION.md](docs/PROJECT_DESCRIPTION.md)
+- C developer description: [docs/PROJECT_DESCRIPTION.md](docs/PROJECT_DESCRIPTION.md)
+- Native macOS install + behavior notes: [docs/install-macos.md](docs/install-macos.md)
 - Pascal port: [fpc/README.md](fpc/README.md)
 - Pascal converter library: [fpc/converter/CONVERTER_LIBRARY_DETAIL.md](fpc/converter/CONVERTER_LIBRARY_DETAIL.md)
 - C changelog: [CHANGELOG.md](CHANGELOG.md)

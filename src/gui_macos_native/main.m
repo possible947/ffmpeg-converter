@@ -71,6 +71,7 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
 @property (strong, nonatomic) NSPopUpButton *profilePopup;
 @property (strong, nonatomic) NSPopUpButton *deblockPopup;
 @property (strong, nonatomic) NSPopUpButton *audioPopup;
+@property (strong, nonatomic) NSPopUpButton *audioOutputPopup;
 @property (strong, nonatomic) NSPopUpButton *genrePopup;
 @property (strong, nonatomic) NSButton *overwriteCheck;
 @property (strong, nonatomic) NSButton *m4vEditCheck;
@@ -84,10 +85,14 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
 @property (strong, nonatomic) NSMutableArray<NSString *> *filePaths;
 @property (strong, nonatomic) NSButton *chooseOutputButton;
 @property (strong, nonatomic) NSButton *addFilesButton;
+@property (strong, nonatomic) NSButton *addTrackButton;
 @property (strong, nonatomic) NSButton *removeButton;
 @property (strong, nonatomic) NSButton *clearButton;
+@property (strong, nonatomic) NSTextField *videoTrackLabel;
+@property (copy, nonatomic) NSString *videoTrackPath;
 @property (assign, nonatomic) BOOL terminateAfterStop;
  - (void)addInputPaths:(NSArray<NSString *> *)paths;
+ - (void)onAddTrackClicked:(id)sender;
  - (BOOL)promptAppleM4VOptions:(AppleM4VOptions *)options;
 @end
 
@@ -120,10 +125,12 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
 
     [self.codecPopup setEnabled:!running];
     [self.audioPopup setEnabled:!running];
+    [self.audioOutputPopup setEnabled:!running];
     [self.overwriteCheck setEnabled:!running];
     [self.m4vEditCheck setEnabled:!running];
     [self.chooseOutputButton setEnabled:!running];
     [self.addFilesButton setEnabled:!running];
+    [self.addTrackButton setEnabled:!running];
     [self.removeButton setEnabled:!running];
     [self.clearButton setEnabled:!running];
     [self.tableView setEnabled:!running];
@@ -145,10 +152,12 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
 
     [self.codecPopup setEnabled:!running];
     [self.audioPopup setEnabled:!running];
+    [self.audioOutputPopup setEnabled:!running];
     [self.overwriteCheck setEnabled:!running];
     [self.m4vEditCheck setEnabled:!running];
     [self.chooseOutputButton setEnabled:!running];
     [self.addFilesButton setEnabled:!running];
+    [self.addTrackButton setEnabled:!running];
     [self.removeButton setEnabled:!running];
     [self.clearButton setEnabled:!running];
     [self.tableView setEnabled:!running];
@@ -200,7 +209,7 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     [content addSubview:codecLabel];
 
     self.codecPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(82, 554, 160, 28) pullsDown:NO];
-    [self.codecPopup addItemsWithTitles:@[@"copy", @"prores", @"prores_ks", @"prores_videotoolbox", @"hevc_videotoolbox"]];
+    [self.codecPopup addItemsWithTitles:@[@"copy", @"prores", @"prores_ks", @"prores_videotoolbox", @"hevc_videotoolbox", @"mux"]];
     [self.codecPopup setTarget:self];
     [self.codecPopup setAction:@selector(onCodecChanged:)];
     [content addSubview:self.codecPopup];
@@ -242,6 +251,18 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     [self.audioPopup setAction:@selector(onAudioNormChanged:)];
     [content addSubview:self.audioPopup];
 
+    NSTextField *audioOutLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(524, 522, 68, 24)];
+    [audioOutLabel setStringValue:@"Audio out:"];
+    [audioOutLabel setBezeled:NO];
+    [audioOutLabel setEditable:NO];
+    [audioOutLabel setDrawsBackground:NO];
+    [content addSubview:audioOutLabel];
+
+    self.audioOutputPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(592, 520, 190, 28) pullsDown:NO];
+    [self.audioOutputPopup addItemsWithTitles:@[@"pcm", @"fdk_aac_q5", @"fdk_aac_q5_ac3_640"]];
+    [self.audioOutputPopup selectItemAtIndex:0];
+    [content addSubview:self.audioOutputPopup];
+
     NSTextField *genreLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(524, 556, 54, 24)];
     [genreLabel setStringValue:@"Genre:"];
     [genreLabel setBezeled:NO];
@@ -254,13 +275,13 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     [self.genrePopup selectItemAtIndex:0];
     [content addSubview:self.genrePopup];
 
-    self.overwriteCheck = [[NSButton alloc] initWithFrame:NSMakeRect(524, 522, 260, 24)];
+    self.overwriteCheck = [[NSButton alloc] initWithFrame:NSMakeRect(400, 188, 190, 24)];
     [self.overwriteCheck setButtonType:NSButtonTypeSwitch];
     [self.overwriteCheck setTitle:@"Overwrite existing files"];
     [self.overwriteCheck setState:NSControlStateValueOff];
     [content addSubview:self.overwriteCheck];
 
-    self.m4vEditCheck = [[NSButton alloc] initWithFrame:NSMakeRect(524, 500, 260, 20)];
+    self.m4vEditCheck = [[NSButton alloc] initWithFrame:NSMakeRect(592, 188, 190, 20)];
     [self.m4vEditCheck setButtonType:NSButtonTypeSwitch];
     [self.m4vEditCheck setTitle:@"m4v edit (main -> m4v)"];
     [self.m4vEditCheck setState:NSControlStateValueOff];
@@ -309,6 +330,29 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     [self.clearButton setTarget:self];
     [self.clearButton setAction:@selector(onClearListClicked:)];
     [content addSubview:self.clearButton];
+
+    self.addTrackButton = [[NSButton alloc] initWithFrame:NSMakeRect(366, 456, 110, 30)];
+    [self.addTrackButton setTitle:@"Add track..."];
+    [self.addTrackButton setBezelStyle:NSBezelStyleRounded];
+    [self.addTrackButton setTarget:self];
+    [self.addTrackButton setAction:@selector(onAddTrackClicked:)];
+    [content addSubview:self.addTrackButton];
+
+    NSTextField *videoTrackTitle = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 432, 90, 20)];
+    [videoTrackTitle setStringValue:@"Video track:"];
+    [videoTrackTitle setBezeled:NO];
+    [videoTrackTitle setEditable:NO];
+    [videoTrackTitle setDrawsBackground:NO];
+    [content addSubview:videoTrackTitle];
+
+    self.videoTrackLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(110, 432, 672, 20)];
+    [self.videoTrackLabel setStringValue:@"(not set)"];
+    [self.videoTrackLabel setBezeled:NO];
+    [self.videoTrackLabel setEditable:NO];
+    [self.videoTrackLabel setDrawsBackground:NO];
+    [content addSubview:self.videoTrackLabel];
+
+    self.videoTrackPath = @"";
 
     NSScrollView *fileListScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 218, 766, 230)];
     self.tableView = [[NSTableView alloc] initWithFrame:[fileListScroll bounds]];
@@ -395,6 +439,7 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     NSInteger profile = self.profilePopup.isEnabled ? (NSInteger)self.profilePopup.indexOfSelectedItem + 1 : 0;
     NSInteger deblock = self.deblockPopup.isEnabled ? (NSInteger)self.deblockPopup.indexOfSelectedItem + 1 : 0;
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
+    NSString *audioOutputMode = self.audioOutputPopup.titleOfSelectedItem ?: @"pcm";
     NSInteger genre = self.genrePopup.isEnabled ? (NSInteger)self.genrePopup.indexOfSelectedItem + 1 : 0;
     BOOL overwrite = (self.overwriteCheck.state == NSControlStateValueOn);
     NSString *outputDir = self.outputLabel.stringValue ?: @"";
@@ -420,6 +465,8 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
                                                     profile:profile
                                                     deblock:deblock
                                                   audioNorm:audioNorm
+                                                                                            audioOutputMode:audioOutputMode
+                                                                                             videoTrackPath:self.videoTrackPath ?: @""
                                                       genre:genre
                                                   overwrite:overwrite
                                                   outputDir:outputDir];
@@ -534,12 +581,15 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     NSInteger profile = self.profilePopup.isEnabled ? (NSInteger)self.profilePopup.indexOfSelectedItem + 1 : 0;
     NSInteger deblock = self.deblockPopup.isEnabled ? (NSInteger)self.deblockPopup.indexOfSelectedItem + 1 : 0;
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
+    NSString *audioOutputMode = self.audioOutputPopup.titleOfSelectedItem ?: @"pcm";
     NSInteger genre = self.genrePopup.isEnabled ? (NSInteger)self.genrePopup.indexOfSelectedItem + 1 : 0;
 
     ConvertOptions convertOptions = [self.bridge makeOptionsWithCodec:codec
                                                                profile:profile
                                                                deblock:deblock
                                                              audioNorm:audioNorm
+                                                                                                                 audioOutputMode:audioOutputMode
+                                                                                                                    videoTrackPath:self.videoTrackPath ?: @""
                                                                  genre:genre
                                                              overwrite:overwrite
                                                              outputDir:outputDir];
@@ -738,6 +788,22 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     }
 }
 
+- (void)onAddTrackClicked:(id)sender {
+    (void)sender;
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    [panel setCanChooseDirectories:NO];
+    [panel setCanChooseFiles:YES];
+    [panel setAllowsMultipleSelection:NO];
+
+    if ([panel runModal] == NSModalResponseOK) {
+        NSURL *url = panel.URL;
+        if (url.path.length > 0) {
+            self.videoTrackPath = url.path;
+            [self.videoTrackLabel setStringValue:self.videoTrackPath];
+        }
+    }
+}
+
 - (void)addInputPaths:(NSArray<NSString *> *)paths {
     if (paths.count == 0) {
         return;
@@ -755,6 +821,7 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     if (added > 0) {
         [self.tableView reloadData];
         [self.statusLabel setStringValue:[NSString stringWithFormat:@"Added %lu file(s)", (unsigned long)added]];
+        [self updateDependentControls];
     }
 }
 
@@ -764,6 +831,7 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     if (row >= 0 && row < (NSInteger)self.filePaths.count) {
         [self.filePaths removeObjectAtIndex:(NSUInteger)row];
         [self.tableView reloadData];
+        [self updateDependentControls];
     }
 }
 
@@ -771,6 +839,9 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     (void)sender;
     [self.filePaths removeAllObjects];
     [self.tableView reloadData];
+    self.videoTrackPath = @"";
+    [self.videoTrackLabel setStringValue:@"(not set)"];
+    [self updateDependentControls];
 }
 
 - (void)onCodecChanged:(id)sender {
@@ -785,6 +856,7 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
 
 - (void)updateDependentControls {
     NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
+    BOOL isMux = [codec isEqualToString:@"mux"];
     // Profile: prores software and prores_videotoolbox hardware share same profiles
     BOOL profileEnabled = ([codec isEqualToString:@"prores"] ||
                            [codec isEqualToString:@"prores_ks"] ||
@@ -794,6 +866,8 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
                            [codec isEqualToString:@"prores_ks"]);
     [self.profilePopup setEnabled:profileEnabled];
     [self.deblockPopup setEnabled:deblockEnabled];
+    [self.addFilesButton setEnabled:!isMux];
+    [self.addTrackButton setEnabled:isMux && self.filePaths.count == 1];
 
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     BOOL genreEnabled = [audioNorm isEqualToString:@"loudness_norm_2pass"];

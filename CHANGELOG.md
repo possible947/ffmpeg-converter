@@ -58,6 +58,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `src/gui_macos_native/Info.plist.in`: CMake-processed `Info.plist` template
   with `CFBundleIdentifier = com.ffmpeg-converter.macos-gui`, fixing silent
   NSOpenPanel failure caused by missing bundle identifier (macOS TCC).
+- Native macOS GUI mux workflow support (`codec = mux`):
+  - one-source-file mux session model
+  - replacement video track selection in GUI (`Add track...`)
+  - post-mux stage routed through shared `src/mux/` module
+  - final output written as `.mkv` via `mkvmerge`
+- Native macOS GUI audio output mode selector aligned with Linux GUI:
+  - `pcm`
+  - `fdk_aac_q5`
+  - `fdk_aac_q5_ac3_640`
+- macOS app bundling for `mkvmerge` and dependent dylibs:
+  - helper script `src/gui_macos_native/bundle_mkvmerge_deps.sh`
+  - staged into app `Contents/Resources/bin/` when found
+- Native macOS Apple M4V video codec preflight in C path:
+  - probes selected video stream codec via `ffprobe` before M4V steps
+  - allows only `h264`, `hevc`, `prores`
+  - rejects unsupported codecs early with clear error message
+- Native macOS Apple M4V AAC encoder runtime preference chain:
+  - `aac_at` -> `libfdk_aac` -> native `aac`
+  - automatic fallback based on local ffmpeg encoder availability
 
 ### Changed
 - macOS codec popup width adjusted to 160 px to prevent overlap with adjacent
@@ -67,10 +86,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `src/gui_macos_native/CMakeLists.txt`: added `MACOSX_BUNDLE_INFO_PLIST`
   property pointing to the new `Info.plist.in` template.
 - macOS codec popup items updated to: `copy`, `prores`, `prores_ks`,
-  `prores_videotoolbox`, `hevc_videotoolbox`.
+  `prores_videotoolbox`, `hevc_videotoolbox`, `mux`.
 - macOS `updateDependentControls`: profile control enabled for `prores`,
   `prores_ks`, and `prores_videotoolbox`; deblock enabled for `prores` and
   `prores_ks` only (hardware encoders excluded).
+- Native macOS bridge output-name prediction now delegates to shared
+  converter output naming (`converter_make_output_name`) to keep extension
+  rules aligned with core converter behavior.
+- Shared C ProRes profile handling hardened:
+  - invalid/unset profile now defaults to `standard`
+  - `prores_ks` now uses explicit profile names (`lt|standard|hq|4444`)
+    instead of relying on ambiguous auto behavior
 - macOS CLI usage and interactive menu updated for the new codec set.
 - Output extension mapping: `hevc_videotoolbox` → `.mp4`; `copy` → `.mkv`;
   all other codecs → `.mov`.

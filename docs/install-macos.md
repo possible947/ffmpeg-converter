@@ -42,6 +42,13 @@ ffmpeg-converter/
 If these files are absent, CMake will emit a warning and the app will
 fall back to the system PATH at runtime.
 
+For mux mode in native macOS GUI, `mkvmerge` is also required.
+The app build now tries to bundle `mkvmerge` into `Contents/Resources/bin/`
+from common paths (`/opt/local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`).
+If `mkvmerge` is not found at build time, runtime fallback is:
+- `MKVMERGE_BIN` environment variable
+- `PATH` lookup
+
 ### 1.3 Build
 
 From the repository root:
@@ -68,6 +75,32 @@ cmake --install build
 # Native GUI app bundle (self-contained)
 open build/install/ffmpeg_converter_gui_macos.app
 ```
+
+### 1.5 Native macOS GUI capability notes (2.2 sync)
+
+- Codec list includes `mux` in addition to standard conversion codecs.
+- Mux mode requires exactly one source file and one selected replacement
+   video track (`Add track...`).
+- Final mux output is `.mkv` and is produced through `mkvmerge`.
+- Audio output modes now match Linux C GUI behavior:
+   - `pcm`
+   - `fdk_aac_q5`
+   - `fdk_aac_q5_ac3_640`
+- Apple M4V creator (native C macOS path) now validates source video codec
+   before packaging. Allowed video codecs are:
+    - `h264`
+    - `hevc`
+    - `prores`
+   Unsupported codecs are rejected with a clear preflight message and the M4V
+   workflow stops without attempting video re-encode.
+- Apple M4V AAC encoder selection now uses runtime preference chain:
+    - `aac_at`
+    - `libfdk_aac`
+    - native `aac`
+   (falls back automatically based on local ffmpeg encoder availability).
+- ProRes profile handling in shared C converter now defaults to `standard`
+   when profile is invalid or unset, and `prores_ks` is passed using explicit
+   profile names (`lt|standard|hq|4444`) to avoid ambiguous `auto` selection.
 
 ---
 
@@ -160,6 +193,7 @@ export FFPROBE=/path/to/ffprobe
 For C CLI (`build/src/cli/ffmpeg_converter`):
 - Inputs are positional (`ffmpeg_converter [options] file1 file2 ...`).
 - `-o/--output` sets output directory.
+- `--audio-output` supports `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`.
 - If `-o` is not specified, default output directory is `$HOME/ffmpeg_converter`
    and it is created automatically when missing.
 

@@ -1,9 +1,74 @@
 #import "converter_bridge.h"
 #import "apple_m4v_creator.h"
+#include "mux.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 static __weak id s_activeBridge;
+
+static int codec_is_mux(const char *codec) {
+    return codec && strcmp(codec, "mux") == 0;
+}
+
+static int file_is_regular_readable(const char *path) {
+    struct stat st;
+
+    return path &&
+           path[0] != '\0' &&
+           stat(path, &st) == 0 &&
+           S_ISREG(st.st_mode) &&
+           access(path, R_OK) == 0;
+}
+
+static void resolve_effective_output_dir(const ConvertOptions *opts, char *out_dir, size_t out_dir_sz) {
+    const char *home;
+
+    if (!opts || !out_dir || out_dir_sz == 0)
+        return;
+
+    if (opts->output_dir[0] != '\0') {
+        strncpy(out_dir, opts->output_dir, out_dir_sz - 1);
+        out_dir[out_dir_sz - 1] = '\0';
+        return;
+    }
+
+    home = getenv("HOME");
+    if (!home || home[0] == '\0')
+        home = ".";
+
+    snprintf(out_dir, out_dir_sz, "%s/ffmpeg_converter", home);
+}
+
+static ConverterError run_bridge_mux_postprocess(const ConvertOptions *opts,
+                                                 const ConverterCallbacks *cb,
+                                                 const char *input_file) {
+    ConvertOptions file_opts;
+    MuxOptions mux_opts;
+    char effective_output_dir[1024];
+
+    if (!opts || !cb || !input_file)
+        return ERR_INVALID_OPTIONS;
+
+    memset(&file_opts, 0, sizeof(file_opts));
+    file_opts = *opts;
+    strcpy(file_opts.codec, "copy");
+    resolve_effective_output_dir(opts, effective_output_dir, sizeof(effective_output_dir));
+    strncpy(file_opts.output_dir, effective_output_dir, sizeof(file_opts.output_dir) - 1);
+    file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = '\0';
+
+    memset(&mux_opts, 0, sizeof(mux_opts));
+    converter_make_output_name(input_file, &file_opts, mux_opts.intermediate_file, sizeof(mux_opts.intermediate_file));
+    strncpy(mux_opts.video_track_file, opts->video_track_path, sizeof(mux_opts.video_track_file) - 1);
+    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
+    strncpy(mux_opts.output_file, mux_opts.intermediate_file, sizeof(mux_opts.output_file) - 1);
+    mux_opts.output_file[sizeof(mux_opts.output_file) - 1] = '\0';
+    mux_opts.overwrite = opts->overwrite;
+
+    return mux_run_postprocess(&mux_opts, opts, cb);
+}
 
 @interface ConverterBridge () {
     Converter *_converter;
@@ -92,11 +157,18 @@ static NSString *appleOutputNameForSource(NSString *sourcePath, NSString *output
 }
 
 static NSString *converterOutputNameForInput(NSString *inputPath, const ConvertOptions *opts, NSString *outputDir) {
-    NSString *base = [[inputPath lastPathComponent] stringByDeletingPathExtension];
-    NSString *codec = [NSString stringWithUTF8String:opts->codec];
-    NSString *ext = ([codec isEqualToString:@"copy"] || [codec isEqualToString:@"h265_mi50"]) ? @"mkv" : @"mov";
-    NSString *filename = [NSString stringWithFormat:@"%@_converted.%@", base, ext];
-    return [outputDir stringByAppendingPathComponent:filename];
+    ConvertOptions copy;
+    char out_path[1024];
+
+    memset(&copy, 0, sizeof(copy));
+    copy = *opts;
+    if (outputDir.length > 0) {
+        strncpy(copy.output_dir, outputDir.UTF8String, sizeof(copy.output_dir) - 1);
+        copy.output_dir[sizeof(copy.output_dir) - 1] = '\0';
+    }
+
+    converter_make_output_name(inputPath.UTF8String, &copy, out_path, sizeof(out_path));
+    return [NSString stringWithUTF8String:out_path];
 }
 
 static BOOL wasFileProducedAfter(NSString *path, NSDate *threshold) {
@@ -123,11 +195,13 @@ static BOOL wasFileProducedAfter(NSString *path, NSDate *threshold) {
     NSString *ffmpegPath = [binDir stringByAppendingPathComponent:@"ffmpeg"];
     NSString *ffprobePath = [binDir stringByAppendingPathComponent:@"ffprobe"];
     NSString *mp4boxPath = [binDir stringByAppendingPathComponent:@"MP4Box"];
+    NSString *mkvmergePath = [binDir stringByAppendingPathComponent:@"mkvmerge"];
 
     NSFileManager *fm = [NSFileManager defaultManager];
     BOOL hasFfmpeg = [fm isExecutableFileAtPath:ffmpegPath];
     BOOL hasFfprobe = [fm isExecutableFileAtPath:ffprobePath];
     BOOL hasMp4box = [fm isExecutableFileAtPath:mp4boxPath];
+    BOOL hasMkvmerge = [fm isExecutableFileAtPath:mkvmergePath];
 
     if (hasFfmpeg) {
         setenv("FFMPEG", ffmpegPath.UTF8String, 1);
@@ -140,8 +214,11 @@ static BOOL wasFileProducedAfter(NSString *path, NSDate *threshold) {
     if (hasMp4box) {
         setenv("MP4BOX_BIN", mp4boxPath.UTF8String, 1);
     }
+    if (hasMkvmerge) {
+        setenv("MKVMERGE_BIN", mkvmergePath.UTF8String, 1);
+    }
 
-    if (hasFfmpeg || hasFfprobe || hasMp4box) {
+    if (hasFfmpeg || hasFfprobe || hasMp4box || hasMkvmerge) {
         const char *pathEnv = getenv("PATH");
         NSString *currentPath = pathEnv ? [NSString stringWithUTF8String:pathEnv] : @"";
         if ([currentPath rangeOfString:binDir].location == NSNotFound) {
@@ -181,6 +258,8 @@ static BOOL wasFileProducedAfter(NSString *path, NSDate *threshold) {
                                                              profile:(NSInteger)profile
                                                              deblock:(NSInteger)deblock
                              audioNorm:(NSString *)audioNorm
+                         audioOutputMode:(NSString *)audioOutputMode
+                          videoTrackPath:(NSString *)videoTrackPath
                                                                  genre:(NSInteger)genre
                              overwrite:(BOOL)overwrite
                              outputDir:(NSString *)outputDir {
@@ -193,6 +272,16 @@ static BOOL wasFileProducedAfter(NSString *path, NSDate *threshold) {
 
     if (audioNorm.length > 0) {
         strncpy(opts.audio_norm, audioNorm.UTF8String, sizeof(opts.audio_norm) - 1);
+    }
+
+    if (audioOutputMode.length > 0) {
+        strncpy(opts.audio_output_mode, audioOutputMode.UTF8String, sizeof(opts.audio_output_mode) - 1);
+    } else {
+        strncpy(opts.audio_output_mode, "pcm", sizeof(opts.audio_output_mode) - 1);
+    }
+
+    if (videoTrackPath.length > 0) {
+        strncpy(opts.video_track_path, videoTrackPath.UTF8String, sizeof(opts.video_track_path) - 1);
     }
 
     opts.profile = (int)profile;
@@ -290,8 +379,40 @@ static BOOL wasFileProducedAfter(NSString *path, NSDate *threshold) {
         };
 
         converter_set_callbacks(c, &cb);
-        converter_set_options(c, &optsCopy);
-        ConverterError err = converter_process_files(c, (const char **)cFiles, fileCount);
+        ConverterError err;
+        ConvertOptions workOpts = optsCopy;
+
+        if (codec_is_mux(optsCopy.codec)) {
+            if (fileCount != 1) {
+                err = ERR_INVALID_OPTIONS;
+                [self emitLog:@"Mux mode requires exactly one source file."];
+                [self emitStatus:@"Mux mode requires exactly one source file."];
+                goto finish_conversion;
+            }
+
+            if (!file_is_regular_readable(optsCopy.video_track_path)) {
+                err = ERR_INVALID_OPTIONS;
+                [self emitLog:@"Mux mode requires a readable video track file."];
+                [self emitStatus:@"Mux mode requires a readable video track file."];
+                goto finish_conversion;
+            }
+
+            strcpy(workOpts.codec, "copy");
+            workOpts.profile = 0;
+            workOpts.deblock = 0;
+        }
+
+        err = converter_set_options(c, &workOpts);
+        if (err != ERR_OK) {
+            goto finish_conversion;
+        }
+
+        err = converter_process_files(c, (const char **)cFiles, fileCount);
+        if (err == ERR_OK && codec_is_mux(optsCopy.codec)) {
+            err = run_bridge_mux_postprocess(&optsCopy, &cb, cFiles[0]);
+        }
+
+finish_conversion:
 
         converter_destroy(c);
         @synchronized (self) { _converter = NULL; }

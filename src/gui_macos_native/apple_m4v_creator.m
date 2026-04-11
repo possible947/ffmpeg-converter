@@ -49,6 +49,39 @@ static BOOL runTaskCapture(NSString *launchPath,
     return YES;
 }
 
+static void detectAacEncoders(NSString *ffmpegBin,
+                              BOOL *hasAacAt,
+                              BOOL *hasLibfdk,
+                              BOOL *hasNativeAac) {
+    static BOOL initialized = NO;
+    static BOOL cachedHasAacAt = NO;
+    static BOOL cachedHasLibfdk = NO;
+    static BOOL cachedHasNativeAac = NO;
+
+    if (!initialized) {
+        NSString *output = @"";
+        int exitCode = 0;
+        NSString *errorText = nil;
+        NSArray<NSString *> *args = @[@"-hide_banner", @"-v", @"error", @"-encoders"];
+        if (runTaskCapture(ffmpegBin, args, &output, &exitCode, &errorText) && exitCode == 0) {
+            cachedHasAacAt = [output rangeOfString:@" aac_at" options:NSCaseInsensitiveSearch].location != NSNotFound;
+            cachedHasLibfdk = [output rangeOfString:@" libfdk_aac" options:NSCaseInsensitiveSearch].location != NSNotFound;
+            cachedHasNativeAac = [output rangeOfString:@" aac " options:NSCaseInsensitiveSearch].location != NSNotFound;
+        }
+        initialized = YES;
+    }
+
+    if (hasAacAt) {
+        *hasAacAt = cachedHasAacAt;
+    }
+    if (hasLibfdk) {
+        *hasLibfdk = cachedHasLibfdk;
+    }
+    if (hasNativeAac) {
+        *hasNativeAac = cachedHasNativeAac;
+    }
+}
+
 static double parseRateToFps(NSString *rate) {
     NSString *value = trimmed(rate ?: @"");
     if (value.length == 0 || [value isEqualToString:@"0/0"]) {
@@ -70,6 +103,13 @@ static double parseRateToFps(NSString *rate) {
         return direct;
     }
     return 25.0;
+}
+
+static BOOL isAllowedAppleM4VVideoCodec(NSString *codecName) {
+    NSString *codec = [trimmed(codecName ?: @"") lowercaseString];
+    return [codec isEqualToString:@"h264"] ||
+           [codec isEqualToString:@"hevc"] ||
+           [codec isEqualToString:@"prores"];
 }
 
 static NSString *makeChapterTimestamp(double seconds) {
@@ -190,6 +230,49 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
     return 25.0;
 }
 
+- (nullable NSString *)probeVideoCodecForInput:(NSString *)inputFile
+                                    trackIndex:(NSInteger)trackIndex
+                                     errorText:(NSString * _Nullable * _Nullable)errorText {
+    NSString *output = @"";
+    int code = 0;
+    NSString *launchError = nil;
+    NSArray<NSString *> *args = @[
+        @"-v", @"error",
+        @"-select_streams", [NSString stringWithFormat:@"v:%ld", (long)trackIndex],
+        @"-show_entries", @"stream=codec_name",
+        @"-of", @"default=noprint_wrappers=1:nokey=1",
+        inputFile
+    ];
+
+    if (!runTaskCapture(self.ffprobeBin, args, &output, &code, &launchError)) {
+        if (errorText) {
+            *errorText = launchError ?: @"ffprobe failed while probing video codec";
+        }
+        return nil;
+    }
+
+    if (code != 0) {
+        if (errorText) {
+            NSString *tail = trimmed(output ?: @"");
+            *errorText = [NSString stringWithFormat:@"ffprobe video codec probe failed (exit %d)%@%@",
+                         code,
+                         tail.length > 0 ? @"\n" : @"",
+                         tail.length > 0 ? tail : @""];
+        }
+        return nil;
+    }
+
+    NSString *codec = trimmed(output ?: @"");
+    if (codec.length == 0) {
+        if (errorText) {
+            *errorText = @"Unable to detect input video codec for Apple M4V.";
+        }
+        return nil;
+    }
+
+    return codec;
+}
+
 - (BOOL)runStepWithExecutable:(NSString *)executable
                     arguments:(NSArray<NSString *> *)arguments
                        stopFlag:(volatile BOOL *)stopFlag
@@ -307,6 +390,26 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
         return NO;
     }
 
+    NSString *codecProbeError = nil;
+    NSString *videoCodec = [self probeVideoCodecForInput:inputFile
+                                              trackIndex:options.videoTrackIndex
+                                               errorText:&codecProbeError];
+    if (!videoCodec) {
+        if (errorText) {
+            *errorText = codecProbeError ?: @"Video codec probe failed for Apple M4V.";
+        }
+        return NO;
+    }
+    if (!isAllowedAppleM4VVideoCodec(videoCodec)) {
+        if (errorText) {
+            *errorText = [NSString stringWithFormat:@"Apple M4V supports only h264/hevc/prores input video streams. Detected: %@", videoCodec];
+        }
+        return NO;
+    }
+    if (logHandler) {
+        logHandler([NSString stringWithFormat:@"Apple M4V video codec preflight: %@", videoCodec]);
+    }
+
     NSString *tmpRoot = NSTemporaryDirectory();
     NSString *workDir = [tmpRoot stringByAppendingPathComponent:[NSString stringWithFormat:@"m4v_mux_%@", NSUUID.UUID.UUIDString]];
     NSError *mkError = nil;
@@ -341,16 +444,38 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
             return NO;
         }
 
-        NSArray<NSString *> *aacArgs = @[
+        BOOL hasAacAt = NO;
+        BOOL hasLibfdk = NO;
+        BOOL hasNativeAac = NO;
+        detectAacEncoders(self.ffmpegBin, &hasAacAt, &hasLibfdk, &hasNativeAac);
+
+        NSString *aacEncoder = @"aac";
+        NSArray<NSString *> *aacCodecArgs = nil;
+        if (hasAacAt) {
+            aacEncoder = @"aac_at";
+            aacCodecArgs = @[@"-c:a", @"aac_at", @"-q:a", @"2", @"-ar", @"48000"];
+        } else if (hasLibfdk) {
+            aacEncoder = @"libfdk_aac";
+            aacCodecArgs = @[@"-c:a", @"libfdk_aac", @"-vbr", @"5", @"-ar", @"48000"];
+        } else if (hasNativeAac) {
+            aacEncoder = @"aac";
+            aacCodecArgs = @[@"-c:a", @"aac", @"-profile:a", @"aac_low", @"-q:a", [NSString stringWithFormat:@"%ld", (long)options.aacQuality], @"-ar", @"48000"];
+        } else {
+            aacEncoder = @"aac";
+            aacCodecArgs = @[@"-c:a", @"aac", @"-q:a", @"2", @"-ar", @"48000"];
+        }
+
+        if (logHandler) {
+            logHandler([NSString stringWithFormat:@"Apple M4V AAC encoder selected: %@", aacEncoder]);
+        }
+
+        NSMutableArray<NSString *> *aacArgs = [NSMutableArray arrayWithArray:@[
             @"-y", @"-nostdin",
             @"-i", inputFile,
-            @"-map", [NSString stringWithFormat:@"0:a:%ld", (long)options.audioTrackIndex],
-            @"-c:a", @"aac",
-            @"-profile:a", @"aac_low",
-            @"-q:a", [NSString stringWithFormat:@"%ld", (long)options.aacQuality],
-            @"-f", @"mp4",
-            aacM4a
-        ];
+            @"-map", [NSString stringWithFormat:@"0:a:%ld", (long)options.audioTrackIndex]
+        ]];
+        [aacArgs addObjectsFromArray:aacCodecArgs];
+        [aacArgs addObjectsFromArray:@[@"-f", @"mp4", aacM4a]];
         if (![self runStepWithExecutable:self.ffmpegBin arguments:aacArgs stopFlag:stopFlag stepName:@"Apple M4V step 2/5: AAC encode" log:logHandler stage:stageHandler error:errorText]) {
             return NO;
         }

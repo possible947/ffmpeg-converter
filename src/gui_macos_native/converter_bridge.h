@@ -21,6 +21,8 @@ typedef void (^BridgeCompletionHandler)(BOOL success, NSString *message);
                                                              profile:(NSInteger)profile
                                                              deblock:(NSInteger)deblock
                              audioNorm:(NSString *)audioNorm
+                         audioOutputMode:(NSString *)audioOutputMode
+                          videoTrackPath:(NSString *)videoTrackPath
                                                                  genre:(NSInteger)genre
                              overwrite:(BOOL)overwrite
                              outputDir:(NSString *)outputDir;

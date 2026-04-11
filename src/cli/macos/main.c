@@ -71,6 +71,7 @@ static void print_usage(void) {
     printf("  -p, --profile <lt|standard|hq|4444>\n");
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
+    printf("      --audio-output <pcm|fdk_aac_q5|fdk_aac_q5_ac3_640>\n");
     printf("  -g, --genre <edm|rock|hiphop|classical|podcast>\n");
     printf("      (genre is used only with loudnorm2)\n");
     printf("  --overwrite        overwrite output files\n");
@@ -93,6 +94,7 @@ static int parse_args(int argc, char** argv, ConvertOptions* opts,
     opts->profile   = 2;  // standard
     opts->deblock   = 1;  // none
     strcpy(opts->audio_norm, "peak_norm_2pass");
+    strcpy(opts->audio_output_mode, "pcm");
     opts->genre     = 1;  // edm
     opts->overwrite = 0;
     opts->output_dir[0] = '\0';
@@ -167,6 +169,25 @@ static int parse_args(int argc, char** argv, ConvertOptions* opts,
                 strcpy(opts->audio_norm, "loudness_norm_2pass");
             else return 0;
 
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--audio-output")) {
+            if (i + 1 >= argc) return 0;
+            i++;
+
+            if (!strcmp(argv[i], "fdk_aac_q2"))
+                argv[i] = "fdk_aac_q5";
+            else if (!strcmp(argv[i], "fdk_aac_q2_ac3_640"))
+                argv[i] = "fdk_aac_q5_ac3_640";
+
+            if (strcmp(argv[i], "pcm") != 0 &&
+                strcmp(argv[i], "fdk_aac_q5") != 0 &&
+                strcmp(argv[i], "fdk_aac_q5_ac3_640") != 0)
+                return 0;
+
+            strncpy(opts->audio_output_mode, argv[i], sizeof(opts->audio_output_mode) - 1);
+            opts->audio_output_mode[sizeof(opts->audio_output_mode) - 1] = '\0';
             continue;
         }
 
@@ -248,6 +269,7 @@ static void print_summary(const ConvertOptions* opts, const char** files, int fi
     }
 
     printf("Audio norm:   %s\n", opts->audio_norm);
+    printf("Audio out:    %s\n", opts->audio_output_mode[0] ? opts->audio_output_mode : "pcm");
 
     if (!strcmp(opts->audio_norm, "loudness_norm_2pass")) {
         const char* genre_str = "none";
