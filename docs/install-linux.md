@@ -28,6 +28,14 @@ cmake --build . --target linux_cli
 cmake --build . --target linux_gui
 ```
 
+Artifacts in the flat Linux layout:
+- `build/bin/ffmpeg_converter`
+- `build/bin/ffmpeg_converter_gui`
+- `build/bin/ffmpeg`
+- `build/bin/ffprobe`
+- `build/bin/mkvmerge` when found in common Linux system locations
+- `build/bin/MP4Box` when found in common Linux system locations
+
 ## 2. Free Pascal Path
 
 ### 2.1 Install dependencies
@@ -48,11 +56,31 @@ Artifacts:
 - `fpc/converter/libconverter_pas.so`
 
 ## 3. Runtime Notes
-- Ensure `ffmpeg` and `ffprobe` are available in `PATH`.
-- `h265_mi50` uses VAAPI by default (`/dev/dri/renderD128`).
+- Linux C path first prefers `ffmpeg` and `ffprobe` located in the same directory as
+	the executable. The Linux build now stages them together in `build/bin`.
+- During development, runtime still falls back to `src/platform/linux/bin` if needed.
+- If bundled tools are unavailable, runtime falls back to `FFMPEG`/`FFMPEG_BIN`,
+	`FFPROBE`/`FFPROBE_BIN`, and then `PATH`.
+- Linux mux mode also checks `MKVMERGE_BIN`, then executable-adjacent `mkvmerge`,
+	and then `PATH`.
+- Linux GTK Apple M4V creator checks `MP4BOX_BIN`, then executable-adjacent `MP4Box`,
+	and then `PATH`.
+- Linux hardware codec exposure is runtime-detected. Current C path exposes
+	`h264_vaapi` and `hevc_vaapi` only when the active system/driver actually supports them.
 - C CLI inputs are positional (`ffmpeg_converter [options] file1 file2 ...`).
 - `-o/--output` sets output directory; if omitted, default is
 	`$HOME/ffmpeg_converter` (created automatically).
+- Linux `codec=mux` is a one-source-file session. It requires
+	`--video-track <file>` and always writes final `.mkv` via `mkvmerge`.
+- Linux GTK also provides a separate Apple M4V creator button.
+- Linux Apple M4V creator is GUI-only and follows the macOS direct M4V steps
+	through `ffmpeg`, `ffprobe`, and `MP4Box`.
+- Linux Apple M4V creator input preflight currently allows only `h264`, `hevc`,
+	or `prores` video streams.
+- To run the toolset from another directory on the same Linux machine, copy or symlink
+	the staged files from `build/bin` into one folder such as `~/.local/bin`.
+- `MP4Box` is staged as a single binary only. No Linux shared-library bundle is created,
+	so it works where the target system already has compatible GPAC/runtime libraries.
 
 ## 4. Validation
 ```bash

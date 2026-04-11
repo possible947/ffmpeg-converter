@@ -1,8 +1,8 @@
-# ffmpeg_converter
+# ffmpeg_converter 2.2
 
-Cross-platform media conversion tool with CLI and GUI for building and running
-optimized `ffmpeg` commands. Supports ProRes, stream copy, H.265 VAAPI, and
-multiple audio normalization modes including two-pass EBU R128 (loudnorm).
+Cross-platform media conversion and mux tool with CLI and GUI for building and
+running optimized `ffmpeg` workflows. Version 2.2 adds Linux runtime-probed
+VAAPI, MKV post-mux mode, and a Linux GTK Apple M4V creator workflow.
 
 Two independent implementations share the same conversion logic and CLI behavior:
 
@@ -15,14 +15,18 @@ Two independent implementations share the same conversion logic and CLI behavior
 ## Features
 
 - Video codecs (cross-platform): `copy`, `prores`, `prores_ks`.
+- Linux runtime-probed video codecs: `h264_vaapi`, `hevc_vaapi`.
 - Video codecs (macOS VideoToolbox): `prores_videotoolbox`, `hevc_videotoolbox`.
 - Audio normalization: `none`, `peak`, `peak 2-pass`, `loudness`, `loudness 2-pass`.
+- Audio output modes: PCM, FDK AAC q5, FDK AAC q5 + AC3 640.
+- Linux MKV mux mode: one source file + external replacement video track, final output via `mkvmerge`.
 - **Audio filter multithreading**: 2-pass analysis uses `-filter_threads N` (N = CPU/2) for parallel audio processing.
 - Encode progress: percent, FPS, ETA.
 - CLI with argument parsing and interactive menu.
 - **Linux GUI** — GTK4 (C implementation).
 - **macOS GUI** — native Cocoa/AppKit, self-contained `.app` bundle with bundled
   `ffmpeg`, `ffprobe`, and `MP4Box` (C native implementation).
+- Linux GTK Apple M4V creator: dedicated GUI-only workflow matching the macOS direct M4V path.
 - Apple M4V creator: multi-step pipeline (video copy + AAC + AC3 + MP4Box mux
   + optional chapter import) in both Pascal GUI and C native macOS GUI.
 
@@ -33,9 +37,10 @@ Two independent implementations share the same conversion logic and CLI behavior
 ### C/CMake path
 - `cmake` ≥ 3.16, C compiler (clang/gcc).
 - `jansson` library (JSON parsing for loudnorm).
-- `ffmpeg` + `ffprobe` — bundled inside macOS app bundle; required in PATH for CLI.
+- `ffmpeg` + `ffprobe` — bundled inside macOS app bundle; staged next to Linux CLI/GUI in `build/bin` when available.
   On macOS, priority order: macports FFmpeg8 (`/opt/local/bin/ffmpeg8`) → macports (`/opt/local/bin/ffmpeg`) → system PATH.
-- `MP4Box` (GPAC) for Apple M4V packaging/runtime on macOS native GUI.
+- `MP4Box` (GPAC) for Apple M4V packaging/runtime on macOS native GUI and Linux GTK M4V workflow.
+- `mkvmerge` for Linux mux mode.
 - Linux GUI only: `libgtk-4-dev` (or distro equivalent).
 
 ### Free Pascal path
@@ -87,9 +92,10 @@ bash fpc/build/package_macos_app.sh
 
 ```bash
 # CLI examples
-./build/src/cli/ffmpeg_converter input.mov
-./build/src/cli/ffmpeg_converter -c prores_ks -p hq -a loudnorm2 -g rock input.mov
-./build/src/cli/ffmpeg_converter -o /tmp/out -c hevc_videotoolbox input.mov  # macOS
+./build/bin/ffmpeg_converter input.mov
+./build/bin/ffmpeg_converter -c prores_ks -p hq -a loudnorm2 -g rock input.mov
+./build/bin/ffmpeg_converter -c mux --video-track replacement.hevc input.mkv
+./build/bin/ffmpeg_converter -o /tmp/out -c hevc_videotoolbox input.mov  # macOS
 ```
 
 CLI notes:
@@ -99,7 +105,7 @@ CLI notes:
   and creates it if missing.
 
 GUI:
-- **Linux**: `./build/src/gui/ffmpeg_converter_gui`
+- **Linux**: `./build/bin/ffmpeg_converter_gui`
 - **macOS native**: `open build/install/ffmpeg_converter_gui_macos.app`
 - **macOS Pascal**: `open fpc/gui/form.app`
 
@@ -148,6 +154,12 @@ third_party/   Vendored jansson (C path)
 - `hevc_videotoolbox` uses Apple VideoToolbox hardware encoder on macOS. Bitrate
   is calculated automatically per-file using a sub-linear formula (base 35 Mbps
   at 4K/24 fps), clamped to [2000, 80000] kbps.
+- Linux hardware codecs are runtime-detected and shown only when the active system
+  and driver expose working VAAPI H.264 or HEVC encode.
+- Linux `mux` mode is a one-source-file workflow that keeps processed audio and
+  replaces the final video through `mkvmerge`.
+- Linux GTK Apple M4V creator is GUI-only and now uses `libfdk_aac -vbr 5`
+  by default for the AAC track.
 - `prores_videotoolbox` uses Apple's proprietary ProRes encoder (hardware on
   Apple Silicon, software fallback on Intel via `-allow_sw 1`).
 - Loudness 2-pass requires `ffmpeg` and `jansson`.

@@ -42,6 +42,14 @@ static void activate_cb(GtkApplication *app, gpointer user_data)
     w->current_converter = NULL;
     w->shutting_down = FALSE;
     w->dependent_update_source_id = 0;
+    w->pending_job_kind = GUI_JOB_NONE;
+    w->active_job_kind = GUI_JOB_NONE;
+    w->stop_requested = 0;
+    m4v_default_options(&w->pending_m4v_options);
+
+#if defined(__linux__)
+    linux_probe_codec_support(&w->linux_codec_support);
+#endif
 
     /* Create the main window and all widgets */
     w->window = create_main_window(app, w);

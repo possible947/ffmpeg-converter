@@ -8,6 +8,9 @@
 #include <time.h>
 #include <errno.h>
 #include <libgen.h>
+#if defined(__linux__)
+#include "linux/runtime_probe.h"
+#endif
 #if defined(__APPLE__)
 #include <math.h>
 #endif
@@ -21,6 +24,79 @@ struct Converter {
     ConverterCallbacks cb;
     int stop_flag;
 };
+
+static int codec_is_linux_vaapi(const char* codec) {
+    return codec &&
+           (strcmp(codec, "h264_vaapi") == 0 ||
+            strcmp(codec, "hevc_vaapi") == 0);
+}
+
+static int codec_uses_mov_container(const char* codec) {
+    return codec &&
+           (strcmp(codec, "prores") == 0 ||
+            strcmp(codec, "prores_ks") == 0 ||
+            strcmp(codec, "prores_videotoolbox") == 0);
+}
+
+static int audio_output_mode_is(const char* mode, const char* expected) {
+    return mode && expected && strcmp(mode, expected) == 0;
+}
+
+static int audio_output_mode_valid(const char* mode) {
+    return mode[0] == '\0' ||
+           audio_output_mode_is(mode, "pcm") ||
+           audio_output_mode_is(mode, "fdk_aac_q5") ||
+           audio_output_mode_is(mode, "fdk_aac_q5_ac3_640") ||
+           audio_output_mode_is(mode, "fdk_aac_q2") ||
+           audio_output_mode_is(mode, "fdk_aac_q2_ac3_640");
+}
+
+static void build_audio_filter_expr(const ConvertOptions* opts, char* filter, size_t filter_sz) {
+    if (!filter || filter_sz == 0) {
+        return;
+    }
+
+    if (strcmp(opts->audio_norm, "none") == 0) {
+        snprintf(filter, filter_sz, "aresample=resampler=soxr:precision=28:cheby=1");
+    }
+    else if (strcmp(opts->audio_norm, "peak_norm") == 0) {
+        snprintf(filter, filter_sz,
+                 "aresample=resampler=soxr:precision=28:cheby=1,volume=-3dB");
+    }
+    else if (strcmp(opts->audio_norm, "peak_norm_2pass") == 0) {
+        snprintf(filter, filter_sz,
+                 "aresample=resampler=soxr:precision=28:cheby=1,volume=%.2fdB",
+                 opts->gain);
+    }
+    else if (strcmp(opts->audio_norm, "loudness_norm") == 0) {
+        snprintf(filter, filter_sz,
+                 "aresample=resampler=soxr:precision=28:cheby=1,"
+                 "loudnorm=I=-11:TP=-1.5:LRA=7");
+    }
+    else if (strcmp(opts->audio_norm, "loudness_norm_2pass") == 0) {
+        snprintf(filter, filter_sz,
+                 "aresample=resampler=soxr:precision=28:cheby=1,"
+                 "loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:"
+                 "measured_I=%.2f:measured_TP=%.2f:measured_LRA=%.2f:"
+                 "measured_thresh=%.2f:offset=%.2f:linear=true",
+                 opts->I_target,
+                 opts->TP_target,
+                 opts->LRA_target,
+                 opts->measured_I,
+                 opts->measured_TP,
+                 opts->measured_LRA,
+                 opts->measured_thresh,
+                 opts->measured_offset);
+    }
+    else {
+        snprintf(filter, filter_sz, "aresample=resampler=soxr:precision=28:cheby=1");
+    }
+}
+
+static int codec_uses_aac_audio(const char* codec) {
+    return codec &&
+           (strcmp(codec, "hevc_videotoolbox") == 0);
+}
 
 static int is_executable(const char* path) {
     return (access(path, X_OK) == 0);
@@ -79,6 +155,10 @@ static const char* get_ffmpeg_bin(void) {
     }
 #endif
 
+#if defined(__linux__)
+    return linux_get_preferred_ffmpeg_bin();
+#endif
+
     const char* bundled = resolve_bundled_bin("ffmpeg");
     if (bundled) return bundled;
 
@@ -102,6 +182,10 @@ static const char* get_ffprobe_bin(void) {
         snprintf(mp_bin, sizeof(mp_bin), "/opt/local/bin/ffprobe");
         return mp_bin;
     }
+#endif
+
+#if defined(__linux__)
+    return linux_get_preferred_ffprobe_bin();
 #endif
 
     const char* bundled = resolve_bundled_bin("ffprobe");
@@ -171,10 +255,41 @@ ConverterError converter_set_options(
     Converter* c,
     const ConvertOptions* opts
 ) {
+#if defined(__linux__)
+    LinuxCodecSupport support;
+#endif
+
     if (!c || !opts)
         return ERR_INVALID_OPTIONS;
 
     c->opts = *opts;
+
+    if (!audio_output_mode_valid(c->opts.audio_output_mode))
+        return ERR_INVALID_OPTIONS;
+
+#if defined(__linux__)
+    if (codec_is_linux_vaapi(c->opts.codec)) {
+        linux_probe_codec_support(&support);
+
+        if (strcmp(c->opts.codec, "h264_vaapi") == 0 && !support.has_h264_vaapi)
+            return ERR_INVALID_OPTIONS;
+        if (strcmp(c->opts.codec, "hevc_vaapi") == 0 && !support.has_hevc_vaapi)
+            return ERR_INVALID_OPTIONS;
+
+        if (c->opts.hw_device[0] == '\0' && support.default_render_node[0] != '\0') {
+            strncpy(c->opts.hw_device,
+                    support.default_render_node,
+                    sizeof(c->opts.hw_device) - 1);
+            c->opts.hw_device[sizeof(c->opts.hw_device) - 1] = '\0';
+        }
+
+        if (c->opts.hw_device[0] == '\0')
+            return ERR_INVALID_OPTIONS;
+
+        c->opts.hwaccel_enabled = 1;
+    }
+#endif
+
     return ERR_OK;
 }
 
@@ -470,8 +585,10 @@ static void make_output_name(
             ext = "mkv";
         else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
             ext = "mp4";
-        else
+        else if (codec_uses_mov_container(opts->codec))
             ext = "mov";
+        else
+            ext = "mkv";
         snprintf(filename, sizeof(filename), "%s_converted.%s", base, ext);
     } else {
         // Имя слишком длинное - усекаем
@@ -483,8 +600,10 @@ static void make_output_name(
             ext = "mkv";
         else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
             ext = "mp4";
-        else
+        else if (codec_uses_mov_container(opts->codec))
             ext = "mov";
+        else
+            ext = "mkv";
         snprintf(filename, sizeof(filename), "%s_converted.%s", truncated, ext);
     }
 
@@ -513,6 +632,15 @@ static void make_output_name(
             out[out_sz - 1] = '\0';
         }
     }
+}
+
+void converter_make_output_name(
+    const char* input,
+    const ConvertOptions* opts,
+    char* out,
+    size_t out_sz
+) {
+    make_output_name(input, opts, out, out_sz);
 }
 // ------------------------------------------------------------
 //  Output file existence check
@@ -740,21 +868,49 @@ static void build_ffmpeg_cmd(
 ) {
     const ConvertOptions* opts = &c->opts;
     const char* ffmpeg_bin = get_ffmpeg_bin();
+    int is_linux_vaapi = codec_is_linux_vaapi(opts->codec);
+    int is_dual_audio_output =
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q5_ac3_640") ||
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2_ac3_640");
+    int is_fdk_single_audio_output =
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q5") ||
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2");
+    char audio_filter[1024];
 
     char cmd[16384];
     cmd[0] = 0;
 
-    // input
-    snprintf(cmd, sizeof(cmd), "\"%s\" -i \"%s\" ", ffmpeg_bin, input);
+    build_audio_filter_expr(opts, audio_filter, sizeof(audio_filter));
+
+    snprintf(cmd, sizeof(cmd), "\"%s\" ", ffmpeg_bin);
 
     if (opts->overwrite)
         strcat(cmd, "-y ");
     else
         strcat(cmd, "-n ");
 
+    if (is_linux_vaapi && opts->hw_device[0] != '\0') {
+        strcat(cmd, "-vaapi_device ");
+        strcat(cmd, "\"");
+        strcat(cmd, opts->hw_device);
+        strcat(cmd, "\" ");
+    }
+
+    strcat(cmd, "-i ");
+    strcat(cmd, "\"");
+    strcat(cmd, input);
+    strcat(cmd, "\" ");
+
     // map
     strcat(cmd, "-map 0:v:0 ");
-    strcat(cmd, "-map 0:a:0 ");
+    if (is_dual_audio_output) {
+        strcat(cmd, "-filter_complex \"[0:a:0]");
+        strcat(cmd, audio_filter);
+        strcat(cmd, ",asplit=2[aout0][aout1]\" ");
+        strcat(cmd, "-map [aout0] -map [aout1] ");
+    } else {
+        strcat(cmd, "-map 0:a:0 ");
+    }
     strcat(cmd, "-map_metadata 0 ");
 
     // video codec
@@ -783,13 +939,22 @@ static void build_ffmpeg_cmd(
                  opts->hevc_vt_bitrate_kbps > 0 ? opts->hevc_vt_bitrate_kbps : 35000);
         strcat(cmd, tmp);
     }
+    else if (strcmp(opts->codec, "h264_vaapi") == 0)
+    {
+        strcat(cmd, "-c:v h264_vaapi -rc_mode auto ");
+    }
+    else if (strcmp(opts->codec, "hevc_vaapi") == 0)
+    {
+        strcat(cmd, "-c:v hevc_vaapi -rc_mode auto ");
+    }
     else {
         strcat(cmd, "-c:v copy ");
     }
 
     // deblock (not applicable for hardware encoders)
     if (strcmp(opts->codec, "hevc_videotoolbox") != 0 &&
-        strcmp(opts->codec, "prores_videotoolbox") != 0)
+        strcmp(opts->codec, "prores_videotoolbox") != 0 &&
+        !is_linux_vaapi)
     {
         if (opts->deblock == 2) {
             strcat(cmd,
@@ -801,52 +966,29 @@ static void build_ffmpeg_cmd(
                 "alpha=0.12:beta=0.07:gamma=0.06:delta=0.05:planes=1\" ");
         }
     }
+    else if (is_linux_vaapi) {
+        strcat(cmd, "-vf \"format=nv12,hwupload\" ");
+    }
 
     // audio codec
-    if (c->opts.use_aac_for_h265) {
+    if (is_dual_audio_output) {
+        strcat(cmd,
+            "-c:a:0 libfdk_aac -vbr:a:0 5 -ar:a:0 48000 "
+            "-c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 ");
+    } else if (is_fdk_single_audio_output) {
+        strcat(cmd, "-c:a libfdk_aac -vbr 5 -ar 48000 ");
+    } else if (audio_output_mode_is(opts->audio_output_mode, "pcm")) {
+        strcat(cmd, "-c:a pcm_s16le -ar 48000 ");
+    } else if (c->opts.use_aac_for_h265) {
         strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
     } else {
         strcat(cmd, "-c:a pcm_s16le -ar 48000 ");
     }
 
-    // audio normalization
-    if (strcmp(opts->audio_norm, "none") == 0) {
-        strcat(cmd,
-            "-af \"aresample=resampler=soxr:precision=28:cheby=1\" ");
-    }
-    else if (strcmp(opts->audio_norm, "peak_norm") == 0) {
-        strcat(cmd,
-            "-af \"aresample=resampler=soxr:precision=28:cheby=1,volume=-3dB\" ");
-    }
-    else if (strcmp(opts->audio_norm, "peak_norm_2pass") == 0) {
-        char tmp[256];
-        snprintf(tmp, sizeof(tmp),
-            "-af \"aresample=resampler=soxr:precision=28:cheby=1,volume=%.2fdB\" ",
-            opts->gain);
-        strcat(cmd, tmp);
-    }
-    else if (strcmp(opts->audio_norm, "loudness_norm") == 0) {
-        strcat(cmd,
-            "-af \"aresample=resampler=soxr:precision=28:cheby=1,"
-            "loudnorm=I=-11:TP=-1.5:LRA=7\" ");
-    }
-    else if (strcmp(opts->audio_norm, "loudness_norm_2pass") == 0) {
-        char tmp[512];
-        snprintf(tmp, sizeof(tmp),
-            "-af \"aresample=resampler=soxr:precision=28:cheby=1,"
-            "loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:"
-            "measured_I=%.2f:measured_TP=%.2f:measured_LRA=%.2f:"
-            "measured_thresh=%.2f:offset=%.2f:linear=true\" ",
-            opts->I_target,
-            opts->TP_target,
-            opts->LRA_target,
-            opts->measured_I,
-            opts->measured_TP,
-            opts->measured_LRA,
-            opts->measured_thresh,
-            opts->measured_offset
-        );
-        strcat(cmd, tmp);
+    if (!is_dual_audio_output) {
+        strcat(cmd, "-af \"");
+        strcat(cmd, audio_filter);
+        strcat(cmd, "\" ");
     }
 
     // ffmpeg progress options must be placed before output
@@ -1085,8 +1227,7 @@ ConverterError converter_process_files(
         //  Build ffmpeg command
         // ----------------------------------------------------
         char cmd[8192];
-        c->opts.use_aac_for_h265 =
-            (strcmp(c->opts.codec, "hevc_videotoolbox") == 0) ? 1 : 0;
+        c->opts.use_aac_for_h265 = codec_uses_aac_audio(c->opts.codec) ? 1 : 0;
 #if defined(__APPLE__)
         if (strcmp(c->opts.codec, "hevc_videotoolbox") == 0) {
             int w = 0, h = 0;

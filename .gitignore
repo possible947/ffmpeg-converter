@@ -10,6 +10,11 @@
 # Bundled ffmpeg/ffprobe source binaries (stored in src/platform/macos/bin/)
 src/platform/macos/bin/ffmpeg
 src/platform/macos/bin/ffprobe
+src/platform/linux/bin/ffmpeg
+src/platform/linux/bin/ffprobe
+
+# Local agent/project metadata
+AGENTS.md
 
 # Pascal compiled units and intermediate files
 *.ppu

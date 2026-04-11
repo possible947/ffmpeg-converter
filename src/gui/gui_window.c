@@ -18,6 +18,8 @@ static gboolean update_dependent_widgets_idle(gpointer data);
 static void schedule_update_dependent_widgets(AppWidgets *w);
 static void on_add_files_clicked(GtkButton *button, AppWidgets *w);
 static void on_add_files_response(GObject *source, GAsyncResult *res, AppWidgets *w);
+static void on_add_track_clicked(GtkButton *button, AppWidgets *w);
+static void on_apple_m4v_clicked(GtkButton *button, AppWidgets *w);
 static void on_output_dir_clicked(GtkButton *button, AppWidgets *w);
 static void on_output_dir_response(GObject *source, GAsyncResult *res, AppWidgets *w);
 static void on_remove_file_clicked(GtkButton *button, AppWidgets *w);
@@ -25,7 +27,75 @@ static void on_clear_list_clicked(GtkButton *button, AppWidgets *w);
 static void on_start_clicked(GtkButton *button, AppWidgets *w);
 static void on_stop_clicked(GtkButton *button, AppWidgets *w);
 static void set_output_dir(AppWidgets *w, const char *path);
+static void set_video_track(AppWidgets *w, const char *path);
 static char *get_dropdown_text(GtkWidget *dropdown);
+static gboolean prompt_m4v_options(AppWidgets *w, M4VOptions *opts);
+static void populate_codec_combo(AppWidgets *w);
+static gboolean codec_uses_software_prores(const char *codec);
+static gboolean codec_uses_linux_vaapi(const char *codec);
+static gboolean codec_is_mux(const char *codec);
+
+static gboolean codec_uses_software_prores(const char *codec)
+{
+    return g_strcmp0(codec, "prores") == 0 ||
+           g_strcmp0(codec, "prores_ks") == 0;
+}
+
+static gboolean codec_uses_linux_vaapi(const char *codec)
+{
+    return g_strcmp0(codec, "h264_vaapi") == 0 ||
+           g_strcmp0(codec, "hevc_vaapi") == 0;
+}
+
+static gboolean codec_is_mux(const char *codec)
+{
+    return g_strcmp0(codec, "mux") == 0;
+}
+
+static void populate_codec_combo(AppWidgets *w)
+{
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "copy");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores_ks");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "mux");
+
+    if (w->linux_codec_support.has_h264_vaapi)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h264_vaapi");
+    if (w->linux_codec_support.has_hevc_vaapi)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "hevc_vaapi");
+
+    gtk_combo_box_set_active(GTK_COMBO_BOX(w->codec_combo), 0);
+}
+
+void set_running_ui_state(AppWidgets *w, gboolean running)
+{
+    if (!w || w->shutting_down)
+        return;
+
+    gtk_widget_set_sensitive(w->start_btn, !running);
+    gtk_widget_set_sensitive(w->stop_btn, running);
+
+    gtk_widget_set_sensitive(w->codec_combo, !running);
+    gtk_widget_set_sensitive(w->audio_norm_combo, !running);
+    gtk_widget_set_sensitive(w->audio_output_combo, !running);
+    gtk_widget_set_sensitive(w->overwrite_check, !running);
+    gtk_widget_set_sensitive(w->output_dir_btn, !running);
+    gtk_widget_set_sensitive(w->add_files_btn, !running);
+    gtk_widget_set_sensitive(w->add_track_btn, !running);
+    gtk_widget_set_sensitive(w->apple_m4v_btn, !running);
+    gtk_widget_set_sensitive(w->remove_file_btn, !running);
+    gtk_widget_set_sensitive(w->clear_list_btn, !running);
+    gtk_widget_set_sensitive(w->file_listbox, !running);
+
+    if (running) {
+        gtk_widget_set_sensitive(w->profile_combo, FALSE);
+        gtk_widget_set_sensitive(w->deblock_combo, FALSE);
+        gtk_widget_set_sensitive(w->genre_combo, FALSE);
+        return;
+    }
+
+    update_dependent_widgets(w);
+}
 
 /* ------------------------------------------------------------------ */
 /* Build the main window and all widgets                               */
@@ -44,11 +114,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     /* ---------- Codec combo ---------- */
     {
         w->codec_combo = gtk_combo_box_text_new();
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "copy");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores_ks");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h265_mi50");
-        gtk_combo_box_set_active(GTK_COMBO_BOX(w->codec_combo), 0);
+        populate_codec_combo(w);
         g_signal_connect(w->codec_combo, "changed", G_CALLBACK(on_codec_changed), w);
     }
 
@@ -61,7 +127,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->profile_combo), "4444");
         gtk_combo_box_set_active(GTK_COMBO_BOX(w->profile_combo), 1);
     }
-    /* Initially disabled for copy/h265 */
+    /* Initially disabled for copy and hardware codecs */
     gtk_widget_set_sensitive(w->profile_combo, FALSE);
 
     /* ---------- Deblock combo ---------- */
@@ -98,6 +164,15 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     }
     gtk_widget_set_sensitive(w->genre_combo, FALSE);
 
+    /* ---------- Audio output combo ---------- */
+    {
+        w->audio_output_combo = gtk_combo_box_text_new();
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "pcm");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "fdk_aac_q5");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "fdk_aac_q5_ac3_640");
+        gtk_combo_box_set_active(GTK_COMBO_BOX(w->audio_output_combo), 0);
+    }
+
     /* ---------- Overwrite check ---------- */
     w->overwrite_check = gtk_check_button_new_with_label("Overwrite existing files");
     gtk_check_button_set_active(GTK_CHECK_BUTTON(w->overwrite_check), FALSE);
@@ -111,6 +186,15 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     w->output_dir_path = NULL;
     set_output_dir(w, NULL);
 
+    w->video_track_label = gtk_label_new("(not set)");
+    gtk_label_set_xalign(GTK_LABEL(w->video_track_label), 0.0f);
+    gtk_widget_set_hexpand(w->video_track_label, TRUE);
+    w->add_track_btn = gtk_button_new_with_label("Add track...");
+    gtk_widget_set_sensitive(w->add_track_btn, FALSE);
+    g_signal_connect(w->add_track_btn, "clicked", G_CALLBACK(on_add_track_clicked), w);
+    w->video_track_path = NULL;
+    set_video_track(w, NULL);
+
     /* ---------- File list ---------- */
     w->file_listbox = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(w->file_listbox), GTK_SELECTION_SINGLE);
@@ -119,6 +203,10 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     /* ---------- Buttons ---------- */
     w->add_files_btn = gtk_button_new_with_label("Add files...");
     g_signal_connect(w->add_files_btn, "clicked", G_CALLBACK(on_add_files_clicked), w);
+
+    w->apple_m4v_btn = gtk_button_new_with_label("Apple m4v...");
+    gtk_widget_set_sensitive(w->apple_m4v_btn, FALSE);
+    g_signal_connect(w->apple_m4v_btn, "clicked", G_CALLBACK(on_apple_m4v_clicked), w);
 
     w->remove_file_btn = gtk_button_new_with_label("Remove selected");
     g_signal_connect(w->remove_file_btn, "clicked", G_CALLBACK(on_remove_file_clicked), w);
@@ -170,6 +258,9 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
 
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Genre:"), 2, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->genre_combo, 3, r, 1, 1);
+
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio out:"), 4, r, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), w->audio_output_combo, 5, r, 1, 1);
     r++;
 
     gtk_grid_attach(GTK_GRID(grid), w->overwrite_check, 0, r, 2, 1);
@@ -182,6 +273,12 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), w->add_files_btn, 0, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->remove_file_btn, 1, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->clear_list_btn, 2, r, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), w->add_track_btn, 3, r, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), w->apple_m4v_btn, 4, r, 1, 1);
+    r++;
+
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Video track:"), 0, r, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), w->video_track_label, 1, r, 5, 1);
     r++;
 
     GtkWidget *file_scroller = gtk_scrolled_window_new();
@@ -224,11 +321,17 @@ static void update_dependent_widgets(AppWidgets *w)
 
     char *codec = get_dropdown_text(w->codec_combo);
 
-    /* Profile & Deblock only for prores / prores_ks */
-    gboolean profile_sensitive = g_strcmp0(codec, "copy") != 0 &&
-                                 g_strcmp0(codec, "h265_mi50") != 0;
+    /* Profile & Deblock only for software ProRes */
+    gboolean profile_sensitive = codec_uses_software_prores(codec);
     gtk_widget_set_sensitive(w->profile_combo, profile_sensitive);
     gtk_widget_set_sensitive(w->deblock_combo, profile_sensitive);
+
+    gtk_widget_set_sensitive(w->add_files_btn,
+                             !codec_is_mux(codec));
+    gtk_widget_set_sensitive(w->add_track_btn,
+                             codec_is_mux(codec) && w->file_paths->len == 1);
+    gtk_widget_set_sensitive(w->apple_m4v_btn,
+                             w->file_paths->len > 0);
 
     /* Genre only when audio_norm is loudness normalization 2-pass */
     char *audio_norm = get_dropdown_text(w->audio_norm_combo);
@@ -311,8 +414,171 @@ static void on_file_chooser_response(GtkDialog *dialog, gint response_id, AppWid
             g_object_unref(file);
         }
         g_object_unref(files);
+        schedule_update_dependent_widgets(w);
     }
     gtk_window_destroy(GTK_WINDOW(dialog));
+}
+
+static void on_track_chooser_response(GtkDialog *dialog, gint response_id, AppWidgets *w)
+{
+    if (response_id == GTK_RESPONSE_ACCEPT) {
+        GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
+        GFile *file = gtk_file_chooser_get_file(chooser);
+        if (file) {
+            char *path = g_file_get_path(file);
+            if (path)
+                set_video_track(w, path);
+            g_free(path);
+            g_object_unref(file);
+        }
+    }
+    gtk_window_destroy(GTK_WINDOW(dialog));
+}
+
+static void on_add_track_clicked(GtkButton *button, AppWidgets *w)
+{
+    GtkWidget *dialog;
+
+    (void)button;
+    dialog = gtk_file_chooser_dialog_new(
+        "Select Video Track",
+        GTK_WINDOW(w->window),
+        GTK_FILE_CHOOSER_ACTION_OPEN,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Open", GTK_RESPONSE_ACCEPT,
+        NULL
+    );
+
+    if (w->video_track_path && w->video_track_path[0] != '\0') {
+        GFile *current = g_file_new_for_path(w->video_track_path);
+        gtk_file_chooser_set_file(GTK_FILE_CHOOSER(dialog), current, NULL);
+        g_object_unref(current);
+    }
+
+    g_signal_connect(dialog, "response", G_CALLBACK(on_track_chooser_response), w);
+    gtk_widget_show(dialog);
+}
+
+typedef struct {
+    GMainLoop *loop;
+    M4VOptions *opts;
+    gboolean accepted;
+    GtkWidget *video_spin;
+    GtkWidget *audio_spin;
+    GtkWidget *aac_spin;
+    GtkWidget *ac3_spin;
+    GtkWidget *chapters_check;
+    GtkWidget *lang_entry;
+} M4VDialogData;
+
+static void on_m4v_dialog_response(GtkDialog *dialog, gint response_id, gpointer user_data)
+{
+    M4VDialogData *data = (M4VDialogData *)user_data;
+
+    if (response_id == GTK_RESPONSE_ACCEPT) {
+        const char *lang;
+        data->opts->video_track_index = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->video_spin));
+        data->opts->audio_track_index = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->audio_spin));
+        data->opts->aac_quality = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->aac_spin));
+        data->opts->ac3_bitrate_kbps = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->ac3_spin));
+        data->opts->add_chapters = gtk_check_button_get_active(GTK_CHECK_BUTTON(data->chapters_check));
+
+        lang = gtk_editable_get_text(GTK_EDITABLE(data->lang_entry));
+        if (!lang || lang[0] == '\0')
+            lang = "rus";
+        g_strlcpy(data->opts->audio_lang, lang, sizeof(data->opts->audio_lang));
+        data->accepted = TRUE;
+    }
+
+    gtk_window_destroy(GTK_WINDOW(dialog));
+    g_main_loop_quit(data->loop);
+}
+
+static gboolean prompt_m4v_options(AppWidgets *w, M4VOptions *opts)
+{
+    GtkWidget *dialog;
+    GtkWidget *content;
+    GtkWidget *grid;
+    GtkWidget *video_spin;
+    GtkWidget *audio_spin;
+    GtkWidget *aac_spin;
+    GtkWidget *ac3_spin;
+    GtkWidget *chapters_check;
+    GtkWidget *lang_entry;
+    GMainLoop *loop;
+    M4VDialogData data;
+
+    dialog = gtk_dialog_new_with_buttons("Apple m4v creator options",
+                                         GTK_WINDOW(w->window),
+                                         GTK_DIALOG_MODAL,
+                                         "_Cancel", GTK_RESPONSE_CANCEL,
+                                         "_Start", GTK_RESPONSE_ACCEPT,
+                                         NULL);
+    content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 6);
+    gtk_widget_set_margin_top(grid, 12);
+    gtk_widget_set_margin_bottom(grid, 12);
+    gtk_widget_set_margin_start(grid, 12);
+    gtk_widget_set_margin_end(grid, 12);
+
+    video_spin = gtk_spin_button_new_with_range(0, 16, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(video_spin), opts->video_track_index);
+    audio_spin = gtk_spin_button_new_with_range(0, 16, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(audio_spin), opts->audio_track_index);
+    aac_spin = gtk_spin_button_new_with_range(1, 5, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(aac_spin), opts->aac_quality);
+    ac3_spin = gtk_spin_button_new_with_range(96, 1536, 32);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(ac3_spin), opts->ac3_bitrate_kbps);
+    chapters_check = gtk_check_button_new_with_label("Add chapters");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(chapters_check), opts->add_chapters != 0);
+    lang_entry = gtk_entry_new();
+    gtk_editable_set_text(GTK_EDITABLE(lang_entry), opts->audio_lang[0] != '\0' ? opts->audio_lang : "rus");
+
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Video track index:"), 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), video_spin, 1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio track index:"), 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), audio_spin, 1, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("FDK AAC VBR:"), 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), aac_spin, 1, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("AC3 bitrate kbps:"), 0, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), ac3_spin, 1, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio language:"), 0, 4, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), lang_entry, 1, 4, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), chapters_check, 0, 5, 2, 1);
+
+    gtk_box_append(GTK_BOX(content), grid);
+
+    loop = g_main_loop_new(NULL, FALSE);
+    memset(&data, 0, sizeof(data));
+    data.loop = loop;
+    data.opts = opts;
+    data.video_spin = video_spin;
+    data.audio_spin = audio_spin;
+    data.aac_spin = aac_spin;
+    data.ac3_spin = ac3_spin;
+    data.chapters_check = chapters_check;
+    data.lang_entry = lang_entry;
+
+    g_signal_connect(dialog, "response", G_CALLBACK(on_m4v_dialog_response), &data);
+    gtk_widget_show(dialog);
+    g_main_loop_run(loop);
+    g_main_loop_unref(loop);
+    return data.accepted;
+}
+
+static void on_apple_m4v_clicked(GtkButton *button, AppWidgets *w)
+{
+    M4VOptions opts;
+
+    (void)button;
+    opts = w->pending_m4v_options;
+    if (!prompt_m4v_options(w, &opts))
+        return;
+
+    w->pending_m4v_options = opts;
+    start_m4v_creation(w);
 }
 
 static void on_add_files_clicked(GtkButton *button, AppWidgets *w)
@@ -405,12 +671,15 @@ static void on_remove_file_clicked(GtkButton *button, AppWidgets *w)
         g_ptr_array_remove(w->file_paths, path);
 
     gtk_list_box_remove(GTK_LIST_BOX(w->file_listbox), GTK_WIDGET(row));
+    schedule_update_dependent_widgets(w);
 }
 
 static void on_clear_list_clicked(GtkButton *button, AppWidgets *w)
 {
     (void)button;
     clear_file_list(w);
+    set_video_track(w, NULL);
+    schedule_update_dependent_widgets(w);
 }
 
 static void on_start_clicked(GtkButton *button, AppWidgets *w)
@@ -445,7 +714,7 @@ void collect_options_from_gui(AppWidgets *w,
         int active = gtk_combo_box_get_active(GTK_COMBO_BOX(w->profile_combo));
         opts->profile = active >= 0 ? active + 1 : 0;
     } else {
-        opts->profile = 0;   /* not used for copy/h265 */
+        opts->profile = 0;
     }
 
     /* ----- deblock ----- */
@@ -460,6 +729,16 @@ void collect_options_from_gui(AppWidgets *w,
     char *norm = get_dropdown_text(w->audio_norm_combo);
     g_strlcpy(opts->audio_norm, norm ? norm : "", sizeof(opts->audio_norm));
     g_free(norm);
+
+    char *audio_output = get_dropdown_text(w->audio_output_combo);
+    g_strlcpy(opts->audio_output_mode,
+              audio_output ? audio_output : "pcm",
+              sizeof(opts->audio_output_mode));
+    g_free(audio_output);
+
+    g_strlcpy(opts->video_track_path,
+              w->video_track_path ? w->video_track_path : "",
+              sizeof(opts->video_track_path));
 
     /* ----- genre ----- */
     if (gtk_widget_get_sensitive(w->genre_combo)) {
@@ -477,6 +756,13 @@ void collect_options_from_gui(AppWidgets *w,
         g_strlcpy(opts->output_dir, w->output_dir_path, sizeof(opts->output_dir));
     else
         g_strlcpy(opts->output_dir, "", sizeof(opts->output_dir));
+
+    if (codec_uses_linux_vaapi(opts->codec) && w->linux_codec_support.default_render_node[0] != '\0') {
+        g_strlcpy(opts->hw_device,
+                  w->linux_codec_support.default_render_node,
+                  sizeof(opts->hw_device));
+        opts->hwaccel_enabled = 1;
+    }
 
     /* ----- file list ----- */
     *out_count = w->file_paths->len;
@@ -511,6 +797,17 @@ static void set_output_dir(AppWidgets *w, const char *path)
     g_free(w->output_dir_path);
     w->output_dir_path = resolved;
     gtk_label_set_text(GTK_LABEL(w->output_dir_label), w->output_dir_path);
+}
+
+static void set_video_track(AppWidgets *w, const char *path)
+{
+    g_free(w->video_track_path);
+    w->video_track_path = g_strdup(path ? path : "");
+
+    if (w->video_track_path[0] != '\0')
+        gtk_label_set_text(GTK_LABEL(w->video_track_label), w->video_track_path);
+    else
+        gtk_label_set_text(GTK_LABEL(w->video_track_label), "(not set)");
 }
 
 static char *get_dropdown_text(GtkWidget *dropdown)

@@ -18,6 +18,8 @@ target_include_directories(ffmpeg_cmd INTERFACE ${CMAKE_SOURCE_DIR}/src/ffmpeg_c
 
 # Подкаталоги (platform теперь только отдаёт списки .c)
 add_subdirectory(converter)
+add_subdirectory(m4v)
+add_subdirectory(mux)
 add_subdirectory(platform)
 
 # CLI (после объявления библиотек)

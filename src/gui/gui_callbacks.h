@@ -22,6 +22,9 @@
 /* Start the conversion in a background thread. */
 void start_conversion(AppWidgets *w);
 
+/* Start the Apple M4V workflow in a background thread. */
+void start_m4v_creation(AppWidgets *w);
+
 /* Request the running converter to stop. */
 void stop_conversion(AppWidgets *w);
 

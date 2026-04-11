@@ -5,6 +5,36 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.2.0] — 2026-04-11
+
+### Added
+- Linux runtime probe for bundled/system tool resolution and VAAPI capability detection.
+- Linux codec set extended with runtime-detected `h264_vaapi` and `hevc_vaapi`.
+- Linux audio output modes: PCM, FDK AAC q5, and FDK AAC q5 + AC3 640.
+- Linux MKV post-mux mode:
+  - new CLI codec `mux`
+  - `--video-track <file>` input
+  - final MKV written through `mkvmerge`
+- Shared C mux module under `src/mux/`.
+- Linux GTK Apple M4V creator workflow with direct M4V pipeline:
+  - video copy
+  - FDK AAC VBR encode
+  - AC3 encode
+  - MP4Box mux
+  - optional chapter import
+- Shared C M4V module under `src/m4v/`.
+
+### Changed
+- Linux build now stages `ffmpeg`, `ffprobe`, `mkvmerge`, and `MP4Box` next to
+  `build/bin/ffmpeg_converter` and `build/bin/ffmpeg_converter_gui` when available.
+- Linux CLI help now documents mux mode and replacement video track usage.
+- Linux GTK GUI now includes a dedicated Apple M4V action in addition to normal
+  conversion and MKV mux workflows.
+- Linux Apple M4V AAC step now uses `libfdk_aac -vbr 5` by default.
+
+### Removed
+- Legacy Linux `h265_mi50` path from active C/Linux workflows.
+
 ## [Unreleased]
 
 ### Added

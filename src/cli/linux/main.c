@@ -9,11 +9,122 @@
 #include <errno.h>
 #include <stddef.h>
 #include <termios.h>
-#include <limits.h>
 
 #include "converter.h"
+#include "mux.h"
+#include "linux/runtime_probe.h"
 #include "progress.h"
+
 #define BUFFER_SIZE 4096
+
+static int codec_is_mux(const char* codec) {
+    return codec && !strcmp(codec, "mux");
+}
+
+static int codec_uses_software_prores(const char* codec) {
+    return codec &&
+           (!strcmp(codec, "prores") || !strcmp(codec, "prores_ks"));
+}
+
+static int codec_uses_linux_vaapi(const char* codec) {
+    return codec &&
+           (!strcmp(codec, "h264_vaapi") || !strcmp(codec, "hevc_vaapi"));
+}
+
+static int linux_codec_available(const LinuxCodecSupport* support, const char* codec) {
+    if (!codec)
+        return 0;
+
+    if (!strcmp(codec, "copy") || !strcmp(codec, "prores") || !strcmp(codec, "prores_ks") || !strcmp(codec, "mux"))
+        return 1;
+
+    if (!support)
+        return 0;
+
+    if (!strcmp(codec, "h264_vaapi"))
+        return support->has_h264_vaapi;
+    if (!strcmp(codec, "hevc_vaapi"))
+        return support->has_hevc_vaapi;
+
+    return 0;
+}
+
+static void apply_linux_default_hw_device(ConvertOptions* opts, const LinuxCodecSupport* support) {
+    if (!opts || !support)
+        return;
+
+    if (codec_uses_linux_vaapi(opts->codec) && support->default_render_node[0] != '\0') {
+        strncpy(opts->hw_device, support->default_render_node, sizeof(opts->hw_device) - 1);
+        opts->hw_device[sizeof(opts->hw_device) - 1] = '\0';
+        opts->hwaccel_enabled = 1;
+    }
+}
+
+static int linux_audio_output_mode_available(const char* mode) {
+    return mode &&
+           (!strcmp(mode, "pcm") ||
+            !strcmp(mode, "fdk_aac_q5") ||
+            !strcmp(mode, "fdk_aac_q5_ac3_640") ||
+            !strcmp(mode, "fdk_aac_q2") ||
+            !strcmp(mode, "fdk_aac_q2_ac3_640"));
+}
+
+static int file_is_regular_readable(const char* path) {
+    struct stat st;
+
+    return path &&
+           path[0] != '\0' &&
+           stat(path, &st) == 0 &&
+           S_ISREG(st.st_mode) &&
+           access(path, R_OK) == 0;
+}
+
+static void resolve_effective_output_dir(const ConvertOptions* opts, char* out_dir, size_t out_dir_sz) {
+    const char* home;
+
+    if (!opts || !out_dir || out_dir_sz == 0)
+        return;
+
+    if (opts->output_dir[0] != '\0') {
+        strncpy(out_dir, opts->output_dir, out_dir_sz - 1);
+        out_dir[out_dir_sz - 1] = '\0';
+        return;
+    }
+
+    home = getenv("HOME");
+    if (!home || home[0] == '\0')
+        home = ".";
+
+    snprintf(out_dir, out_dir_sz, "%s/ffmpeg_converter", home);
+}
+
+static ConverterError run_cli_mux_postprocess(const ConvertOptions* opts,
+                                              const ConverterCallbacks* cb,
+                                              const char* input_file) {
+    ConvertOptions file_opts;
+    MuxOptions mux_opts;
+    char effective_output_dir[BUFFER_SIZE];
+
+    if (!opts || !cb || !input_file)
+        return ERR_INVALID_OPTIONS;
+
+    memset(&file_opts, 0, sizeof(file_opts));
+    file_opts = *opts;
+    strcpy(file_opts.codec, "copy");
+    resolve_effective_output_dir(opts, effective_output_dir, sizeof(effective_output_dir));
+    strncpy(file_opts.output_dir, effective_output_dir, sizeof(file_opts.output_dir) - 1);
+    file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = '\0';
+
+    memset(&mux_opts, 0, sizeof(mux_opts));
+    converter_make_output_name(input_file, &file_opts, mux_opts.intermediate_file, sizeof(mux_opts.intermediate_file));
+    strncpy(mux_opts.video_track_file, opts->video_track_path, sizeof(mux_opts.video_track_file) - 1);
+    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
+    strncpy(mux_opts.output_file, mux_opts.intermediate_file, sizeof(mux_opts.output_file) - 1);
+    mux_opts.output_file[sizeof(mux_opts.output_file) - 1] = '\0';
+    mux_opts.overwrite = opts->overwrite;
+
+    return mux_run_postprocess(&mux_opts, opts, cb);
+}
 
 // ------------------------------------------------------------
 //  CLI Callbacks
@@ -64,35 +175,56 @@ static void cli_on_complete(void) {
 //  Help / usage
 // ------------------------------------------------------------
 
-static void print_usage(void) {
+static void print_usage(const LinuxCodecSupport* support) {
     printf("Usage: ffmpeg_converter [options] file1 file2 ...\n\n");
     printf("Options:\n");
-    printf("  -c, --codec <copy|prores|prores_ks|h265_mi50>\n");
+    printf("  -c, --codec <copy|prores|prores_ks|mux");
+    if (support && support->has_h264_vaapi)
+        printf("|h264_vaapi");
+    if (support && support->has_hevc_vaapi)
+        printf("|hevc_vaapi");
+    printf(">\n");
+    printf("      copy           keep original video\n");
+    printf("      prores         software ProRes encode\n");
+    printf("      prores_ks      software ProRes KS encode\n");
+    printf("      mux            keep processed audio, replace video from --video-track, final output is mkv\n");
+    if (support && support->has_h264_vaapi)
+        printf("      h264_vaapi     Linux VAAPI H.264 encode\n");
+    if (support && support->has_hevc_vaapi)
+        printf("      hevc_vaapi     Linux VAAPI H.265 encode\n");
     printf("  -p, --profile <lt|standard|hq|4444>\n");
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
+    printf("      --audio-output <pcm|fdk_aac_q5|fdk_aac_q5_ac3_640>\n");
+    printf("      --video-track <file> replacement video track for mux mode\n");
     printf("  -g, --genre <edm|rock|hiphop|classical|podcast>\n");
     printf("      (genre is used only with loudnorm2)\n");
     printf("  --overwrite        overwrite output files\n");
     printf("  -o, --output <directory> set output directory\n");
     printf("  -h, --help         show this help\n\n");
+    printf("Mux mode:\n");
+    printf("  - requires exactly one source file\n");
+    printf("  - requires --video-track <file>\n");
+    printf("  - runs normal audio processing, then writes final .mkv through mkvmerge\n\n");
     printf("Examples:\n");
     printf("  ffmpeg_converter input.mov\n");
     printf("  ffmpeg_converter -c prores_ks -p hq input.mov\n");
     printf("  ffmpeg_converter -a loudnorm2 -g rock input1.mov input2.mov\n\n");
+    printf("  ffmpeg_converter -c mux --video-track replacement.hevc input.mkv\n\n");
 }
 
 // ------------------------------------------------------------
 //  Argument parsing (non-interactive mode)
 // ------------------------------------------------------------
 
-static int parse_args(int argc, char** argv, ConvertOptions* opts,
+static int parse_args(int argc, char** argv, const LinuxCodecSupport* support, ConvertOptions* opts,
                       const char** files, int* file_count)
 {
     strcpy(opts->codec, "prores_ks");
     opts->profile   = 2;  // standard
     opts->deblock   = 1;  // none
     strcpy(opts->audio_norm, "peak_norm_2pass");
+    strcpy(opts->audio_output_mode, "pcm");
     opts->genre     = 1;  // edm
     opts->overwrite = 0;
     opts->output_dir[0] = '\0';
@@ -103,7 +235,7 @@ static int parse_args(int argc, char** argv, ConvertOptions* opts,
     for (int i = 1; i < argc; i++) {
 
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
-            print_usage();
+            print_usage(support);
             return 0;
         }
 
@@ -117,8 +249,12 @@ static int parse_args(int argc, char** argv, ConvertOptions* opts,
                 strcpy(opts->codec, "prores");
             else if (!strcmp(argv[i], "prores_ks"))
                 strcpy(opts->codec, "prores_ks");
-            else if (!strcmp(argv[i], "h265_mi50"))
-                strcpy(opts->codec, "h265_mi50");
+            else if (!strcmp(argv[i], "mux"))
+                strcpy(opts->codec, "mux");
+            else if (support && support->has_h264_vaapi && !strcmp(argv[i], "h264_vaapi"))
+                strcpy(opts->codec, "h264_vaapi");
+            else if (support && support->has_hevc_vaapi && !strcmp(argv[i], "hevc_vaapi"))
+                strcpy(opts->codec, "hevc_vaapi");
             else return 0;
 
             continue;
@@ -165,6 +301,31 @@ static int parse_args(int argc, char** argv, ConvertOptions* opts,
                 strcpy(opts->audio_norm, "loudness_norm_2pass");
             else return 0;
 
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--audio-output")) {
+            if (i + 1 >= argc) return 0;
+            i++;
+
+            if (!linux_audio_output_mode_available(argv[i]))
+                return 0;
+
+            if (!strcmp(argv[i], "fdk_aac_q2"))
+                argv[i] = "fdk_aac_q5";
+            else if (!strcmp(argv[i], "fdk_aac_q2_ac3_640"))
+                argv[i] = "fdk_aac_q5_ac3_640";
+
+            strncpy(opts->audio_output_mode, argv[i], sizeof(opts->audio_output_mode) - 1);
+            opts->audio_output_mode[sizeof(opts->audio_output_mode) - 1] = '\0';
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--video-track")) {
+            if (i + 1 >= argc) return 0;
+            i++;
+            strncpy(opts->video_track_path, argv[i], sizeof(opts->video_track_path) - 1);
+            opts->video_track_path[sizeof(opts->video_track_path) - 1] = '\0';
             continue;
         }
 
@@ -223,8 +384,10 @@ static void print_summary(const ConvertOptions* opts, const char** files, int fi
     printf("\n=== Summary ===\n");
     printf("Codec:        %s\n", opts->codec);
 
-    if (strcmp(opts->codec, "copy") != 0 &&
-        strcmp(opts->codec, "h265_mi50") != 0) {
+    if (codec_is_mux(opts->codec)) {
+        printf("Profile:      (mux)\n");
+        printf("Deblock:      (mux)\n");
+    } else if (codec_uses_software_prores(opts->codec)) {
         const char* profile_str = "none";
         switch (opts->profile) {
             case 1: profile_str = "lt"; break;
@@ -247,6 +410,10 @@ static void print_summary(const ConvertOptions* opts, const char** files, int fi
     }
 
     printf("Audio norm:   %s\n", opts->audio_norm);
+    printf("Audio out:    %s\n",
+        opts->audio_output_mode[0] != '\0' ? opts->audio_output_mode : "pcm");
+    if (codec_is_mux(opts->codec))
+        printf("Video track:  %s\n", opts->video_track_path[0] != '\0' ? opts->video_track_path : "(missing)");
 
     if (!strcmp(opts->audio_norm, "loudness_norm_2pass")) {
         const char* genre_str = "none";
@@ -320,7 +487,7 @@ static int read_choice(void)
     Проверяется существование директории, иначе возвращается -1.   */
 static int read_output_dir(char *out_buf, size_t bufsize, int *status)
 {
-    char tmp[PATH_MAX];
+    char tmp[BUFFER_SIZE];
     const char *home;
 
     printf("output directory (default: $HOME/ffmpeg_converter):\n> ");
@@ -546,44 +713,96 @@ int read_input_list(char ***out_files, int max_cnt, int *count)
     
     return 0;
 }
+
+static int read_single_file_path(const char* prompt, char* out_path, size_t out_path_sz)
+{
+    char line[1024];
+    struct stat st;
+
+    printf("%s\n> ", prompt);
+    fflush(stdout);
+
+    if (!fgets(line, sizeof(line), stdin))
+        return -1;
+
+    line[strcspn(line, "\r\n")] = '\0';
+    if (line[0] == '\0' || strcmp(line, "c") == 0 || strcmp(line, "C") == 0)
+        return -1;
+
+    if (!process_input_path(line, out_path, out_path_sz))
+        return -1;
+
+    if (stat(out_path, &st) != 0 || !S_ISREG(st.st_mode) || access(out_path, R_OK) != 0) {
+        printf("Invalid file: %s\n", out_path);
+        return -1;
+    }
+
+    return 0;
+}
 /* ---------- основная логика меню ---------- */
 
-int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
+int run_menu(const LinuxCodecSupport* support, ConvertOptions* opts, const char*** files_ptr, int* file_count)
 {
     int step   = 1;   /* текущий шаг */
     int codec  = 1;   /* 1 – copy (default) */
     int profile= 2;   /* 2 – standard (default) */
     int deblock= 1;   /* 1 – none (default) */
     int audio_norm = 3;/* 3 – peak 2-pass (default) */
+    int audio_output = 1; /* 1 - pcm (default) */
     int genre = 1;     /* 1 – EDM (default) */
     int overwrite = 0; /* 0 – no */
-    char output_dir[PATH_MAX];
+    char output_dir[BUFFER_SIZE];
     output_dir[0] = '\0';
     int output_dir_status = 0;
     char **temp_files = NULL;
     int temp_file_count = 0;
     int result = -1;  /* результат по умолчанию - ошибка */
+    char video_track_path[BUFFER_SIZE];
+    const char *codec_names[6];
+    int codec_steps[6];
+    int codec_count = 0;
 
-    while (step != 10 && step != 0) {
+    video_track_path[0] = '\0';
+
+    codec_names[codec_count] = "copy";
+    codec_steps[codec_count++] = 4;
+    codec_names[codec_count] = "prores";
+    codec_steps[codec_count++] = 2;
+    codec_names[codec_count] = "prores_ks";
+    codec_steps[codec_count++] = 2;
+    codec_names[codec_count] = "mux";
+    codec_steps[codec_count++] = 4;
+    if (support && support->has_h264_vaapi) {
+        codec_names[codec_count] = "h264_vaapi";
+        codec_steps[codec_count++] = 4;
+    }
+    if (support && support->has_hevc_vaapi) {
+        codec_names[codec_count] = "hevc_vaapi";
+        codec_steps[codec_count++] = 4;
+    }
+
+    while (step != 12 && step != 0) {
         switch (step) {
             case 1:   /* выбор кодека */
                 clear_screen();
                 printf("----ffmpeg_converter_simple_gui----\n\n");
                 printf("select codec\n");
                 printf("----------------------\n");
-                printf("  1. copy (default)\n");
-                printf("  2. prores\n");
-                printf("  3. prores_ks\n");
-                printf("  4. h265_mi50\n");
+                for (int idx = 0; idx < codec_count; ++idx) {
+                    printf("  %d. %s%s\n",
+                           idx + 1,
+                           codec_names[idx],
+                           idx == 0 ? " (default)" : "");
+                }
                 printf("----------------------\n");
                 printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
                 {
                     int ch = read_choice();
                     if (ch == '\n') { step = 4; }
-                    else if (ch == '1') { codec = 1; step = 4; }
-                    else if (ch == '2') { codec = 2; step = 2; }
-                    else if (ch == '3') { codec = 3; step = 2; }
-                    else if (ch == '4') { codec = 4; step = 4; }
+                    else if (ch >= '1' && ch < '1' + codec_count) {
+                        codec = (ch - '1') + 1;
+                        step = codec_steps[codec - 1];
+                    }
                     else if (ch == 'c' || ch == 'C') { 
                         if (temp_files) {
                             for (int i = 0; i < temp_file_count; i++) free(temp_files[i]);
@@ -718,14 +937,22 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                 }
                 break;
 
-            case 6:   /* overwrite */
-                printf("\nchoice if overwrite files: yes/No\n");
-                printf("select:y/n,Enter->(default),c->cancel,b->back\n>");
+            case 6:   /* output audio mode */
+                clear_screen();
+                printf("----ffmpeg_converter_simple_gui----\n\n");
+                printf("select audio output\n");
+                printf("----------------------------------\n");
+                printf("  1. pcm (default)\n");
+                printf("  2. fdk_aac_q5\n");
+                printf("  3. fdk_aac_q5 + ac3_b640\n");
+                printf("----------------------------------\n");
+                printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
                 {
                     int ch = read_choice();
-                    if (ch == '\n') { overwrite = 0; step = 7; }
-                    else if (ch == 'y' || ch == 'Y') { overwrite = 1; step = 7; }
-                    else if (ch == 'n' || ch == 'N') { overwrite = 0; step = 7; }
+                    if (ch == '\n') { audio_output = 1; step = 7; }
+                    else if (ch == '1') { audio_output = 1; step = 7; }
+                    else if (ch == '2') { audio_output = 2; step = 7; }
+                    else if (ch == '3') { audio_output = 3; step = 7; }
                     else if (ch == 'c' || ch == 'C') { 
                         if (temp_files) {
                             for (int i = 0; i < temp_file_count; i++) free(temp_files[i]);
@@ -733,17 +960,37 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                         }
                         return -1; 
                     }
-                    else if (ch == 'b' || ch == 'B') { step = 5; }
+                    else if (ch == 'b' || ch == 'B') { step = (audio_norm == 5) ? 5 : 4; }
+                    else { printf("Invalid choice\n"); }
+                }
+                break;
+
+            case 7:   /* overwrite */
+                printf("\nchoice if overwrite files: yes/No\n");
+                printf("select:y/n,Enter->(default),c->cancel,b->back\n>");
+                {
+                    int ch = read_choice();
+                    if (ch == '\n') { overwrite = 0; step = 8; }
+                    else if (ch == 'y' || ch == 'Y') { overwrite = 1; step = 8; }
+                    else if (ch == 'n' || ch == 'N') { overwrite = 0; step = 8; }
+                    else if (ch == 'c' || ch == 'C') { 
+                        if (temp_files) {
+                            for (int i = 0; i < temp_file_count; i++) free(temp_files[i]);
+                            free(temp_files);
+                        }
+                        return -1; 
+                    }
+                    else if (ch == 'b' || ch == 'B') { step = 6; }
                     else { printf("Invalid choice\n"); }
                 }
                 break;
                 
-            case 7:   /* Select Output folder */
+            case 8:   /* Select Output folder */
                 clear_screen();
                 printf("----ffmpeg_converter_simple_gui----\n\n");
                 {
                     if (read_output_dir(output_dir, sizeof(output_dir), &output_dir_status) == 0) {
-                        step = 8;
+                        step = 9;
                     } else {
                         step = 0;          // пользователь отменил / ошибка
                         if (temp_files) {
@@ -755,7 +1002,7 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                 }
                 break;
                 
-            case 8:   /* Select input files string */
+            case 9:   /* Select input files string */
                 clear_screen();
                 printf("----ffmpeg_converter_simple_gui----\n\n");
                 {
@@ -764,9 +1011,16 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                     char **file_list = NULL;
 
                     if (read_input_list(&file_list, MAX_FILES, &file_cnt) == 0) {
+                        if (codec_is_mux(codec_names[codec - 1]) && file_cnt != 1) {
+                            printf("Mux mode requires exactly one source file.\n");
+                            for (int i = 0; i < file_cnt; ++i)
+                                free(file_list[i]);
+                            free(file_list);
+                            break;
+                        }
                         temp_files = file_list;
                         temp_file_count = file_cnt;
-                        step = 9;
+                        step = codec_is_mux(codec_names[codec - 1]) ? 10 : 11;
                     } else {
                         step = 0;
                         if (temp_files) {
@@ -778,15 +1032,22 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                 }
                 break;
                 
-            case 9:   /* завершение */
+            case 10:   /* mux track */
+                clear_screen();
+                printf("----ffmpeg_converter_simple_gui----\n\n");
+                if (read_single_file_path("video-track file for mux mode:", video_track_path, sizeof(video_track_path)) == 0) {
+                    step = 11;
+                } else {
+                    printf("Invalid video-track file\n");
+                    step = 0;
+                }
+                break;
+
+            case 11:   /* завершение */
                 {
                     // Устанавливаем опции
-                    switch (codec) {
-                        case 1: strcpy(opts->codec, "copy"); break;
-                        case 2: strcpy(opts->codec, "prores"); break;
-                        case 3: strcpy(opts->codec, "prores_ks"); break;
-                        case 4: strcpy(opts->codec, "h265_mi50"); break;
-                    }
+                    strncpy(opts->codec, codec_names[codec - 1], sizeof(opts->codec) - 1);
+                    opts->codec[sizeof(opts->codec) - 1] = '\0';
                     opts->profile   = profile;
                     opts->deblock   = deblock;
                     switch (audio_norm) {
@@ -796,17 +1057,28 @@ int run_menu(ConvertOptions* opts, const char*** files_ptr, int* file_count)
                         case 4: strcpy(opts->audio_norm, "loudness_norm"); break;
                         case 5: strcpy(opts->audio_norm, "loudness_norm_2pass"); break;
                     } 
+                    switch (audio_output) {
+                        case 1: strcpy(opts->audio_output_mode, "pcm"); break;
+                        case 2: strcpy(opts->audio_output_mode, "fdk_aac_q5"); break;
+                        case 3: strcpy(opts->audio_output_mode, "fdk_aac_q5_ac3_640"); break;
+                    }
                     opts->genre     = genre;
                     opts->overwrite = overwrite;
                     strncpy(opts->output_dir, output_dir, sizeof(opts->output_dir)-1);
+                    opts->output_dir[sizeof(opts->output_dir) - 1] = '\0';
                     opts->output_dir_status = output_dir_status;
+                    if (codec_is_mux(opts->codec)) {
+                        strncpy(opts->video_track_path, video_track_path, sizeof(opts->video_track_path) - 1);
+                        opts->video_track_path[sizeof(opts->video_track_path) - 1] = '\0';
+                    }
+                    apply_linux_default_hw_device(opts, support);
                     
                     // Передаем файлы
                     *files_ptr = (const char**)temp_files;
                     *file_count = temp_file_count;
                     
                     result = 0;  // Успех
-                    step = 10;
+                    step = 12;
                 }
                 break;
         }
@@ -866,18 +1138,41 @@ static int verify_all_files(const char** files, int file_count)
     return valid_files;
 }
 
+static int validate_mux_inputs(const ConvertOptions* opts, const char** files, int file_count)
+{
+    if (!codec_is_mux(opts->codec))
+        return 1;
+
+    if (file_count != 1) {
+        fprintf(stderr, "Mux mode requires exactly one source file.\n");
+        return 0;
+    }
+
+    if (!file_is_regular_readable(opts->video_track_path)) {
+        fprintf(stderr, "Mux mode requires a readable --video-track file.\n");
+        return 0;
+    }
+
+    return 1;
+}
+
 // ------------------------------------------------------------
 //  main
 // ------------------------------------------------------------
 
 int main(int argc, char** argv) {
     const char** files = NULL;
+    const char* arg_files[BUFFER_SIZE];
     int file_count = 0;
     Converter* c = NULL;
     int result = 0;
+    LinuxCodecSupport support;
+
+    memset(&support, 0, sizeof(support));
+    linux_probe_codec_support(&support);
 
     if (argc == 2 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        print_usage();
+        print_usage(&support);
         return 0;
     }
 
@@ -905,7 +1200,7 @@ int main(int argc, char** argv) {
   
     if (argc == 1) {
         // Интерактивный режим
-        menu_result = run_menu(&opts, &files, &file_count);
+        menu_result = run_menu(&support, &opts, &files, &file_count);
         if (menu_result < 0) {
             printf("Menu cancelled by user.\n");
             result = 1;
@@ -917,17 +1212,17 @@ int main(int argc, char** argv) {
         }
     } else {  
         // Режим командной строки
-        const char* arg_files[BUFFER_SIZE];
-        if (!parse_args(argc, argv, &opts, arg_files, &file_count)) {
+        if (!parse_args(argc, argv, &support, &opts, arg_files, &file_count)) {
             printf("Invalid options. Try again\n");
             result = 1;
             goto cleanup;
         }
         files = arg_files;
+        apply_linux_default_hw_device(&opts, &support);
     }
 
     if (file_count == 0) {
-        print_usage();
+        print_usage(&support);
         result = 1;
         goto cleanup;
     }
@@ -947,8 +1242,22 @@ if (valid_files < file_count) {
     file_count = valid_files;
 }
 
-converter_set_options(c, &opts);
-ConverterError err = converter_process_files(c, files, file_count);
+    if (!validate_mux_inputs(&opts, files, file_count)) {
+        result = 1;
+        goto cleanup;
+    }
+
+    ConvertOptions work_opts = opts;
+    if (codec_is_mux(opts.codec)) {
+        strcpy(work_opts.codec, "copy");
+        work_opts.profile = 0;
+        work_opts.deblock = 0;
+    }
+
+    converter_set_options(c, &work_opts);
+    ConverterError err = converter_process_files(c, files, file_count);
+    if (err == ERR_OK && codec_is_mux(opts.codec))
+        err = run_cli_mux_postprocess(&opts, &cb, files[0]);
   
     result = (err == ERR_OK ? 0 : 1);
 

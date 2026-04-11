@@ -1,6 +1,8 @@
 #ifndef CONVERTER_H
 #define CONVERTER_H
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -51,6 +53,7 @@ typedef struct {
     // AUDIO NORMALIZATION
     char audio_norm[32]; // "none", "peak_norm", "peak_norm_2pass",
                          // "loudness_norm", "loudness_norm_2pass"
+    char audio_output_mode[32]; // "pcm", "fdk_aac_q5", "fdk_aac_q5_ac3_640"
 
     // LOUDNORM 2-PASS GENRE
     int genre;          // 0=none, 1..5
@@ -70,6 +73,10 @@ typedef struct {
     int  overwrite;      // 0=skip, 1=force
     char output_dir[1024]; // optional output directory ("" = same as input)
     int output_dir_status;
+    char video_track_path[1024];
+    char hw_device[1024];
+    int hwaccel_enabled;
+    int video_quality;
     int use_aac_for_h265;
     int hevc_vt_bitrate_kbps;  // calculated at runtime for hevc_videotoolbox
 
@@ -144,6 +151,13 @@ ConverterError converter_process_files(
     Converter* c,
     const char** files,
     int file_count
+);
+
+void converter_make_output_name(
+    const char* input,
+    const ConvertOptions* opts,
+    char* out,
+    size_t out_sz
 );
 
 void converter_stop(Converter* c);
