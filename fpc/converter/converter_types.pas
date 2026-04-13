@@ -27,6 +27,7 @@ type
     profile: LongInt;
     deblock: LongInt;
     audio_norm: array[0..31] of AnsiChar;
+    audio_output_mode: array[0..31] of AnsiChar;
     genre: LongInt;
 
     gain: Double;
@@ -42,7 +43,12 @@ type
     overwrite: LongInt;
     output_dir: array[0..1023] of AnsiChar;
     output_dir_status: LongInt;
+    video_track_path: array[0..1023] of AnsiChar;
+    hw_device: array[0..1023] of AnsiChar;
+    hwaccel_enabled: LongInt;
+    video_quality: LongInt;
     use_aac_for_h265: LongInt;
+    hevc_vt_bitrate_kbps: LongInt;
   end;
   PConvertOptions = ^TConvertOptions;
 
@@ -70,6 +76,7 @@ type
 const
   DEFAULT_CODEC = 'prores_ks';
   DEFAULT_AUDIO_NORM = 'peak_norm_2pass';
+  DEFAULT_AUDIO_OUTPUT_MODE = 'pcm';
 
 procedure InitDefaultOptions(out Opts: TConvertOptions);
 
@@ -86,12 +93,18 @@ begin
   Opts.deblock := 1;
 
   StrPLCopy(@Opts.audio_norm[0], DEFAULT_AUDIO_NORM, Length(DEFAULT_AUDIO_NORM));
+  StrPLCopy(@Opts.audio_output_mode[0], DEFAULT_AUDIO_OUTPUT_MODE, Length(DEFAULT_AUDIO_OUTPUT_MODE));
   Opts.genre := 1;
 
   Opts.overwrite := 0;
   Opts.output_dir[0] := #0;
   Opts.output_dir_status := 0;
+  Opts.video_track_path[0] := #0;
+  Opts.hw_device[0] := #0;
+  Opts.hwaccel_enabled := 0;
+  Opts.video_quality := 0;
   Opts.use_aac_for_h265 := 0;
+  Opts.hevc_vt_bitrate_kbps := 0;
 end;
 
 end.

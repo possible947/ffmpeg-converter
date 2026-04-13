@@ -23,7 +23,11 @@ var
   Ext: string;
 begin
   BaseName := ChangeFileExt(ExtractFileName(InputPath), '');
-  if (Codec = 'copy') or (Codec = 'h265_mi50') then
+
+  if Codec = 'hevc_videotoolbox' then
+    Ext := '.mp4'
+  else if (Codec = 'copy') or (Codec = 'mux') or
+          (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
     Ext := '.mkv'
   else
     Ext := '.mov';

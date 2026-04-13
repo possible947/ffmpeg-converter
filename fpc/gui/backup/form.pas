@@ -713,7 +713,14 @@ begin
   cmbCodec.Items.Add('copy');
   cmbCodec.Items.Add('prores');
   cmbCodec.Items.Add('prores_ks');
-  cmbCodec.Items.Add('h265_mi50');
+{$IFDEF Linux}
+  cmbCodec.Items.Add('h264_vaapi');
+  cmbCodec.Items.Add('hevc_vaapi');
+{$ENDIF}
+{$IFDEF Darwin}
+  cmbCodec.Items.Add('prores_videotoolbox');
+  cmbCodec.Items.Add('hevc_videotoolbox');
+{$ENDIF}
   cmbCodec.ItemIndex := 0;
 
   cmbProfile.Items.Clear;
@@ -819,8 +826,11 @@ begin
   CodecText := cmbCodec.Text;
   AudioNormText := cmbAudioNorm.Text;
 
-  cmbProfile.Enabled := (CodecText <> 'copy') and (CodecText <> 'h265_mi50');
-  cmbDeblock.Enabled := (CodecText <> 'copy') and (CodecText <> 'h265_mi50');
+  cmbProfile.Enabled := (CodecText <> 'copy') and (CodecText <> 'mux') and
+    (CodecText <> 'h264_vaapi') and (CodecText <> 'hevc_vaapi');
+  cmbDeblock.Enabled := (CodecText <> 'copy') and (CodecText <> 'mux') and
+    (CodecText <> 'h264_vaapi') and (CodecText <> 'hevc_vaapi') and
+    (CodecText <> 'prores_videotoolbox') and (CodecText <> 'hevc_videotoolbox');
   cmbGenre.Enabled := (AudioNormText = 'loudness_norm_2pass');
 end;
 

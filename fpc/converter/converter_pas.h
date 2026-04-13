@@ -28,6 +28,7 @@ typedef struct {
     int  deblock;
 
     char audio_norm[32];
+    char audio_output_mode[32];
     int  genre;
 
     double gain;
@@ -43,7 +44,12 @@ typedef struct {
     int  overwrite;
     char output_dir[1024];
     int  output_dir_status;
+    char video_track_path[1024];
+    char hw_device[1024];
+    int  hwaccel_enabled;
+    int  video_quality;
     int  use_aac_for_h265;
+    int  hevc_vt_bitrate_kbps;
 } ConvertOptions;
 
 typedef struct {
@@ -64,6 +70,7 @@ void converter_destroy(Converter c);
 void converter_set_callbacks(Converter c, const ConverterCallbacks* cb);
 ConverterError converter_set_options(Converter c, const ConvertOptions* opts);
 ConverterError converter_process_files(Converter c, const char** files, int file_count);
+void converter_make_output_name(const char* input, const ConvertOptions* opts, char* out, unsigned long out_sz);
 void converter_stop(Converter c);
 const char* converter_error_string(ConverterError err);
 

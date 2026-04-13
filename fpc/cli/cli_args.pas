@@ -18,6 +18,21 @@ uses
   fs_utils,
   SysUtils;
 
+function IsCodecAllowedOnCurrentPlatform(const Codec: string): Boolean;
+begin
+{$IFDEF Darwin}
+  Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or
+            (Codec = 'mux') or (Codec = 'prores_videotoolbox') or (Codec = 'hevc_videotoolbox');
+{$ELSE}
+  {$IFDEF Linux}
+  Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or
+            (Codec = 'mux') or (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi');
+  {$ELSE}
+  Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or (Codec = 'mux');
+  {$ENDIF}
+{$ENDIF}
+end;
+
 procedure SetAnsiField(var Dest: array of AnsiChar; const S: string);
 var
   N: SizeInt;
@@ -75,10 +90,20 @@ begin
   WriteLn('Usage: ffmpeg_converter [options] file1 file2 ...');
   WriteLn;
   WriteLn('Options:');
-  WriteLn('  -c, --codec <copy|prores|prores_ks|h265_mi50>');
+{$IFDEF Darwin}
+  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|prores_videotoolbox|hevc_videotoolbox>');
+{$ELSE}
+  {$IFDEF Linux}
+  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_vaapi|hevc_vaapi>');
+  {$ELSE}
+  WriteLn('  -c, --codec <copy|prores|prores_ks|mux>');
+  {$ENDIF}
+{$ENDIF}
   WriteLn('  -p, --profile <lt|standard|hq|4444>');
   WriteLn('  -d, --deblock <none|weak|strong>');
   WriteLn('  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>');
+  WriteLn('      --audio-output <pcm|fdk_aac_q5|fdk_aac_q5_ac3_640>');
+  WriteLn('      --video-track <file> replacement video track for mux mode');
   WriteLn('  -g, --genre <edm|rock|hiphop|classical|podcast>');
   WriteLn('      (genre is used only with loudnorm2)');
   WriteLn('  --overwrite        overwrite output files');
@@ -89,6 +114,7 @@ begin
   WriteLn('  ffmpeg_converter input.mov');
   WriteLn('  ffmpeg_converter -c prores_ks -p hq input.mov');
   WriteLn('  ffmpeg_converter -a loudnorm2 -g rock input1.mov input2.mov');
+  WriteLn('  ffmpeg_converter -c mux --video-track replacement.hevc input.mkv');
   WriteLn;
 end;
 
@@ -96,6 +122,7 @@ function ParseArgs(var Opts: TConvertOptions; out Files: array of PAnsiChar; out
 var
   I: LongInt;
   S: string;
+  Codec: string;
   ResolvedDir: string;
   DirError: string;
 begin
@@ -119,10 +146,13 @@ begin
         Exit(False);
       Inc(I);
       S := ParamStr(I);
-      if (S = 'copy') or (S = 'prores') or (S = 'prores_ks') or (S = 'h265_mi50') then
+      if IsCodecAllowedOnCurrentPlatform(S) then
         SetAnsiField(Opts.codec, S)
       else
+      begin
+        WriteLn(StdErr, 'Error: codec is not supported on this platform: ', S);
         Exit(False);
+      end;
       Inc(I);
       Continue;
     end;
@@ -168,6 +198,36 @@ begin
       else if S = 'loudnorm' then SetAnsiField(Opts.audio_norm, 'loudness_norm')
       else if S = 'loudnorm2' then SetAnsiField(Opts.audio_norm, 'loudness_norm_2pass')
       else Exit(False);
+      Inc(I);
+      Continue;
+    end;
+
+    if S = '--audio-output' then
+    begin
+      if I + 1 > ParamCount then
+        Exit(False);
+      Inc(I);
+      S := ParamStr(I);
+      if S = 'fdk_aac_q2' then
+        S := 'fdk_aac_q5'
+      else if S = 'fdk_aac_q2_ac3_640' then
+        S := 'fdk_aac_q5_ac3_640';
+
+      if (S = 'pcm') or (S = 'fdk_aac_q5') or (S = 'fdk_aac_q5_ac3_640') then
+        SetAnsiField(Opts.audio_output_mode, S)
+      else
+        Exit(False);
+      Inc(I);
+      Continue;
+    end;
+
+    if S = '--video-track' then
+    begin
+      if I + 1 > ParamCount then
+        Exit(False);
+      Inc(I);
+      S := ParamStr(I);
+      SetAnsiField(Opts.video_track_path, S);
       Inc(I);
       Continue;
     end;
@@ -240,6 +300,22 @@ begin
   SetAnsiField(Opts.output_dir, ResolvedDir);
   Opts.output_dir_status := 1;
 
+  Codec := ArrToStr(Opts.codec);
+  if Codec = 'mux' then
+  begin
+    if FileCount <> 1 then
+    begin
+      WriteLn(StdErr, 'Error: mux mode requires exactly one source file.');
+      Exit(False);
+    end;
+
+    if not FileRegular(ArrToStr(Opts.video_track_path)) or not FileReadable(ArrToStr(Opts.video_track_path)) then
+    begin
+      WriteLn(StdErr, 'Error: mux mode requires a readable --video-track file.');
+      Exit(False);
+    end;
+  end;
+
   Result := True;
 end;
 
@@ -260,7 +336,7 @@ begin
 
   WriteLn('Codec:        ', Codec);
 
-  if (Codec <> 'copy') and (Codec <> 'h265_mi50') then
+  if (Codec <> 'copy') and (Codec <> 'mux') then
   begin
     WriteLn('Profile:      ', ProfileToText(Opts.profile));
     WriteLn('Deblock:      ', DeblockToText(Opts.deblock));
@@ -272,6 +348,10 @@ begin
   end;
 
   WriteLn('Audio norm:   ', AudioNorm);
+  WriteLn('Audio out:    ', ArrToStr(Opts.audio_output_mode));
+
+  if Codec = 'mux' then
+    WriteLn('Video track:  ', ArrToStr(Opts.video_track_path));
 
   if AudioNorm = 'loudness_norm_2pass' then
     WriteLn('Genre:        ', GenreToText(Opts.genre));

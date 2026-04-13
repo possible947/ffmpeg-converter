@@ -55,6 +55,7 @@ type
     btnAddFiles: TButton;
     btnChooseOutputDir: TButton;
     btnClearList: TButton;
+    btnAddTrack: TButton;
     btnRemoveSelected: TButton;
     btnStart: TButton;
     btnStop: TButton;
@@ -62,6 +63,7 @@ type
     chkM4VEditBeforeMux: TCheckBox;
     chkOverwrite: TCheckBox;
     cmbAudioNorm: TComboBox;
+    cmbAudioOutput: TComboBox;
     cmbCodec: TComboBox;
     cmbDeblock: TComboBox;
     cmbGenre: TComboBox;
@@ -72,6 +74,8 @@ type
     lblGenre: TLabel;
     lblOutputDir: TLabel;
     lblOutputDirValue: TLabel;
+    lblVideoTrack: TLabel;
+    lblVideoTrackValue: TLabel;
     lblProfile: TLabel;
     lblProgressText: TLabel;
     lblStatus: TLabel;
@@ -81,6 +85,7 @@ type
     procedure FormCreate(Sender: TObject);
   private
     FOutputDir: string;
+    FVideoTrackPath: string;
     FWorker: TConverterThread;
     FAppleWorker: TAppleM4VThread;
 
@@ -92,6 +97,7 @@ type
     procedure CodecChanged(Sender: TObject);
     procedure AudioNormChanged(Sender: TObject);
     procedure AddFilesClicked(Sender: TObject);
+    procedure AddTrackClicked(Sender: TObject);
     procedure ChooseOutputDirClicked(Sender: TObject);
     procedure RemoveSelectedClicked(Sender: TObject);
     procedure ClearListClicked(Sender: TObject);
@@ -636,7 +642,14 @@ begin
   SetupConverterCallbacks(Cb);
 
   converter_set_callbacks(FConverter, @Cb);
-  converter_set_options(FConverter, @FOptions);
+  Err := converter_set_options(FConverter, @FOptions);
+  if Err <> ERR_OK then
+  begin
+    QueueLog('Failed to set options: ' + string(converter_error_string(Err)));
+    converter_destroy(FConverter);
+    FConverter := nil;
+    Exit;
+  end;
 
   SetLength(TmpFiles, Length(FFiles));
   for I := 0 to High(FFiles) do
@@ -684,6 +697,21 @@ end;
 
 { TMainForm }
 
+function CodecIsMux(const Codec: string): Boolean;
+begin
+  Result := Codec = 'mux';
+end;
+
+function CodecUsesSoftwareProres(const Codec: string): Boolean;
+begin
+  Result := (Codec = 'prores') or (Codec = 'prores_ks');
+end;
+
+function CodecUsesLinuxVaapi(const Codec: string): Boolean;
+begin
+  Result := (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi');
+end;
+
 procedure TMainForm.FormCreate(Sender: TObject);
 var
   Tools: TToolPaths;
@@ -691,6 +719,7 @@ begin
   GMainForm := Self;
   ApplyBundledToolEnvironment;
   FOutputDir := DefaultOutputDir;
+  FVideoTrackPath := '';
   FWorker := nil;
   FAppleWorker := nil;
   SetupControls;
@@ -707,13 +736,21 @@ begin
   cmbProfile.Style := csDropDownList;
   cmbDeblock.Style := csDropDownList;
   cmbAudioNorm.Style := csDropDownList;
+  cmbAudioOutput.Style := csDropDownList;
   cmbGenre.Style := csDropDownList;
 
   cmbCodec.Items.Clear;
   cmbCodec.Items.Add('copy');
   cmbCodec.Items.Add('prores');
   cmbCodec.Items.Add('prores_ks');
-  cmbCodec.Items.Add('h265_mi50');
+{$IFDEF Linux}
+  cmbCodec.Items.Add('h264_vaapi');
+  cmbCodec.Items.Add('hevc_vaapi');
+{$ENDIF}
+{$IFDEF Darwin}
+  cmbCodec.Items.Add('prores_videotoolbox');
+  cmbCodec.Items.Add('hevc_videotoolbox');
+{$ENDIF}
   cmbCodec.ItemIndex := 0;
 
   cmbProfile.Items.Clear;
@@ -745,6 +782,12 @@ begin
   cmbGenre.Items.Add('podcast');
   cmbGenre.ItemIndex := 0;
 
+  cmbAudioOutput.Items.Clear;
+  cmbAudioOutput.Items.Add('pcm');
+  cmbAudioOutput.Items.Add('fdk_aac_q5');
+  cmbAudioOutput.Items.Add('fdk_aac_q5_ac3_640');
+  cmbAudioOutput.ItemIndex := 0;
+
   if FOutputDir <> '' then
     lblOutputDirValue.Caption := FOutputDir
   else
@@ -752,6 +795,7 @@ begin
   lblProgressText.Caption := '0%';
   lblStatus.Caption := 'Ready';
   chkM4VEditBeforeMux.Checked := False;
+  lblVideoTrackValue.Caption := '(not set)';
   pbProgress.Min := 0;
   pbProgress.Max := 100;
   pbProgress.Position := 0;
@@ -764,6 +808,7 @@ begin
   btnChooseOutputDir.OnClick := @ChooseOutputDirClicked;
   btnRemoveSelected.OnClick := @RemoveSelectedClicked;
   btnClearList.OnClick := @ClearListClicked;
+  btnAddTrack.OnClick := @AddTrackClicked;
   btnStart.OnClick := @StartClicked;
   btnStop.OnClick := @StopClicked;
   btnAppleM4VCreator.OnClick := @AppleM4VCreatorClicked;
@@ -795,6 +840,12 @@ begin
   if cmbAudioNorm.ItemIndex >= 0 then
     SetAnsiField(Opts.audio_norm, cmbAudioNorm.Items[cmbAudioNorm.ItemIndex]);
 
+  if cmbAudioOutput.ItemIndex >= 0 then
+    SetAnsiField(Opts.audio_output_mode, cmbAudioOutput.Items[cmbAudioOutput.ItemIndex]);
+
+  if CodecIsMux(cmbCodec.Text) then
+    SetAnsiField(Opts.video_track_path, FVideoTrackPath);
+
   Opts.genre := cmbGenre.ItemIndex + 1;
   Opts.overwrite := Ord(chkOverwrite.Checked);
 
@@ -819,9 +870,18 @@ begin
   CodecText := cmbCodec.Text;
   AudioNormText := cmbAudioNorm.Text;
 
-  cmbProfile.Enabled := (CodecText <> 'copy') and (CodecText <> 'h265_mi50');
-  cmbDeblock.Enabled := (CodecText <> 'copy') and (CodecText <> 'h265_mi50');
+  cmbProfile.Enabled := CodecUsesSoftwareProres(CodecText);
+  cmbDeblock.Enabled := CodecUsesSoftwareProres(CodecText);
   cmbGenre.Enabled := (AudioNormText = 'loudness_norm_2pass');
+
+  btnAddFiles.Enabled := not CodecIsMux(CodecText);
+  btnAddTrack.Enabled := CodecIsMux(CodecText) and (lstFiles.Count = 1);
+
+  if not CodecIsMux(CodecText) then
+  begin
+    FVideoTrackPath := '';
+    lblVideoTrackValue.Caption := '(not set)';
+  end;
 end;
 
 procedure TMainForm.CollectOptions(out Opts: TConvertOptions; out Files: array of string; out Count: Integer);
@@ -859,6 +919,24 @@ begin
   finally
     Dlg.Free;
   end;
+  UpdateDependentWidgets;
+end;
+
+procedure TMainForm.AddTrackClicked(Sender: TObject);
+var
+  Dlg: TOpenDialog;
+begin
+  Dlg := TOpenDialog.Create(Self);
+  try
+    Dlg.Options := [ofFileMustExist, ofPathMustExist];
+    if Dlg.Execute then
+    begin
+      FVideoTrackPath := Dlg.FileName;
+      lblVideoTrackValue.Caption := FVideoTrackPath;
+    end;
+  finally
+    Dlg.Free;
+  end;
 end;
 
 procedure TMainForm.ChooseOutputDirClicked(Sender: TObject);
@@ -877,11 +955,15 @@ procedure TMainForm.RemoveSelectedClicked(Sender: TObject);
 begin
   if lstFiles.ItemIndex >= 0 then
     lstFiles.Items.Delete(lstFiles.ItemIndex);
+  UpdateDependentWidgets;
 end;
 
 procedure TMainForm.ClearListClicked(Sender: TObject);
 begin
   lstFiles.Clear;
+  FVideoTrackPath := '';
+  lblVideoTrackValue.Caption := '(not set)';
+  UpdateDependentWidgets;
 end;
 
 procedure TMainForm.StartClicked(Sender: TObject);
@@ -896,6 +978,20 @@ begin
   begin
     MessageDlg('Apple m4v creator is running. Please wait for completion first.', mtWarning, [mbOK], 0);
     Exit;
+  end;
+
+  if CodecIsMux(cmbCodec.Text) then
+  begin
+    if lstFiles.Items.Count <> 1 then
+    begin
+      MessageDlg('Mux mode requires exactly one source file.', mtWarning, [mbOK], 0);
+      Exit;
+    end;
+    if not FileRegular(FVideoTrackPath) or not FileReadable(FVideoTrackPath) then
+    begin
+      MessageDlg('Mux mode requires a readable video-track file.', mtWarning, [mbOK], 0);
+      Exit;
+    end;
   end;
 
   if lstFiles.Items.Count = 0 then
@@ -1156,6 +1252,9 @@ end;
 
 procedure TMainForm.UiComplete;
 begin
+  pbProgress.Position := 100;
+  lblProgressText.Caption := '100%';
+
   if Assigned(FAppleWorker) and (not Assigned(FWorker)) then
   begin
     UiLog('Main worker phase finished. Continuing Apple m4v phase...');
@@ -1172,6 +1271,27 @@ procedure TMainForm.SetRunningState(Running: Boolean);
 begin
   btnStart.Enabled := not Running;
   btnStop.Enabled := Running;
+
+  cmbCodec.Enabled := not Running;
+  cmbAudioNorm.Enabled := not Running;
+  cmbAudioOutput.Enabled := not Running;
+  chkOverwrite.Enabled := not Running;
+  btnChooseOutputDir.Enabled := not Running;
+  btnAddFiles.Enabled := not Running;
+  btnAddTrack.Enabled := not Running;
+  btnAppleM4VCreator.Enabled := not Running;
+  btnRemoveSelected.Enabled := not Running;
+  btnClearList.Enabled := not Running;
+  lstFiles.Enabled := not Running;
+
+  if Running then
+  begin
+    cmbProfile.Enabled := False;
+    cmbDeblock.Enabled := False;
+    cmbGenre.Enabled := False;
+  end
+  else
+    UpdateDependentWidgets;
 end;
 
 end.

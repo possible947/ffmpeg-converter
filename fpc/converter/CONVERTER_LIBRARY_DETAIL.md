@@ -13,7 +13,8 @@ The library exposes the following operations:
 4. Set conversion options.
 5. Process a file list.
 6. Stop processing.
-7. Translate error code to text.
+7. Build output file name (`converter_make_output_name`).
+8. Translate error code to text.
 
 The Pascal shared library exports C ABI-compatible symbol names through `fpc/converter/converter_pas.lpr`.
 
@@ -56,7 +57,7 @@ Main responsibilities inside `converter.c`:
 
 2. `converter_cmd_builder.pas`
 - codec-specific ffmpeg arguments
-- h265 VAAPI device and upload filter handling
+- Linux VAAPI device and upload filter handling (`h264_vaapi`, `hevc_vaapi`)
 - deblock filters
 - audio normalization filter chains
 
@@ -79,6 +80,7 @@ Main responsibilities inside `converter.c`:
 - `converter_set_options`
 - `converter_process_files`
 - `converter_stop`
+- `converter_make_output_name`
 - `converter_error_string`
 
 ## 8. Build and Integration

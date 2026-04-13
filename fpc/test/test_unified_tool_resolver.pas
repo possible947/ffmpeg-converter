@@ -35,5 +35,11 @@ begin
     Halt(1);
   end;
 
+  if MainTools.MkvmergeBin = '' then
+  begin
+    WriteLn('FAIL: mkvmerge resolver returned empty string');
+    Halt(1);
+  end;
+
   WriteLn('OK: unified resolver main/apple');
 end.

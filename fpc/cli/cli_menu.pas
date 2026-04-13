@@ -15,6 +15,24 @@ uses
   fs_utils,
   SysUtils;
 
+function IsDarwin: Boolean;
+begin
+{$IFDEF Darwin}
+  Result := True;
+{$ELSE}
+  Result := False;
+{$ENDIF}
+end;
+
+function IsLinux: Boolean;
+begin
+{$IFDEF Linux}
+  Result := True;
+{$ELSE}
+  Result := False;
+{$ENDIF}
+end;
+
 procedure ClearScreen;
 begin
   Write(#27'[H'#27'[J');
@@ -233,8 +251,10 @@ var
   Profile: LongInt;
   Deblock: LongInt;
   AudioNorm: LongInt;
+  AudioOutput: LongInt;
   Genre: LongInt;
   Overwrite: LongInt;
+  VideoTrackPath: string;
   OutputDir: string;
   OutputDirStatus: LongInt;
   TempFileCount: LongInt;
@@ -249,13 +269,15 @@ begin
   Profile := 2;
   Deblock := 1;
   AudioNorm := 3;
+  AudioOutput := 1;
   Genre := 1;
   Overwrite := 0;
+  VideoTrackPath := '';
   OutputDir := '';
   OutputDirStatus := 0;
   TempFileCount := 0;
 
-  while (Step <> 10) and (Step <> 0) do
+  while (Step <> 12) and (Step <> 0) do
   begin
     case Step of
       1:
@@ -268,7 +290,17 @@ begin
           WriteLn('  1. copy (default)');
           WriteLn('  2. prores');
           WriteLn('  3. prores_ks');
-          WriteLn('  4. h265_mi50');
+          WriteLn('  4. mux');
+          if IsLinux then
+          begin
+            WriteLn('  5. h264_vaapi');
+            WriteLn('  6. hevc_vaapi');
+          end;
+          if IsDarwin then
+          begin
+            WriteLn('  7. prores_videotoolbox');
+            WriteLn('  8. hevc_videotoolbox');
+          end;
           WriteLn('----------------------');
           Write('select: number->choice,Enter->(default),c->cancel,b->back');
           WriteLn;
@@ -294,6 +326,26 @@ begin
           else if Ch = '4' then
           begin
             Codec := 4;
+            Step := 8;
+          end
+          else if (Ch = '5') and IsLinux then
+          begin
+            Codec := 5;
+            Step := 4;
+          end
+          else if (Ch = '6') and IsLinux then
+          begin
+            Codec := 6;
+            Step := 4;
+          end
+          else if (Ch = '7') and IsDarwin then
+          begin
+            Codec := 7;
+            Step := 4;
+          end
+          else if (Ch = '8') and IsDarwin then
+          begin
+            Codec := 8;
             Step := 4;
           end
           else if (Ch = 'c') or (Ch = 'C') then
@@ -523,25 +575,37 @@ begin
 
       6:
         begin
+          ClearScreen;
+          WriteLn('----ffmpeg_converter_simple_gui----');
           WriteLn;
-          WriteLn('choice if overwrite files: yes/No');
-          Write('select:y/n,Enter->(default),c->cancel,b->back');
+          WriteLn('select audio output');
+          WriteLn('----------------------------------');
+          WriteLn('  1. pcm (default)');
+          WriteLn('  2. fdk_aac_q5');
+          WriteLn('  3. fdk_aac_q5 + ac3_b640');
+          WriteLn('----------------------------------');
+          Write('select: number->choice,Enter->(default),c->cancel,b->back');
           WriteLn;
           Write('>');
           Ch := ReadChoice;
           if Ch = #10 then
           begin
-            Overwrite := 0;
+            AudioOutput := 1;
             Step := 7;
           end
-          else if (Ch = 'y') or (Ch = 'Y') then
+          else if Ch = '1' then
           begin
-            Overwrite := 1;
+            AudioOutput := 1;
             Step := 7;
           end
-          else if (Ch = 'n') or (Ch = 'N') then
+          else if Ch = '2' then
           begin
-            Overwrite := 0;
+            AudioOutput := 2;
+            Step := 7;
+          end
+          else if Ch = '3' then
+          begin
+            AudioOutput := 3;
             Step := 7;
           end
           else if (Ch = 'c') or (Ch = 'C') then
@@ -557,16 +621,36 @@ begin
 
       7:
         begin
-          ClearScreen;
-          WriteLn('----ffmpeg_converter_simple_gui----');
           WriteLn;
-          if ReadOutputDir(OutputDir, OutputDirStatus) then
-            Step := 8
-          else
+          WriteLn('choice if overwrite files: yes/No');
+          Write('select:y/n,Enter->(default),c->cancel,b->back');
+          WriteLn;
+          Write('>');
+          Ch := ReadChoice;
+          if Ch = #10 then
+          begin
+            Overwrite := 0;
+            Step := 8;
+          end
+          else if (Ch = 'y') or (Ch = 'Y') then
+          begin
+            Overwrite := 1;
+            Step := 8;
+          end
+          else if (Ch = 'n') or (Ch = 'N') then
+          begin
+            Overwrite := 0;
+            Step := 8;
+          end
+          else if (Ch = 'c') or (Ch = 'C') then
           begin
             ClearAllocated(Files, TempFileCount);
             Exit(False);
-          end;
+          end
+          else if (Ch = 'b') or (Ch = 'B') then
+            Step := 6
+          else
+            WriteLn('Invalid choice');
         end;
 
       8:
@@ -574,7 +658,7 @@ begin
           ClearScreen;
           WriteLn('----ffmpeg_converter_simple_gui----');
           WriteLn;
-          if ReadInputList(Files, TempFileCount) then
+          if ReadOutputDir(OutputDir, OutputDirStatus) then
             Step := 9
           else
           begin
@@ -585,11 +669,73 @@ begin
 
       9:
         begin
+          ClearScreen;
+          WriteLn('----ffmpeg_converter_simple_gui----');
+          WriteLn;
+          if ReadInputList(Files, TempFileCount) then
+          begin
+            if (Codec = 4) and (TempFileCount <> 1) then
+            begin
+              WriteLn('Mux mode requires exactly one source file.');
+              ClearAllocated(Files, TempFileCount);
+              Exit(False);
+            end;
+            if Codec = 4 then
+              Step := 10
+            else
+              Step := 11;
+          end
+          else
+          begin
+            ClearAllocated(Files, TempFileCount);
+            Exit(False);
+          end;
+        end;
+
+      10:
+        begin
+          WriteLn('video-track file for mux mode:');
+          Write('> ');
+          if EOF(Input) then
+            Exit(False);
+          ReadLn(VideoTrackPath);
+          VideoTrackPath := Trim(VideoTrackPath);
+          if not FileRegular(VideoTrackPath) or not FileReadable(VideoTrackPath) then
+          begin
+            WriteLn('Invalid video-track file: ', VideoTrackPath);
+            ClearAllocated(Files, TempFileCount);
+            Exit(False);
+          end;
+          Step := 11;
+        end;
+
+      11:
+        begin
           case Codec of
             1: SetAnsiField(Opts.codec, 'copy');
             2: SetAnsiField(Opts.codec, 'prores');
             3: SetAnsiField(Opts.codec, 'prores_ks');
-            4: SetAnsiField(Opts.codec, 'h265_mi50');
+            4: SetAnsiField(Opts.codec, 'mux');
+            5:
+              if IsLinux then
+                SetAnsiField(Opts.codec, 'h264_vaapi')
+              else
+                SetAnsiField(Opts.codec, 'copy');
+            6:
+              if IsLinux then
+                SetAnsiField(Opts.codec, 'hevc_vaapi')
+              else
+                SetAnsiField(Opts.codec, 'copy');
+            7:
+              if IsDarwin then
+                SetAnsiField(Opts.codec, 'prores_videotoolbox')
+              else
+                SetAnsiField(Opts.codec, 'copy');
+            8:
+              if IsDarwin then
+                SetAnsiField(Opts.codec, 'hevc_videotoolbox')
+              else
+                SetAnsiField(Opts.codec, 'copy');
           end;
 
           Opts.profile := Profile;
@@ -603,13 +749,21 @@ begin
             5: SetAnsiField(Opts.audio_norm, 'loudness_norm_2pass');
           end;
 
+          case AudioOutput of
+            1: SetAnsiField(Opts.audio_output_mode, 'pcm');
+            2: SetAnsiField(Opts.audio_output_mode, 'fdk_aac_q5');
+            3: SetAnsiField(Opts.audio_output_mode, 'fdk_aac_q5_ac3_640');
+          end;
+
           Opts.genre := Genre;
           Opts.overwrite := Overwrite;
           SetAnsiField(Opts.output_dir, OutputDir);
           Opts.output_dir_status := OutputDirStatus;
+          if Codec = 4 then
+            SetAnsiField(Opts.video_track_path, VideoTrackPath);
 
           FileCount := TempFileCount;
-          Step := 10;
+          Step := 12;
         end;
     end;
   end;

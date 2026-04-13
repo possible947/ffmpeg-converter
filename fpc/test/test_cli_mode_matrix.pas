@@ -64,14 +64,26 @@ begin
   Cmd := BuildFfmpegCommand(Opts, 'in.mov', 'out.mov');
   AssertContains('deblock strong', Cmd, 'deblock=filter=strong:block=4');
 
-  SetAnsiField(Opts.codec, 'h265_mi50');
-  Opts.use_aac_for_h265 := 1;
+  SetAnsiField(Opts.codec, 'h264_vaapi');
   Cmd := BuildFfmpegCommand(Opts, 'in.mov', 'out.mov');
-  AssertContains('h265 vaapi', Cmd, '-vaapi_device');
-  AssertContains('h265 encoder', Cmd, '-c:v hevc_vaapi');
-  AssertContains('h265 audio', Cmd, '-c:a aac -q:a 2 -ar 48000');
+  AssertContains('h264 vaapi', Cmd, '-c:v h264_vaapi -rc_mode auto');
 
+  SetAnsiField(Opts.codec, 'hevc_vaapi');
+  Cmd := BuildFfmpegCommand(Opts, 'in.mov', 'out.mov');
+  AssertContains('hevc vaapi', Cmd, '-c:v hevc_vaapi -rc_mode auto');
+
+  SetAnsiField(Opts.codec, 'prores_videotoolbox');
+  Cmd := BuildFfmpegCommand(Opts, 'in.mov', 'out.mov');
+  AssertContains('prores videotoolbox', Cmd, '-c:v prores_videotoolbox');
+
+  SetAnsiField(Opts.codec, 'hevc_videotoolbox');
+  Opts.hevc_vt_bitrate_kbps := 42000;
+  Cmd := BuildFfmpegCommand(Opts, 'in.mov', 'out.mov');
+  AssertContains('hevc videotoolbox', Cmd, '-c:v hevc_videotoolbox -b:v 42000k');
+
+  SetAnsiField(Opts.codec, 'copy');
   SetAnsiField(Opts.audio_norm, 'none');
+  SetAnsiField(Opts.audio_output_mode, 'pcm');
   Cmd := BuildFfmpegCommand(Opts, 'in.mov', 'out.mov');
   AssertContains('audio none', Cmd, '-af "aresample=resampler=soxr:precision=28:cheby=1"');
 
@@ -101,8 +113,19 @@ begin
   AssertContains('audio loudnorm2 targets', Cmd, 'loudnorm=I=-16.0:TP=-2.0:LRA=12.0');
   AssertContains('audio loudnorm2 measured', Cmd, 'measured_I=-15.12:measured_TP=-1.11:measured_LRA=5.43');
 
+  SetAnsiField(Opts.audio_output_mode, 'fdk_aac_q5');
+  SetAnsiField(Opts.audio_norm, 'none');
+  Cmd := BuildFfmpegCommand(Opts, 'in.mov', 'out.mov');
+  AssertContains('audio out q5', Cmd, '-c:a aac -q:a 2 -ar 48000');
+
+  SetAnsiField(Opts.audio_output_mode, 'fdk_aac_q5_ac3_640');
+  Cmd := BuildFfmpegCommand(Opts, 'in.mov', 'out.mov');
+  AssertContains('audio out dual map', Cmd, '-filter_complex "[0:a:0]');
+  AssertContains('audio out dual codecs', Cmd, '-c:a:0 aac -q:a:0 2 -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000');
+
   AssertEqual('output ext copy', MakeOutputName('/tmp/in.mov', 'copy', '/tmp/out'), '/tmp/out/in_converted.mkv');
-  AssertEqual('output ext h265', MakeOutputName('/tmp/in.mov', 'h265_mi50', '/tmp/out'), '/tmp/out/in_converted.mkv');
+  AssertEqual('output ext mux', MakeOutputName('/tmp/in.mov', 'mux', '/tmp/out'), '/tmp/out/in_converted.mkv');
+  AssertEqual('output ext hevc vt', MakeOutputName('/tmp/in.mov', 'hevc_videotoolbox', '/tmp/out'), '/tmp/out/in_converted.mp4');
   AssertEqual('output ext prores', MakeOutputName('/tmp/in.mov', 'prores', '/tmp/out'), '/tmp/out/in_converted.mov');
 
   WriteLn('OK: CLI mode matrix');

@@ -14,6 +14,7 @@ procedure converter_destroy(c: PConverter); cdecl;
 procedure converter_set_callbacks(c: PConverter; cb: PConverterCallbacks); cdecl;
 function converter_set_options(c: PConverter; opts: PConvertOptions): TConverterError; cdecl;
 function converter_process_files(c: PConverter; files: PPAnsiChar; file_count: LongInt): TConverterError; cdecl;
+procedure converter_make_output_name(input: PAnsiChar; opts: PConvertOptions; out_buf: PAnsiChar; out_sz: QWord); cdecl;
 procedure converter_stop(c: PConverter); cdecl;
 function converter_error_string(err: TConverterError): PAnsiChar; cdecl;
 
@@ -44,6 +45,11 @@ end;
 function converter_process_files(c: PConverter; files: PPAnsiChar; file_count: LongInt): TConverterError; cdecl;
 begin
   Result := converter_core.converter_process_files(c, files, file_count);
+end;
+
+procedure converter_make_output_name(input: PAnsiChar; opts: PConvertOptions; out_buf: PAnsiChar; out_sz: QWord); cdecl;
+begin
+  converter_core.converter_make_output_name(input, opts, out_buf, out_sz);
 end;
 
 procedure converter_stop(c: PConverter); cdecl;

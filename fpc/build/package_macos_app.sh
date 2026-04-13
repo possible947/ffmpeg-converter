@@ -12,6 +12,7 @@ SRC_BIN="${1:-$ROOT/fpc/gui/ffmpeg_converter_gui}"
 DST_BIN="$MACOS_DIR/ffmpeg_converter_gui"
 PROJECT_FFMPEG="$ROOT/src/platform/macos/bin/ffmpeg"
 PROJECT_FFPROBE="$ROOT/src/platform/macos/bin/ffprobe"
+PROJECT_ICON_ICNS="$ROOT/fpc/gui/icon.icns"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "Skipping macOS app packaging on non-Darwin host."
@@ -47,6 +48,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <string>APPL</string>
   <key>CFBundleExecutable</key>
   <string>ffmpeg_converter_gui</string>
+  <key>CFBundleIconFile</key>
+  <string>icon.icns</string>
 </dict>
 </plist>
 PLIST
@@ -54,6 +57,13 @@ PLIST
 rm -f "$DST_BIN"
 cp "$SRC_BIN" "$DST_BIN"
 chmod +x "$DST_BIN"
+
+if [[ -f "$PROJECT_ICON_ICNS" ]]; then
+  cp "$PROJECT_ICON_ICNS" "$RES_DIR/icon.icns"
+  echo "Bundled icon: $RES_DIR/icon.icns"
+else
+  echo "WARNING: icon not found at $PROJECT_ICON_ICNS; app will use default icon."
+fi
 
 if [[ -L "$DST_BIN" ]]; then
   echo "ERROR: packaged app binary is a symlink: $DST_BIN"

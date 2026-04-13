@@ -67,8 +67,9 @@ begin
   end;
 
   converter_set_callbacks(Ctx, @Cb);
-  converter_set_options(Ctx, @Opts);
-  Err := converter_process_files(Ctx, @Files[0], FileCount);
+  Err := converter_set_options(Ctx, @Opts);
+  if Err = ERR_OK then
+    Err := converter_process_files(Ctx, @Files[0], FileCount);
 
   converter_destroy(Ctx);
 

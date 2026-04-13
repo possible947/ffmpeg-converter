@@ -4,12 +4,12 @@ This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-convert
 
 ## Features
 
-- Full C API parity — exports all 7 converter symbols with ABI-compatible types
+- C API parity — exports all 8 converter symbols with ABI-compatible types
 - CLI with argument parsing and interactive multi-step menu
 - Lazarus/LCL GUI with threaded conversion and progress display
 - Apple M4V creator with multi-step mux pipeline (video copy + AAC + AC3 + MP4Box)
 - 2-pass peak and loudnorm (EBU R128) audio analysis
-- Codecs: copy, prores, prores_ks, h265_mi50 (VAAPI)
+- Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`) and macOS (`prores_videotoolbox`, `hevc_videotoolbox`)
 
 ## Folder Layout
 

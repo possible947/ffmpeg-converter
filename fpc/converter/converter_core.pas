@@ -14,6 +14,7 @@ procedure converter_destroy(c: PConverter); cdecl;
 procedure converter_set_callbacks(c: PConverter; cb: PConverterCallbacks); cdecl;
 function converter_set_options(c: PConverter; opts: PConvertOptions): TConverterError; cdecl;
 function converter_process_files(c: PConverter; files: PPAnsiChar; file_count: LongInt): TConverterError; cdecl;
+procedure converter_make_output_name(input: PAnsiChar; opts: PConvertOptions; out_buf: PAnsiChar; out_sz: QWord); cdecl;
 procedure converter_stop(c: PConverter); cdecl;
 function converter_error_string(err: TConverterError): PAnsiChar; cdecl;
 
@@ -22,6 +23,7 @@ implementation
 uses
   BaseUnix,
   SysUtils,
+  process_utils,
   path_utils,
   fs_utils,
   tool_paths,
@@ -61,6 +63,33 @@ const
 function ArrToStr(const A: array of AnsiChar): string;
 begin
   Result := StrPas(@A[0]);
+end;
+
+procedure SetAnsiField(var Dest: array of AnsiChar; const S: string);
+var
+  N: SizeInt;
+begin
+  if Length(Dest) = 0 then
+    Exit;
+  FillChar(Dest[0], Length(Dest), 0);
+  N := Length(Dest) - 1;
+  StrPLCopy(@Dest[0], S, N);
+end;
+
+function CodecIsMux(const Codec: string): Boolean;
+begin
+  Result := Codec = 'mux';
+end;
+
+function CodecIsLinuxVaapi(const Codec: string): Boolean;
+begin
+  Result := (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi');
+end;
+
+function AudioOutputModeValid(const Mode: string): Boolean;
+begin
+  Result := (Mode = '') or (Mode = 'pcm') or (Mode = 'fdk_aac_q5') or
+    (Mode = 'fdk_aac_q5_ac3_640') or (Mode = 'fdk_aac_q2') or (Mode = 'fdk_aac_q2_ac3_640');
 end;
 
 procedure EmitMessage(Ctx: PConverterObj; const Msg: string);
@@ -201,11 +230,57 @@ begin
 end;
 
 function converter_set_options(c: PConverter; opts: PConvertOptions): TConverterError; cdecl;
+var
+  Ctx: PConverterObj;
+  Codec: string;
+  AudioOut: string;
+{$IFDEF Linux}
+  Cmd: string;
+  Probe: TRunResult;
+{$ENDIF}
 begin
   if (c = nil) or (opts = nil) then
     Exit(ERR_INVALID_OPTIONS);
 
-  PConverterObj(c)^.Opts := opts^;
+  Ctx := PConverterObj(c);
+  Ctx^.Opts := opts^;
+
+  Codec := ArrToStr(Ctx^.Opts.codec);
+  AudioOut := ArrToStr(Ctx^.Opts.audio_output_mode);
+
+  if not AudioOutputModeValid(AudioOut) then
+    Exit(ERR_INVALID_OPTIONS);
+
+{$IFDEF Darwin}
+  if CodecIsLinuxVaapi(Codec) then
+    Exit(ERR_INVALID_OPTIONS);
+{$ENDIF}
+
+{$IFNDEF Linux}
+  if CodecIsLinuxVaapi(Codec) then
+    Exit(ERR_INVALID_OPTIONS);
+{$ENDIF}
+
+{$IFDEF Linux}
+  if CodecIsLinuxVaapi(Codec) then
+  begin
+    if ArrToStr(Ctx^.Opts.hw_device) = '' then
+      SetAnsiField(Ctx^.Opts.hw_device, '/dev/dri/renderD128');
+
+    Cmd := QuoteForShell(ResolveFfmpegBin) + ' -v error -hide_banner -encoders 2>/dev/null';
+    Probe := RunCommandCapture(Cmd);
+    if Probe.ExitCode <> 0 then
+      Exit(ERR_INVALID_OPTIONS);
+
+    if (Codec = 'h264_vaapi') and (Pos(' h264_vaapi', Probe.OutputText) = 0) then
+      Exit(ERR_INVALID_OPTIONS);
+    if (Codec = 'hevc_vaapi') and (Pos(' hevc_vaapi', Probe.OutputText) = 0) then
+      Exit(ERR_INVALID_OPTIONS);
+
+    Ctx^.Opts.hwaccel_enabled := 1;
+  end;
+{$ENDIF}
+
   Result := ERR_OK;
 end;
 
@@ -217,14 +292,22 @@ var
   OutputFile: string;
   EffectiveOutDir: string;
   DirError: string;
+  Codec: string;
   Cmd: string;
   Err: TConverterError;
   ErrorLogPath: string;
   ErrorLogNotice: string;
-  Tools: TToolPaths;
   Gain: Double;
   AudioNorm: string;
   FileOpts: TConvertOptions;
+  WorkOpts: TConvertOptions;
+  IntermediateFile: string;
+  TempOutputFile: string;
+  MuxCmd: string;
+  MuxRate: string;
+  ProbeCmd: string;
+  ProbeResult: TRunResult;
+  Tools: TToolPaths;
 begin
   if (c = nil) or (files = nil) or (file_count <= 0) then
     Exit(ERR_INVALID_OPTIONS);
@@ -232,11 +315,31 @@ begin
   Ctx := PConverterObj(c);
   Ctx^.StopFlag := 0;
 
+  if not EnsureOutputDirWritable(ArrToStr(Ctx^.Opts.output_dir), EffectiveOutDir, DirError) then
+  begin
+    EmitError(Ctx, 'output preflight failed: ' + DirError, ERR_INVALID_OPTIONS);
+    Exit(ERR_INVALID_OPTIONS);
+  end;
+
+  Codec := ArrToStr(Ctx^.Opts.codec);
+  if CodecIsMux(Codec) then
+  begin
+    if file_count <> 1 then
+    begin
+      EmitError(Ctx, 'mux mode requires exactly one source file', ERR_INVALID_OPTIONS);
+      Exit(ERR_INVALID_OPTIONS);
+    end;
+
+    if not FileRegular(ArrToStr(Ctx^.Opts.video_track_path)) or not FileReadable(ArrToStr(Ctx^.Opts.video_track_path)) then
+    begin
+      EmitError(Ctx, 'mux mode requires a readable --video-track file', ERR_INVALID_OPTIONS);
+      Exit(ERR_INVALID_OPTIONS);
+    end;
+  end;
+
   for I := 0 to file_count - 1 do
   begin
     InputFile := string(PPAnsiCharArray(files)^[I]);
-
-    Tools := ResolveToolPaths;
 
     if Assigned(Ctx^.Cb.on_file_begin) then
       Ctx^.Cb.on_file_begin(PAnsiChar(AnsiString(InputFile)), I + 1, file_count);
@@ -252,15 +355,7 @@ begin
       Continue;
     end;
 
-    if not EnsureOutputDirWritable(ArrToStr(Ctx^.Opts.output_dir), EffectiveOutDir, DirError) then
-    begin
-      EmitError(Ctx, 'output preflight failed: ' + DirError, ERR_INVALID_OPTIONS);
-      if Assigned(Ctx^.Cb.on_file_end) then
-        Ctx^.Cb.on_file_end(PAnsiChar(AnsiString(InputFile)), ERR_INVALID_OPTIONS);
-      Continue;
-    end;
-
-    OutputFile := MakeOutputName(InputFile, ArrToStr(Ctx^.Opts.codec), EffectiveOutDir);
+    OutputFile := MakeOutputName(InputFile, Codec, EffectiveOutDir);
     Err := CheckOutputExists(Ctx, OutputFile);
     if Err = ERR_OUTPUT_EXISTS then
     begin
@@ -273,7 +368,7 @@ begin
       Exit(ERR_SKIP_FILE);
 
     FileOpts := Ctx^.Opts;
-    StrPLCopy(@FileOpts.output_dir[0], EffectiveOutDir, Length(FileOpts.output_dir) - 1);
+    SetAnsiField(FileOpts.output_dir, EffectiveOutDir);
     FileOpts.output_dir_status := 1;
     FileOpts.gain := 0.0;
     FileOpts.I_target := 0.0;
@@ -336,19 +431,27 @@ begin
         Ctx^.Cb.on_progress_analysis(100.0, 0.0);
     end;
 
-    if ArrToStr(FileOpts.codec) = 'h265_mi50' then
-      FileOpts.use_aac_for_h265 := 1
-    else
-      FileOpts.use_aac_for_h265 := 0;
+    FileOpts.use_aac_for_h265 := 0;
 
-    Cmd := BuildFfmpegCommand(FileOpts, InputFile, OutputFile);
+    WorkOpts := FileOpts;
+    if CodecIsMux(Codec) then
+    begin
+      SetAnsiField(WorkOpts.codec, 'copy');
+      WorkOpts.profile := 0;
+      WorkOpts.deblock := 0;
+      IntermediateFile := MakeOutputName(InputFile, 'copy', EffectiveOutDir);
+    end
+    else
+      IntermediateFile := OutputFile;
+
+    Cmd := BuildFfmpegCommand(WorkOpts, InputFile, IntermediateFile);
 
     EmitStage(Ctx, 'encoding');
 
     Err := RunEncode(
       Cmd,
       InputFile,
-      OutputFile,
+      IntermediateFile,
       EffectiveOutDir,
       Ctx^.Cb.on_progress_encode,
       Ctx^.Cb.on_message,
@@ -370,6 +473,90 @@ begin
       end;
     end;
 
+    if (Err = ERR_OK) and CodecIsMux(Codec) then
+    begin
+      Tools := ResolveToolPaths;
+      if (Tools.MkvmergeBin = '') or (Tools.MkvmergeBin = 'mkvmerge') then
+      begin
+        ProbeResult := RunCommandCapture('command -v mkvmerge 2>/dev/null');
+        if ProbeResult.ExitCode <> 0 then
+        begin
+          EmitError(Ctx, 'post-mux failed: mkvmerge not found', ERR_INVALID_OPTIONS);
+          Err := ERR_INVALID_OPTIONS;
+        end;
+      end;
+
+      if Err = ERR_OK then
+      begin
+        TempOutputFile := OutputFile + '.postmux.tmp.mkv';
+        RunCommandCapture('rm -f ' + QuoteForShell(TempOutputFile));
+
+        MuxRate := '';
+        if (Pos('.hevc', LowerCase(ArrToStr(Ctx^.Opts.video_track_path))) > 0) or
+           (Pos('.h265', LowerCase(ArrToStr(Ctx^.Opts.video_track_path))) > 0) or
+           (Pos('.264', LowerCase(ArrToStr(Ctx^.Opts.video_track_path))) > 0) or
+           (Pos('.h264', LowerCase(ArrToStr(Ctx^.Opts.video_track_path))) > 0) then
+        begin
+          ProbeCmd := QuoteForShell(Tools.FfprobeBin) +
+            ' -v error -select_streams v:0 -show_entries stream=avg_frame_rate -of default=noprint_wrappers=1:nokey=1 ' +
+            QuoteForShell(IntermediateFile) + ' 2>/dev/null';
+          ProbeResult := RunCommandCapture(ProbeCmd);
+          if ProbeResult.ExitCode = 0 then
+          begin
+            MuxRate := Trim(ProbeResult.OutputText);
+            if (MuxRate = '') or (MuxRate = '0/0') then
+              MuxRate := '';
+          end;
+          if MuxRate = '' then
+          begin
+            EmitError(Ctx, 'post-mux failed: could not probe source FPS', ERR_FFPROBE_FAILED);
+            Err := ERR_FFPROBE_FAILED;
+          end;
+        end;
+
+        if Err = ERR_OK then
+        begin
+          MuxCmd := QuoteForShell(Tools.MkvmergeBin) + ' -o ' + QuoteForShell(TempOutputFile) +
+            ' --no-audio --no-subtitles --no-buttons --no-attachments --no-chapters --no-global-tags --no-track-tags ';
+          if MuxRate <> '' then
+            MuxCmd += '--default-duration 0:' + MuxRate + 'fps ';
+          MuxCmd += QuoteForShell(ArrToStr(Ctx^.Opts.video_track_path)) + ' --no-video ' + QuoteForShell(IntermediateFile) + ' 2>&1';
+
+          EmitStage(Ctx, 'Post-mux (mkvmerge)');
+          EmitMessage(Ctx, MuxCmd);
+          ProbeResult := RunCommandCapture(MuxCmd);
+          if ProbeResult.ExitCode <> 0 then
+          begin
+            EmitError(Ctx, 'post-mux failed: mkvmerge returned error', ERR_FFMPEG_FAILED);
+            Err := ERR_FFMPEG_FAILED;
+          end;
+        end;
+
+        if Err = ERR_OK then
+        begin
+          ProbeCmd := QuoteForShell(Tools.FfprobeBin) +
+            ' -v error -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 ' +
+            QuoteForShell(TempOutputFile) + ' 2>/dev/null';
+          ProbeResult := RunCommandCapture(ProbeCmd);
+          if (ProbeResult.ExitCode <> 0) or (Pos('video', ProbeResult.OutputText) = 0) or (Pos('audio', ProbeResult.OutputText) = 0) then
+          begin
+            EmitError(Ctx, 'post-mux failed: output validation failed', ERR_FFPROBE_FAILED);
+            Err := ERR_FFPROBE_FAILED;
+          end;
+        end;
+
+        if Err = ERR_OK then
+        begin
+          ProbeResult := RunCommandCapture('mv -f ' + QuoteForShell(TempOutputFile) + ' ' + QuoteForShell(OutputFile));
+          if ProbeResult.ExitCode <> 0 then
+          begin
+            EmitError(Ctx, 'post-mux failed: could not move validated output into place', ERR_UNKNOWN);
+            Err := ERR_UNKNOWN;
+          end;
+        end;
+      end;
+    end;
+
     if Assigned(Ctx^.Cb.on_file_end) then
       Ctx^.Cb.on_file_end(PAnsiChar(AnsiString(InputFile)), Err);
   end;
@@ -385,6 +572,24 @@ begin
   if c = nil then
     Exit;
   PConverterObj(c)^.StopFlag := 1;
+end;
+
+procedure converter_make_output_name(input: PAnsiChar; opts: PConvertOptions; out_buf: PAnsiChar; out_sz: QWord); cdecl;
+var
+  InputFile: string;
+  Codec: string;
+  OutDir: string;
+  Name: AnsiString;
+begin
+  if (input = nil) or (opts = nil) or (out_buf = nil) or (out_sz = 0) then
+    Exit;
+
+  InputFile := string(input);
+  Codec := ArrToStr(opts^.codec);
+  OutDir := ArrToStr(opts^.output_dir);
+  Name := AnsiString(MakeOutputName(InputFile, Codec, OutDir));
+
+  StrPLCopy(out_buf, Name, out_sz - 1);
 end;
 
 function converter_error_string(err: TConverterError): PAnsiChar; cdecl;

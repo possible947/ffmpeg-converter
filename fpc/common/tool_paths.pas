@@ -9,12 +9,14 @@ type
     FfmpegBin: string;
     FfprobeBin: string;
     Mp4BoxBin: string;
+    MkvmergeBin: string;
     PathValue: string;
   end;
 
 function ResolveFfmpegBin: string;
 function ResolveFfprobeBin: string;
 function ResolveMp4BoxBin: string;
+function ResolveMkvmergeBin: string;
 function ResolveToolPaths: TToolPaths;
 function ApplyBundledToolEnvironment: Boolean;
 
@@ -148,7 +150,9 @@ begin
     Result := ResolveFromEnv('FFPROBE');
     if Result = '' then
       Result := ResolveFromEnv('FFPROBE_BIN');
-  end;
+  end
+  else if PrimaryName = 'mkvmerge' then
+    Result := ResolveFromEnv('MKVMERGE_BIN');
 
   if Result <> '' then
     Exit;
@@ -191,11 +195,20 @@ begin
     ['/opt/local/bin/MP4Box', '/opt/homebrew/bin/MP4Box', '/usr/local/bin/MP4Box']);
 end;
 
+function ResolveMkvmergeBin: string;
+begin
+  Result := ResolveBinary('mkvmerge',
+    ['/opt/local/bin/mkvmerge', '/opt/homebrew/bin/mkvmerge', '/usr/local/bin/mkvmerge']);
+  if Result = '' then
+    Result := 'mkvmerge';
+end;
+
 function ResolveToolPaths: TToolPaths;
 begin
   Result.FfmpegBin := ResolveFfmpegBin;
   Result.FfprobeBin := ResolveFfprobeBin;
   Result.Mp4BoxBin := ResolveMp4BoxBin;
+  Result.MkvmergeBin := ResolveMkvmergeBin;
   Result.PathValue := GetEnvironmentVariable('PATH');
 end;
 
@@ -204,6 +217,7 @@ var
   BinDir: string;
   FfmpegPath: string;
   FfprobePath: string;
+  MkvmergePath: string;
   PathValue: string;
 begin
   Result := False;
@@ -214,6 +228,7 @@ begin
 
   FfmpegPath := IncludeTrailingPathDelimiter(BinDir) + 'ffmpeg';
   FfprobePath := IncludeTrailingPathDelimiter(BinDir) + 'ffprobe';
+  MkvmergePath := IncludeTrailingPathDelimiter(BinDir) + 'mkvmerge';
 
   if IsExecutableFile(FfmpegPath) then
   begin
@@ -226,6 +241,12 @@ begin
   begin
     SetEnvValue('FFPROBE', FfprobePath);
     SetEnvValue('FFPROBE_BIN', FfprobePath);
+    Result := True;
+  end;
+
+  if IsExecutableFile(MkvmergePath) then
+  begin
+    SetEnvValue('MKVMERGE_BIN', MkvmergePath);
     Result := True;
   end;
 

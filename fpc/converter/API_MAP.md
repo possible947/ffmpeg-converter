@@ -13,6 +13,7 @@ This file maps C API symbols to Free Pascal units.
 - `converter_set_callbacks` -> `fpc/converter/converter_core.pas`
 - `converter_set_options` -> `fpc/converter/converter_core.pas`
 - `converter_process_files` -> `fpc/converter/converter_core.pas`
+- `converter_make_output_name` -> `fpc/converter/converter_core.pas`
 - `converter_stop` -> `fpc/converter/converter_core.pas`
 - `converter_error_string` -> `fpc/converter/converter_core.pas`
 
