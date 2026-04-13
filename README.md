@@ -8,7 +8,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 
 - **C/CMake** (`src/`) — original engine, Linux GTK4 GUI, native macOS Cocoa GUI.
 - **Free Pascal** (`fpc/`) — full FPC port with CLI, shared library, and
-  Lazarus/LCL GUI for macOS (self-contained `.app` bundle).
+  Lazarus/LCL GUI for macOS (self-contained `.app` bundle, icon aligned with C macOS app).
 
 ## macOS v2.2 Highlights
 
@@ -63,6 +63,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - macOS packaging: `MP4Box` from GPAC — `sudo port install gpac`.
 - `ffmpeg` + `ffprobe` static binaries placed in `src/platform/macos/bin/`
   for bundling.
+- `mkvmerge` for Pascal `mux` workflow (`codec=mux`) and GUI post-mux stage.
 
 ---
 
@@ -96,8 +97,8 @@ make -C fpc/build cli
 # GUI binary
 lazbuild fpc/gui/form.lpi
 
-# Package into self-contained .app (bundles ffmpeg, ffprobe, MP4Box)
-bash fpc/build/package_macos_app.sh
+# Package into self-contained .app (bundles ffmpeg, ffprobe, MP4Box, icon)
+make -C fpc/build gui-app
 # → fpc/gui/form.app
 ```
 
@@ -181,6 +182,7 @@ third_party/   Vendored jansson (C path)
 - The macOS native C `.app` bundle includes ffmpeg/ffprobe and attempts to bundle
   MP4Box + dependent dylibs at build time.
 - The macOS Pascal `.app` bundle is fully self-contained — no system ffmpeg needed.
+- The Pascal `.app` bundle now includes `icon.icns` (imported from C macOS GUI resources).
 - Bundled ffmpeg/ffprobe targets Intel x86_64; runs via Rosetta 2 on Apple Silicon.
 
 ---

@@ -7,9 +7,12 @@ This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-convert
 - C API parity — exports all 8 converter symbols with ABI-compatible types
 - CLI with argument parsing and interactive multi-step menu
 - Lazarus/LCL GUI with threaded conversion and progress display
+- GUI parity updates: audio output selector, mux video-track workflow, platform-aware codec list and widget gating
 - Apple M4V creator with multi-step mux pipeline (video copy + AAC + AC3 + MP4Box)
 - 2-pass peak and loudnorm (EBU R128) audio analysis
 - Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`) and macOS (`prores_videotoolbox`, `hevc_videotoolbox`)
+- Audio output modes: `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`
+- Mux mode parity: `-c mux --video-track <file>` with mkvmerge post-process pipeline
 
 ## Folder Layout
 
@@ -39,8 +42,7 @@ fpc -Cg -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/convert
 ### GUI (requires Lazarus IDE or lazbuild)
 
 ```bash
-cd ./fpc/build
-make gui-app
+make -C fpc/build gui-app
 ```
 
 Direct lazbuild invocation is also supported:
@@ -53,9 +55,16 @@ bash ./fpc/build/package_macos_app.sh ./fpc/gui/ffmpeg_converter_gui
 ### Tests
 
 ```bash
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/test/test_cmd_builder.pas
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/test/test_path_parse.pas
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli ./fpc/test/test_cli_mode_matrix.pas
+make -C fpc/build tests
+```
+
+Targeted parity checks:
+
+```bash
+make -C fpc/build tests TEST_PROGRAMS="test_cmd_builder test_cli_mode_matrix test_unified_tool_resolver"
+./fpc/test/test_cmd_builder
+./fpc/test/test_cli_mode_matrix
+./fpc/test/test_unified_tool_resolver
 ```
 
 Shell-based integration tests:
@@ -107,10 +116,8 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
 
 ## macOS Notes
 
-- Pascal runtime now resolves `ffmpeg`/`ffprobe` robustly for GUI/CLI launches,
-	including `.app` bundled tools in `Contents/Resources/bin` and common Homebrew
-	paths (`/opt/homebrew/bin`, `/usr/local/bin`) when GUI apps start with a
-	limited `PATH`.
-- Recommended Pascal GUI build flow on macOS is `lazbuild` + `package_macos_app.sh`.
-- CLI `-o/--output` now creates missing output directories before conversion and
-	fails early with a clear error if the directory is invalid or not writable.
+- Pascal runtime resolves tools for GUI/CLI launches using a unified resolver (`ffmpeg`, `ffprobe`, `MP4Box`, `mkvmerge`), including `.app` bundled tools in `Contents/Resources/bin`.
+- `converter_set_options` now validates platform capabilities for hardware codecs (VAAPI rejected on non-Linux, Linux probes encoder availability).
+- Recommended Pascal GUI build flow on macOS is `make -C fpc/build gui-app`.
+- CLI `-o/--output` creates missing output directories before conversion and fails early on invalid/unwritable targets.
+- Packaged Pascal macOS app includes `icon.icns` (imported from C macOS GUI resources).
