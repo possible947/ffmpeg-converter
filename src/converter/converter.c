@@ -17,6 +17,7 @@
 
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
+#include <mach-o/dyld.h>
 #endif
 
 struct Converter {
@@ -157,34 +158,45 @@ static int is_executable(const char* path) {
 static const char* get_exe_dir(void) {
     static char exe_dir[1024] = {0};
     static int initialized = 0;
-    
+
     if (initialized) return exe_dir;
-    
+
+#if defined(__APPLE__)
+    char exe_path[1024];
+    uint32_t size = (uint32_t)sizeof(exe_path);
+    if (_NSGetExecutablePath(exe_path, &size) == 0) {
+        char resolved[1024];
+        if (realpath(exe_path, resolved)) {
+            strncpy(exe_dir, dirname(resolved), sizeof(exe_dir) - 1);
+            exe_dir[sizeof(exe_dir) - 1] = '\0';
+        }
+    }
+#else
     char exe_path[1024];
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len == -1) {
-        initialized = 1;
-        return exe_dir;
+    if (len != -1) {
+        exe_path[len] = '\0';
+        strncpy(exe_dir, dirname(exe_path), sizeof(exe_dir) - 1);
+        exe_dir[sizeof(exe_dir) - 1] = '\0';
     }
-    exe_path[len] = '\0';
-    
-    strncpy(exe_dir, dirname(exe_path), sizeof(exe_dir) - 1);
-    exe_dir[sizeof(exe_dir) - 1] = '\0';
+#endif
     initialized = 1;
-    
     return exe_dir;
 }
 
 static const char* resolve_bundled_bin(const char* name) {
     const char* exe_dir = get_exe_dir();
     if (exe_dir[0] == '\0') return NULL;
-    
+
     static char path[1024];
     snprintf(path, sizeof(path), "%s/%s", exe_dir, name);
-    
-    if (is_executable(path)) {
-        return path;
-    }
+    if (is_executable(path)) return path;
+
+#if defined(__APPLE__)
+    snprintf(path, sizeof(path), "%s/../Resources/bin/%s", exe_dir, name);
+    if (is_executable(path)) return path;
+#endif
+
     return NULL;
 }
 
@@ -195,18 +207,6 @@ static const char* get_ffmpeg_bin(void) {
     v = getenv("FFMPEG_BIN");
     if (v && v[0] != '\0') return v;
 
-#if defined(__APPLE__)
-    static char mp_bin[256];
-    if (access("/opt/local/bin/ffmpeg8", X_OK) == 0) {
-        snprintf(mp_bin, sizeof(mp_bin), "/opt/local/bin/ffmpeg8");
-        return mp_bin;
-    }
-    if (access("/opt/local/bin/ffmpeg", X_OK) == 0) {
-        snprintf(mp_bin, sizeof(mp_bin), "/opt/local/bin/ffmpeg");
-        return mp_bin;
-    }
-#endif
-
 #if defined(__linux__)
     return linux_get_preferred_ffmpeg_bin();
 #endif
@@ -214,7 +214,7 @@ static const char* get_ffmpeg_bin(void) {
     const char* bundled = resolve_bundled_bin("ffmpeg");
     if (bundled) return bundled;
 
-    return "ffmpeg";
+    return "";
 }
 
 static const char* get_ffprobe_bin(void) {
@@ -224,18 +224,6 @@ static const char* get_ffprobe_bin(void) {
     v = getenv("FFPROBE_BIN");
     if (v && v[0] != '\0') return v;
 
-#if defined(__APPLE__)
-    static char mp_bin[256];
-    if (access("/opt/local/bin/ffprobe8", X_OK) == 0) {
-        snprintf(mp_bin, sizeof(mp_bin), "/opt/local/bin/ffprobe8");
-        return mp_bin;
-    }
-    if (access("/opt/local/bin/ffprobe", X_OK) == 0) {
-        snprintf(mp_bin, sizeof(mp_bin), "/opt/local/bin/ffprobe");
-        return mp_bin;
-    }
-#endif
-
 #if defined(__linux__)
     return linux_get_preferred_ffprobe_bin();
 #endif
@@ -243,7 +231,7 @@ static const char* get_ffprobe_bin(void) {
     const char* bundled = resolve_bundled_bin("ffprobe");
     if (bundled) return bundled;
 
-    return "ffprobe";
+    return "";
 }
 
 // ------------------------------------------------------------
@@ -798,6 +786,13 @@ static ConverterError peak_two_pass(
 // ------------------------------------------------------------
 //  Loudnorm 2-pass analysis
 // ------------------------------------------------------------
+static double json_number_or_string_value(const json_t *v) {
+    if (!v) return 0.0;
+    if (json_is_number(v)) return json_number_value(v);
+    if (json_is_string(v)) return atof(json_string_value(v));
+    return 0.0;
+}
+
 static ConverterError loudnorm_two_pass(
     Converter* c,
     const char* input,
@@ -818,7 +813,7 @@ static ConverterError loudnorm_two_pass(
     int filter_threads = get_filter_threads();
     snprintf(cmd, sizeof(cmd),
         "\"%s\" -filter_threads %d -vn -i \"%s\" -af "
-        "\"loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:print_format=json\" "
+        "\"loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:linear=true:print_format=json\" "
         "-f null - 2>&1",
         ffmpeg_bin, filter_threads, input, I_target, TP_target, LRA_target);
 
@@ -898,11 +893,11 @@ static ConverterError loudnorm_two_pass(
         return ERR_LOUDNORM_ANALYSIS_FAILED;
     }
 
-    *I      = json_number_value(json_object_get(root, "input_i"));
-    *TP     = json_number_value(json_object_get(root, "input_tp"));
-    *LRA    = json_number_value(json_object_get(root, "input_lra"));
-    *thresh = json_number_value(json_object_get(root, "input_thresh"));
-    *offset = json_number_value(json_object_get(root, "target_offset"));
+    *I      = json_number_or_string_value(json_object_get(root, "input_i"));
+    *TP     = json_number_or_string_value(json_object_get(root, "input_tp"));
+    *LRA    = json_number_or_string_value(json_object_get(root, "input_lra"));
+    *thresh = json_number_or_string_value(json_object_get(root, "input_thresh"));
+    *offset = json_number_or_string_value(json_object_get(root, "target_offset"));
 
     json_decref(root);
     return ERR_OK;

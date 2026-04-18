@@ -58,11 +58,11 @@ begin
 
   AssertTrue('extract loudnorm json with marker', ExtractLoudnormJson(OutText, JsonText));
   AssertTrue('parse extracted loudnorm json', TryParseLoudnormJson(JsonText, Metrics));
-  AssertNear('loudnorm quoted input_i becomes zero (C parity)', Metrics.InputI, 0.0, 0.0001);
-  AssertNear('loudnorm quoted input_tp becomes zero (C parity)', Metrics.InputTP, 0.0, 0.0001);
-  AssertNear('loudnorm quoted input_lra becomes zero (C parity)', Metrics.InputLRA, 0.0, 0.0001);
-  AssertNear('loudnorm quoted input_thresh becomes zero (C parity)', Metrics.InputThresh, 0.0, 0.0001);
-  AssertNear('loudnorm quoted target_offset becomes zero (C parity)', Metrics.TargetOffset, 0.0, 0.0001);
+  AssertNear('loudnorm quoted input_i', Metrics.InputI, -18.91, 0.0001);
+  AssertNear('loudnorm quoted input_tp', Metrics.InputTP, -3.20, 0.0001);
+  AssertNear('loudnorm quoted input_lra', Metrics.InputLRA, 8.10, 0.0001);
+  AssertNear('loudnorm quoted input_thresh', Metrics.InputThresh, -29.50, 0.0001);
+  AssertNear('loudnorm quoted target_offset', Metrics.TargetOffset, 0.40, 0.0001);
 
   OutText :=
     '{' +

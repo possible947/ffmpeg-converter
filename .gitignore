@@ -22,9 +22,19 @@ AGENTS.md
 *.compiled
 fpc/*/lib/
 
-# Built GUI binaries (not the .app bundles)
+# Built GUI/CLI binaries (not the .app bundles)
 fpc/gui/ffmpeg_converter_gui
 fpc/cli/ffmpeg_converter
+
+# Pascal compiled test binaries
+fpc/test/test_*
+fpc/test/run_*
+
+# Local test media files
+*.mkv
+*.mov
+*.mp4
+*.mxf
 
 # Generated app bundles (packaged artifacts)
 fpc/gui/form.app/

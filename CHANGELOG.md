@@ -37,6 +37,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Critical: loudness normalization 2-pass producing wrong gain (~10–14 LUFS error).**
+  FFmpeg `loudnorm` filter always outputs measurement values as JSON strings
+  (e.g. `"input_i" : "-12.88"`), not JSON numbers. `json_number_value()` from
+  jansson returns 0.0 for non-number types. All five fields (`input_i`,
+  `input_tp`, `input_lra`, `input_thresh`, `target_offset`) parsed as 0.0,
+  causing 2nd pass to run with `measured_I=0.00` etc. Fixed via new helper
+  `json_number_or_string_value()` that falls back to `atof(json_string_value())`
+  when the JSON node is a string.
+- **ffmpeg/ffprobe resolution on macOS: bundled binary not found.**
+  `get_exe_dir()` used `readlink /proc/self/exe` which only works on Linux.
+  On macOS it silently returned an empty string, causing `resolve_bundled_bin()`
+  to always fail and falling through to hardcoded MacPorts paths or bare
+  `"ffmpeg"` string. Fixed by using `_NSGetExecutablePath` + `realpath` on
+  `#if defined(__APPLE__)`. MacPorts hardcoded candidates removed.
+  `resolve_bundled_bin()` now also checks `<exe_dir>/../Resources/bin/<name>`
+  to cover the `.app` bundle layout. Missing binary returns `""` (error) instead
+  of a bare tool name that might resolve to an unrelated system binary.
+
 ### Added
 - App icon for native macOS GUI (`src/gui_macos_native/icon.icns`):
   - Source PNG (`icon.png`) converted to multi-resolution `.icns` via `iconutil`.

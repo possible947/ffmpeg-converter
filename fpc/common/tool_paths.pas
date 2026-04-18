@@ -173,20 +173,31 @@ begin
   Result := ResolveFromPath(PrimaryName);
 end;
 
+function ResolveFromExeDir(const Name: string): string;
+var
+  ExeDir: string;
+  Candidate: string;
+begin
+  Result := '';
+  ExeDir := ExtractFilePath(ExpandFileName(ParamStr(0)));
+  if ExeDir = '' then Exit;
+  Candidate := IncludeTrailingPathDelimiter(ExeDir) + Name;
+  if IsExecutableFile(Candidate) then
+    Result := Candidate;
+end;
+
 function ResolveFfmpegBin: string;
 begin
-  Result := ResolveBinary('ffmpeg',
-    ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr/bin/ffmpeg']);
-  if Result = '' then
-    Result := 'ffmpeg';
+  Result := ResolveFromEnv('FFMPEG');
+  if Result = '' then Result := ResolveFromEnv('FFMPEG_BIN');
+  if Result = '' then Result := ResolveFromExeDir('ffmpeg');
 end;
 
 function ResolveFfprobeBin: string;
 begin
-  Result := ResolveBinary('ffprobe',
-    ['/opt/homebrew/bin/ffprobe', '/usr/local/bin/ffprobe', '/usr/bin/ffprobe']);
-  if Result = '' then
-    Result := 'ffprobe';
+  Result := ResolveFromEnv('FFPROBE');
+  if Result = '' then Result := ResolveFromEnv('FFPROBE_BIN');
+  if Result = '' then Result := ResolveFromExeDir('ffprobe');
 end;
 
 function ResolveMp4BoxBin: string;

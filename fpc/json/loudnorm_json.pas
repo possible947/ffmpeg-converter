@@ -18,12 +18,14 @@ function TryParseLoudnormJson(const Text: string; out Metrics: TLoudnormMetrics)
 implementation
 
 uses
+  SysUtils,
   fpjson,
   jsonparser;
 
 function JsonNumToFloat(O: TJSONObject; const Key: string; out Value: Double): Boolean;
 var
   D: TJSONData;
+  Fmt: TFormatSettings;
 begin
   D := O.Find(Key);
   if D = nil then
@@ -31,8 +33,15 @@ begin
 
   if D.JSONType = jtNumber then
     Value := TJSONNumber(D).AsFloat
+  else if D.JSONType = jtString then
+  begin
+    Fmt := DefaultFormatSettings;
+    Fmt.DecimalSeparator := '.';
+    if not TryStrToFloat(D.AsString, Value, Fmt) then
+      Exit(False);
+  end
   else
-    Value := 0.0;
+    Exit(False);
 
   Result := True;
 end;

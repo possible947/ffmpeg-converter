@@ -7,6 +7,22 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Critical: loudness normalization 2-pass producing wrong gain (~10–14 LUFS error).**
+  FFmpeg `loudnorm` filter always outputs measurement values as JSON strings
+  (e.g. `"input_i" : "-12.88"`), not JSON numbers. `JsonNumToFloat` in
+  `fpc/json/loudnorm_json.pas` only handled `jtNumber`, silently returning 0.0
+  for string-typed values. The 2nd pass therefore ran with `measured_I=0.00`
+  etc., applying incorrect gain. Fixed by adding a `jtString` branch that
+  parses the value via `TryStrToFloat` with invariant format settings.
+- **ffmpeg/ffprobe resolution: system-wide binaries used instead of bundled ones.**
+  CLI now looks for `ffmpeg`/`ffprobe` in the same directory as the executable
+  first (`ResolveFromExeDir`). Fallback to Homebrew/PATH paths removed.
+  Missing ffmpeg/ffprobe next to the binary now produces an error instead of
+  silently using an unrelated system installation.
+  GUI bundle behaviour unchanged — `ApplyBundledToolEnvironment` pre-seeds env
+  vars from `Contents/Resources/bin/` before resolution.
+
 ### Changed
 - macOS Pascal app packaging input path for bundled ffmpeg/ffprobe is
   documented and aligned with the current script behavior:
