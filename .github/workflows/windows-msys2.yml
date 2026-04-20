@@ -28,6 +28,7 @@ jobs:
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ffmpeg
             mingw-w64-x86_64-jansson
+            make
 
       - name: Configure (MINGW64)
         shell: msys2 {0}
