@@ -1,4 +1,6 @@
 #include "m4v.h"
+#include "m4v_platform.h"
+#include "converter_platform.h"
 
 #include <jansson.h>
 #include <ctype.h>
@@ -6,11 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-#include "linux/runtime_probe.h"
 
 static void emit_message(const ConverterCallbacks *cb, const char *text)
 {
@@ -42,74 +39,6 @@ static void copy_string(char *dst, size_t dst_sz, const char *src)
     dst[dst_sz - 1] = '\0';
 }
 
-static int is_regular_file(const char *path)
-{
-    struct stat st;
-
-    return path &&
-           path[0] != '\0' &&
-           stat(path, &st) == 0 &&
-           S_ISREG(st.st_mode) &&
-           access(path, R_OK) == 0;
-}
-
-static void shell_quote(const char *input, char *out, size_t out_sz)
-{
-    size_t out_pos = 0;
-
-    if (!out || out_sz == 0)
-        return;
-
-    if (!input)
-        input = "";
-
-    if (out_sz < 3) {
-        out[0] = '\0';
-        return;
-    }
-
-    out[out_pos++] = '\'';
-    while (*input && out_pos + 5 < out_sz) {
-        if (*input == '\'') {
-            out[out_pos++] = '\'';
-            out[out_pos++] = '\\';
-            out[out_pos++] = '\'';
-            out[out_pos++] = '\'';
-        } else {
-            out[out_pos++] = *input;
-        }
-        input++;
-    }
-    out[out_pos++] = '\'';
-    out[out_pos] = '\0';
-}
-
-static void shell_quote_double(const char *input, char *out, size_t out_sz)
-{
-    size_t out_pos = 0;
-
-    if (!out || out_sz == 0)
-        return;
-
-    if (!input)
-        input = "";
-
-    if (out_sz < 3) {
-        out[0] = '\0';
-        return;
-    }
-
-    out[out_pos++] = '"';
-    while (*input && out_pos + 3 < out_sz) {
-        if (*input == '"' || *input == '\\' || *input == '$' || *input == '`')
-            out[out_pos++] = '\\';
-        out[out_pos++] = *input;
-        input++;
-    }
-    out[out_pos++] = '"';
-    out[out_pos] = '\0';
-}
-
 static int run_command_capture(const char *cmd,
                                char *output,
                                size_t output_sz,
@@ -121,7 +50,7 @@ static int run_command_capture(const char *cmd,
     size_t used = 0;
     int status;
 
-    fp = popen(cmd, "r");
+    fp = m4v_platform_popen(cmd, "r");
     if (!fp)
         return -1;
 
@@ -143,17 +72,13 @@ static int run_command_capture(const char *cmd,
         }
 
         if (stop_flag && *stop_flag) {
-            pclose(fp);
+            m4v_platform_pclose_exitcode(fp);
             return -2;
         }
     }
 
-    status = pclose(fp);
-    if (status == -1)
-        return -1;
-    if (WIFEXITED(status))
-        return WEXITSTATUS(status);
-    return -1;
+    status = m4v_platform_pclose_exitcode(fp);
+    return status;
 }
 
 static double parse_rate_to_fps(const char *text)
@@ -185,14 +110,15 @@ static double probe_fps_for_input(const char *ffprobe_bin, const char *input_fil
     char output[512];
     int rc;
 
-    shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
-    shell_quote(input_file, quoted_input, sizeof(quoted_input));
+    m4v_platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
+    m4v_platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
 
     snprintf(cmd,
              sizeof(cmd),
-             "%s -v error -select_streams v:0 -show_entries stream=avg_frame_rate -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null",
+             "%s -v error -select_streams v:0 -show_entries stream=avg_frame_rate -of default=noprint_wrappers=1:nokey=1 %s %s",
              quoted_tool,
-             quoted_input);
+             quoted_input,
+             m4v_platform_null_redirect());
     rc = run_command_capture(cmd, output, sizeof(output), NULL, NULL);
     if (rc == 0) {
         output[strcspn(output, "\r\n")] = '\0';
@@ -201,9 +127,10 @@ static double probe_fps_for_input(const char *ffprobe_bin, const char *input_fil
 
     snprintf(cmd,
              sizeof(cmd),
-             "%s -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null",
+             "%s -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 %s %s",
              quoted_tool,
-             quoted_input);
+             quoted_input,
+             m4v_platform_null_redirect());
     rc = run_command_capture(cmd, output, sizeof(output), NULL, NULL);
     if (rc == 0) {
         output[strcspn(output, "\r\n")] = '\0';
@@ -306,36 +233,6 @@ static int build_chapter_text_from_json(const char *json_text, const char *chapt
     return wrote;
 }
 
-static int make_temp_dir(char *path, size_t path_sz)
-{
-    char templ[1024];
-    char *made;
-
-    if (!path || path_sz == 0)
-        return 0;
-
-    snprintf(templ, sizeof(templ), "/tmp/m4v_mux_XXXXXX");
-    made = mkdtemp(templ);
-    if (!made)
-        return 0;
-
-    copy_string(path, path_sz, made);
-    return 1;
-}
-
-static void remove_temp_dir(const char *dir)
-{
-    char cmd[2048];
-    char quoted[1536];
-
-    if (!dir || dir[0] == '\0')
-        return;
-
-    shell_quote(dir, quoted, sizeof(quoted));
-    snprintf(cmd, sizeof(cmd), "rm -rf %s", quoted);
-    system(cmd);
-}
-
 void m4v_default_options(M4VOptions *opts)
 {
     if (!opts)
@@ -356,15 +253,13 @@ ConverterError m4v_make_output_name(const char *input_file,
                                     size_t out_file_sz)
 {
     const char *name;
-    const char *slash;
     char base[512];
     char *dot;
 
     if (!input_file || !out_file || out_file_sz == 0)
         return ERR_INVALID_OPTIONS;
 
-    slash = strrchr(input_file, '/');
-    name = slash ? slash + 1 : input_file;
+    name = platform_get_filename(input_file);
     copy_string(base, sizeof(base), name);
     dot = strrchr(base, '.');
     if (dot)
@@ -392,19 +287,20 @@ ConverterError m4v_validate_input_supported(const char *input_file,
     if (detail && detail_sz > 0)
         detail[0] = '\0';
 
-    if (!is_regular_file(input_file)) {
+    if (!m4v_platform_is_regular_file(input_file)) {
         copy_string(detail, detail_sz, "input file not found or unreadable");
         return ERR_INPUT_NOT_READABLE;
     }
 
-    ffprobe_bin = linux_get_preferred_ffprobe_bin();
-    shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
-    shell_quote(input_file, quoted_input, sizeof(quoted_input));
+    ffprobe_bin = platform_get_ffprobe_bin();
+    m4v_platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
+    m4v_platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
     snprintf(cmd,
              sizeof(cmd),
-             "%s -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null",
+             "%s -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 %s %s",
              quoted_tool,
-             quoted_input);
+             quoted_input,
+             m4v_platform_null_redirect());
 
     rc = run_command_capture(cmd, output, sizeof(output), NULL, NULL);
     if (rc != 0) {
@@ -420,9 +316,10 @@ ConverterError m4v_validate_input_supported(const char *input_file,
 
     snprintf(cmd,
              sizeof(cmd),
-             "%s -v error -select_streams a:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null",
+             "%s -v error -select_streams a:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 %s %s",
              quoted_tool,
-             quoted_input);
+             quoted_input,
+             m4v_platform_null_redirect());
     rc = run_command_capture(cmd, output, sizeof(output), NULL, NULL);
     if (rc != 0 || strstr(output, "audio") == NULL) {
         copy_string(detail, detail_sz, "input file has no usable audio stream");
@@ -489,9 +386,9 @@ ConverterError m4v_create_from_input(const char *input_file,
         return (ConverterError)rc;
     }
 
-    ffmpeg_bin = linux_get_preferred_ffmpeg_bin();
-    ffprobe_bin = linux_get_preferred_ffprobe_bin();
-    mp4box_bin = linux_get_preferred_mp4box_bin();
+    ffmpeg_bin = platform_get_ffmpeg_bin();
+    ffprobe_bin = platform_get_ffprobe_bin();
+    mp4box_bin = platform_get_mp4box_bin();
     if (!ffmpeg_bin || !ffprobe_bin || !mp4box_bin ||
         ffmpeg_bin[0] == '\0' || ffprobe_bin[0] == '\0' || mp4box_bin[0] == '\0') {
         copy_string(error_text, error_text_sz, "Missing required tools (ffmpeg/ffprobe/MP4Box)");
@@ -499,7 +396,7 @@ ConverterError m4v_create_from_input(const char *input_file,
         return ERR_INVALID_OPTIONS;
     }
 
-    if (!make_temp_dir(work_dir, sizeof(work_dir))) {
+    if (!m4v_platform_make_temp_dir(work_dir, sizeof(work_dir))) {
         copy_string(error_text, error_text_sz, "Failed to create temp dir");
         emit_error(callbacks, "Failed to create temp dir", ERR_UNKNOWN);
         return ERR_UNKNOWN;
@@ -514,9 +411,9 @@ ConverterError m4v_create_from_input(const char *input_file,
     fps = probe_fps_for_input(ffprobe_bin, input_file);
     lang = local_opts.audio_lang[0] != '\0' ? local_opts.audio_lang : "rus";
 
-    shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
-    shell_quote(input_file, quoted_input, sizeof(quoted_input));
-    shell_quote(video_mp4, quoted_video, sizeof(quoted_video));
+    m4v_platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
+    m4v_platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
+    m4v_platform_shell_quote(video_mp4, quoted_video, sizeof(quoted_video));
 
     emit_stage(callbacks, "Apple M4V step 1/5: video copy");
     snprintf(cmd,
@@ -529,11 +426,11 @@ ConverterError m4v_create_from_input(const char *input_file,
     rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
     if (rc != 0) {
         copy_string(error_text, error_text_sz, rc == -2 ? "Stopped" : "Apple M4V video copy failed");
-        remove_temp_dir(work_dir);
+        m4v_platform_remove_temp_dir(work_dir);
         return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
     }
 
-    shell_quote(aac_m4a, quoted_aac, sizeof(quoted_aac));
+    m4v_platform_shell_quote(aac_m4a, quoted_aac, sizeof(quoted_aac));
     emit_stage(callbacks, "Apple M4V step 2/5: AAC encode");
     snprintf(cmd,
              sizeof(cmd),
@@ -546,11 +443,11 @@ ConverterError m4v_create_from_input(const char *input_file,
     rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
     if (rc != 0) {
         copy_string(error_text, error_text_sz, rc == -2 ? "Stopped" : "Apple M4V AAC encode failed");
-        remove_temp_dir(work_dir);
+        m4v_platform_remove_temp_dir(work_dir);
         return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
     }
 
-    shell_quote(ac3_mp4, quoted_ac3, sizeof(quoted_ac3));
+    m4v_platform_shell_quote(ac3_mp4, quoted_ac3, sizeof(quoted_ac3));
     emit_stage(callbacks, "Apple M4V step 3/5: AC3 encode");
     snprintf(cmd,
              sizeof(cmd),
@@ -563,49 +460,55 @@ ConverterError m4v_create_from_input(const char *input_file,
     rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
     if (rc != 0) {
         copy_string(error_text, error_text_sz, rc == -2 ? "Stopped" : "Apple M4V AC3 encode failed");
-        remove_temp_dir(work_dir);
+        m4v_platform_remove_temp_dir(work_dir);
         return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
     }
 
-    shell_quote(mp4box_bin, quoted_tool, sizeof(quoted_tool));
-    shell_quote(output_file, quoted_output, sizeof(quoted_output));
+    m4v_platform_shell_quote(mp4box_bin, quoted_tool, sizeof(quoted_tool));
+    m4v_platform_shell_quote(output_file, quoted_output, sizeof(quoted_output));
     emit_stage(callbacks, "Apple M4V step 4/5: MP4Box mux");
     snprintf(video_add, sizeof(video_add), "%s#video:fps=%.6f:name=Video", video_mp4, fps);
     snprintf(aac_add, sizeof(aac_add), "%s#audio:name=AAC:lang=%s", aac_m4a, lang);
     snprintf(ac3_add, sizeof(ac3_add), "%s#audio:name=AC3 %dk:lang=%s", ac3_mp4, local_opts.ac3_bitrate_kbps, lang);
-    shell_quote_double(video_add, quoted_video_add, sizeof(quoted_video_add));
-    shell_quote_double(aac_add, quoted_aac_add, sizeof(quoted_aac_add));
-    shell_quote_double(ac3_add, quoted_ac3_add, sizeof(quoted_ac3_add));
-    snprintf(cmd,
-             sizeof(cmd),
-             "%s -new -brand 'M4V :0' -ab mp42 -ab isom -add %s -add %s -add %s %s 2>&1",
-             quoted_tool,
-             quoted_video_add,
-             quoted_aac_add,
-             quoted_ac3_add,
-             quoted_output);
-    if (!overwrite && access(output_file, F_OK) == 0) {
+    m4v_platform_shell_quote(video_add, quoted_video_add, sizeof(quoted_video_add));
+    m4v_platform_shell_quote(aac_add, quoted_aac_add, sizeof(quoted_aac_add));
+    m4v_platform_shell_quote(ac3_add, quoted_ac3_add, sizeof(quoted_ac3_add));
+    {
+        char quoted_brand[64];
+        m4v_platform_shell_quote("M4V :0", quoted_brand, sizeof(quoted_brand));
+        snprintf(cmd,
+                 sizeof(cmd),
+                 "%s -new -brand %s -ab mp42 -ab isom -add %s -add %s -add %s %s 2>&1",
+                 quoted_tool,
+                 quoted_brand,
+                 quoted_video_add,
+                 quoted_aac_add,
+                 quoted_ac3_add,
+                 quoted_output);
+    }
+    if (!overwrite && m4v_platform_file_exists(output_file)) {
         copy_string(error_text, error_text_sz, "Output exists (enable overwrite)");
-        remove_temp_dir(work_dir);
+        m4v_platform_remove_temp_dir(work_dir);
         return ERR_OUTPUT_EXISTS;
     }
     if (overwrite)
-        unlink(output_file);
+        m4v_platform_unlink(output_file);
     rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
     if (rc != 0) {
         copy_string(error_text, error_text_sz, rc == -2 ? "Stopped" : "Apple M4V MP4Box mux failed");
-        remove_temp_dir(work_dir);
+        m4v_platform_remove_temp_dir(work_dir);
         return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
     }
 
     if (local_opts.add_chapters) {
-        shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
+        m4v_platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
         emit_stage(callbacks, "Apple M4V step 5/5: chapters");
         snprintf(cmd,
                  sizeof(cmd),
-                 "%s -v error -print_format json -show_chapters %s 2>/dev/null",
+                 "%s -v error -print_format json -show_chapters %s %s",
                  quoted_tool,
-                 quoted_input);
+                 quoted_input,
+                 m4v_platform_null_redirect());
         rc = run_command_capture(cmd, chapter_json, sizeof(chapter_json), NULL, stop_flag);
         if (rc == 0) {
             FILE *json_fp = fopen(chapters_json, "w");
@@ -614,8 +517,8 @@ ConverterError m4v_create_from_input(const char *input_file,
                 fclose(json_fp);
             }
             if (build_chapter_text_from_json(chapter_json, chapters_txt)) {
-                shell_quote(mp4box_bin, quoted_tool, sizeof(quoted_tool));
-                shell_quote(chapters_txt, quoted_chapters, sizeof(quoted_chapters));
+                m4v_platform_shell_quote(mp4box_bin, quoted_tool, sizeof(quoted_tool));
+                m4v_platform_shell_quote(chapters_txt, quoted_chapters, sizeof(quoted_chapters));
                 snprintf(cmd,
                          sizeof(cmd),
                          "%s -chap %s %s 2>&1",
@@ -633,9 +536,9 @@ ConverterError m4v_create_from_input(const char *input_file,
         }
     }
 
-    remove_temp_dir(work_dir);
+    m4v_platform_remove_temp_dir(work_dir);
     if (stop_flag && *stop_flag) {
-        unlink(output_file);
+        m4v_platform_unlink(output_file);
         copy_string(error_text, error_text_sz, "Stopped");
         return ERR_SKIP_FILE;
     }
