@@ -36,7 +36,14 @@ typedef enum {
 
     // INTERNAL
     ERR_INVALID_OPTIONS,
-    ERR_UNKNOWN
+    ERR_UNKNOWN,
+
+    // PLATFORM ERRORS (added for cross-platform support)
+    ERR_PLATFORM_INIT_FAILED,
+    ERR_AUDIO_FILTER_VALIDATION_FAILED,
+    ERR_GPU_NOT_SUPPORTED,
+    ERR_PATH_TOO_LONG,
+    ERR_HOME_DIR_NOT_FOUND
 } ConverterError;
 
 // ------------------------------------------------------------
