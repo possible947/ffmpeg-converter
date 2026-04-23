@@ -76,12 +76,21 @@ static const char* windows_resolve_bin(const char* env_name,
     *initialized = 1;
 
     /* 1. Environment variable */
-    const char* env = getenv(env_name);
-    if (!env || env[0] == '\0') env = getenv(env_name2 ? env_name2 : "");
-    if (env && env[0] != '\0') {
-        strncpy(cache, env, MAX_PATH - 1);
-        cache[MAX_PATH - 1] = '\0';
-        return cache;
+    if (env_name && env_name[0] != '\0') {
+        const char* env = getenv(env_name);
+        if (env && env[0] != '\0') {
+            strncpy(cache, env, MAX_PATH - 1);
+            cache[MAX_PATH - 1] = '\0';
+            return cache;
+        }
+    }
+    if (env_name2 && env_name2[0] != '\0') {
+        const char* env = getenv(env_name2);
+        if (env && env[0] != '\0') {
+            strncpy(cache, env, MAX_PATH - 1);
+            cache[MAX_PATH - 1] = '\0';
+            return cache;
+        }
     }
 
     /* 2. Bundled next to the .exe */
@@ -113,17 +122,6 @@ static const char* windows_resolve_bin(const char* env_name,
 const char* platform_get_ffmpeg_bin(void) {
     static char cache[MAX_PATH] = {0};
     static int  initialized = 0;
-    if (initialized) return cache;
-    initialized = 1;
-
-    const char* env = getenv("FFMPEG");
-    if (!env || env[0] == '\0') env = getenv("FFMPEG_BIN");
-    if (env && env[0] != '\0') {
-        strncpy(cache, env, MAX_PATH - 1);
-        cache[MAX_PATH - 1] = '\0';
-        return cache;
-    }
-
     return windows_resolve_bin("FFMPEG", "FFMPEG_BIN", "ffmpeg.exe",
                                 cache, &initialized);
 }

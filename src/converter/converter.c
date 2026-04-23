@@ -399,10 +399,7 @@ static void make_output_name(
 
     // 2. base without extension
     char base[512];
-    size_t name_len = strlen(name);
-    size_t copy_len = (name_len < sizeof(base) - 1) ? name_len : sizeof(base) - 1;
-    strncpy(base, name, copy_len);
-    base[copy_len] = '\0';
+    snprintf(base, sizeof(base), "%s", name);
 
     // Remove extension
     char* dot = strrchr(base, '.');

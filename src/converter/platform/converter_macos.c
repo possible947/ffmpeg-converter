@@ -5,6 +5,7 @@
  */
 
 #include "../converter_platform.h"
+#include "../converter.h"   /* ConvertOptions struct for profile field access */
 #include <mach-o/dyld.h>
 #include <sys/sysctl.h>
 #include <sys/stat.h>
@@ -21,15 +22,15 @@
  * --------------------------------------------------------------- */
 
 static const char* macos_get_exe_dir(void) {
-    static char exe_dir[1024] = {0};
+    static char exe_dir[4096] = {0};
     static int initialized = 0;
     if (initialized) return exe_dir;
     initialized = 1;
 
-    char exe_path[1024];
+    char exe_path[4096];
     uint32_t size = (uint32_t)sizeof(exe_path);
     if (_NSGetExecutablePath(exe_path, &size) == 0) {
-        char resolved[1024];
+        char resolved[4096];
         if (realpath(exe_path, resolved)) {
             strncpy(exe_dir, dirname(resolved), sizeof(exe_dir) - 1);
             exe_dir[sizeof(exe_dir) - 1] = '\0';
@@ -42,7 +43,7 @@ static const char* macos_resolve_bundled_bin(const char* name) {
     const char* exe_dir = macos_get_exe_dir();
     if (!exe_dir || exe_dir[0] == '\0') return NULL;
 
-    static char path[1024];
+    static char path[4096];
 
     snprintf(path, sizeof(path), "%s/%s", exe_dir, name);
     if (access(path, X_OK) == 0) return path;
@@ -365,17 +366,10 @@ const char* platform_get_video_codec_flags(const char* codec,
     }
 
     if (strcmp(codec, "prores_videotoolbox") == 0) {
-        /* opts_void is a ConvertOptions* — access profile field via offset.
-         * To avoid including converter.h here we read the profile via the
-         * caller's void* handle.  The profile field is at a known offset in
-         * ConvertOptions, but to keep this file decoupled we simply default
-         * to profile 2 (standard) if opts_void is NULL.
-         * Callers that need a specific profile should pass opts. */
-        int profile = 2;
+        int profile = 2;  /* default: standard */
         if (opts_void) {
-            /* ConvertOptions.profile is the second int field after codec[32] */
-            const int* pfield = (const int*)((const char*)opts_void + 32);
-            profile = *pfield;
+            const ConvertOptions* copts = (const ConvertOptions*)opts_void;
+            profile = copts->profile;
             if (profile < 1 || profile > 4) profile = 2;
         }
         snprintf(flags, sizeof(flags),

@@ -43,10 +43,11 @@ int is_path_absolute(const char* path) {
     if (!path || path[0] == '\0') return 0;
     if (path[0] == '/') return 1;          /* POSIX */
 #ifdef _WIN32
+    size_t plen = strlen(path);
     /* Windows: "C:\..." or "\\server\..." */
-    if (path[1] == ':' && (path[2] == '\\' || path[2] == '/'))
+    if (plen >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/'))
         return 1;
-    if (path[0] == '\\' && path[1] == '\\')
+    if (plen >= 2 && path[0] == '\\' && path[1] == '\\')
         return 1;
 #endif
     return 0;
