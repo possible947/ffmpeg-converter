@@ -1,32 +1,25 @@
 #include "converter.h"
+#include "converter_platform.h"
+#include "converter_common.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <jansson.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <time.h>
 #include <errno.h>
-#include <libgen.h>
-#if defined(__linux__)
-#include "linux/runtime_probe.h"
-#endif
-#if defined(__APPLE__)
-#include <math.h>
-#endif
-
-#if defined(__APPLE__)
-#include <sys/sysctl.h>
-#include <mach-o/dyld.h>
-#endif
 
 struct Converter {
     ConvertOptions opts;
     ConverterCallbacks cb;
     int stop_flag;
+
+    /* Platform state */
+    int platform_initialized;  /* 1 after successful platform_init() */
+    int platform_caps;         /* PLAT_CAP_* bitmask from platform_detect_gpu_support() */
 };
 
-static int codec_is_linux_vaapi(const char* codec) {
+static int codec_is_vaapi(const char* codec) {
     return codec &&
            (strcmp(codec, "h264_vaapi") == 0 ||
             strcmp(codec, "hevc_vaapi") == 0);
@@ -112,11 +105,11 @@ static int ffmpeg_encoder_available(const char* encoder_name) {
     }
 
     if (!initialized) {
-        const char* ffmpeg_bin = get_ffmpeg_bin();
+        const char* ffmpeg_bin = platform_get_ffmpeg_bin();
         char cmd[2048];
         snprintf(cmd, sizeof(cmd),
-                 "\"%s\" -hide_banner -v error -encoders 2>/dev/null",
-                 ffmpeg_bin);
+                 "\"%s\" -hide_banner -v error -encoders 2>%s",
+                 ffmpeg_bin, platform_get_null_device());
 
         FILE* fp = popen(cmd, "r");
         if (fp) {
@@ -151,114 +144,12 @@ static int ffmpeg_encoder_available(const char* encoder_name) {
     return 0;
 }
 
-static int is_executable(const char* path) {
-    return (access(path, X_OK) == 0);
-}
-
-static const char* get_exe_dir(void) {
-    static char exe_dir[1024] = {0};
-    static int initialized = 0;
-
-    if (initialized) return exe_dir;
-
-#if defined(__APPLE__)
-    char exe_path[1024];
-    uint32_t size = (uint32_t)sizeof(exe_path);
-    if (_NSGetExecutablePath(exe_path, &size) == 0) {
-        char resolved[1024];
-        if (realpath(exe_path, resolved)) {
-            strncpy(exe_dir, dirname(resolved), sizeof(exe_dir) - 1);
-            exe_dir[sizeof(exe_dir) - 1] = '\0';
-        }
-    }
-#else
-    char exe_path[1024];
-    ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-    if (len != -1) {
-        exe_path[len] = '\0';
-        strncpy(exe_dir, dirname(exe_path), sizeof(exe_dir) - 1);
-        exe_dir[sizeof(exe_dir) - 1] = '\0';
-    }
-#endif
-    initialized = 1;
-    return exe_dir;
-}
-
-static const char* resolve_bundled_bin(const char* name) {
-    const char* exe_dir = get_exe_dir();
-    if (exe_dir[0] == '\0') return NULL;
-
-    static char path[1024];
-    snprintf(path, sizeof(path), "%s/%s", exe_dir, name);
-    if (is_executable(path)) return path;
-
-#if defined(__APPLE__)
-    snprintf(path, sizeof(path), "%s/../Resources/bin/%s", exe_dir, name);
-    if (is_executable(path)) return path;
-#endif
-
-    return NULL;
-}
-
 static const char* get_ffmpeg_bin(void) {
-    const char* v = getenv("FFMPEG");
-    if (v && v[0] != '\0') return v;
-
-    v = getenv("FFMPEG_BIN");
-    if (v && v[0] != '\0') return v;
-
-#if defined(__linux__)
-    return linux_get_preferred_ffmpeg_bin();
-#endif
-
-    const char* bundled = resolve_bundled_bin("ffmpeg");
-    if (bundled) return bundled;
-
-    return "";
+    return platform_get_ffmpeg_bin();
 }
 
 static const char* get_ffprobe_bin(void) {
-    const char* v = getenv("FFPROBE");
-    if (v && v[0] != '\0') return v;
-
-    v = getenv("FFPROBE_BIN");
-    if (v && v[0] != '\0') return v;
-
-#if defined(__linux__)
-    return linux_get_preferred_ffprobe_bin();
-#endif
-
-    const char* bundled = resolve_bundled_bin("ffprobe");
-    if (bundled) return bundled;
-
-    return "";
-}
-
-// ------------------------------------------------------------
-//  CPU thread count for filter multithreading
-// ------------------------------------------------------------
-static int get_cpu_count(void) {
-#if defined(__APPLE__)
-    int count = 0;
-    size_t size = sizeof(count);
-    if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0 && count > 0) {
-        return count;
-    }
-    long num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
-    if (num_cpus < 1) return 1;
-    return (int)num_cpus;
-#else
-    long num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
-    if (num_cpus < 1) return 1;
-    return (int)num_cpus;
-#endif
-}
-
-int get_filter_threads(void) {
-    int cpus = get_cpu_count();
-    int threads = cpus / 2;
-    if (threads < 1) threads = 1;
-    return threads;
+    return platform_get_ffprobe_bin();
 }
 
 // ------------------------------------------------------------
@@ -266,11 +157,20 @@ int get_filter_threads(void) {
 // ------------------------------------------------------------
 Converter* converter_create(void) {
     Converter* c = calloc(1, sizeof(Converter));
+    if (!c) return NULL;
+    if (platform_init() != 0) {
+        free(c);
+        return NULL;
+    }
+    c->platform_initialized = 1;
+    c->platform_caps = platform_detect_gpu_support();
     return c;
 }
 
 void converter_destroy(Converter* c) {
     if (!c) return;
+    if (c->platform_initialized)
+        platform_cleanup();
     free(c);
 }
 
@@ -295,10 +195,6 @@ ConverterError converter_set_options(
     Converter* c,
     const ConvertOptions* opts
 ) {
-#if defined(__linux__)
-    LinuxCodecSupport support;
-#endif
-
     if (!c || !opts)
         return ERR_INVALID_OPTIONS;
 
@@ -307,28 +203,33 @@ ConverterError converter_set_options(
     if (!audio_output_mode_valid(c->opts.audio_output_mode))
         return ERR_INVALID_OPTIONS;
 
-#if defined(__linux__)
-    if (codec_is_linux_vaapi(c->opts.codec)) {
-        linux_probe_codec_support(&support);
+    /* Validate required audio filters */
+    if (!platform_validate_audio_filters()) {
+        if (c->cb.on_error)
+            c->cb.on_error("required FFmpeg audio filters not available",
+                           ERR_AUDIO_FILTER_VALIDATION_FAILED);
+        return ERR_AUDIO_FILTER_VALIDATION_FAILED;
+    }
 
-        if (strcmp(c->opts.codec, "h264_vaapi") == 0 && !support.has_h264_vaapi)
-            return ERR_INVALID_OPTIONS;
-        if (strcmp(c->opts.codec, "hevc_vaapi") == 0 && !support.has_hevc_vaapi)
-            return ERR_INVALID_OPTIONS;
+    /* Platform-specific codec validation */
+    if (c->opts.codec[0] != '\0' && !platform_supports_codec(c->opts.codec)) {
+        if (c->cb.on_error)
+            c->cb.on_error("requested codec not supported on this platform",
+                           ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
 
-        if (c->opts.hw_device[0] == '\0' && support.default_render_node[0] != '\0') {
-            strncpy(c->opts.hw_device,
-                    support.default_render_node,
-                    sizeof(c->opts.hw_device) - 1);
-            c->opts.hw_device[sizeof(c->opts.hw_device) - 1] = '\0';
+    /* For VAAPI codecs: fill hw_device if not already set by the caller */
+    if (codec_is_vaapi(c->opts.codec)) {
+        if (c->opts.hw_device[0] == '\0') {
+            platform_get_hw_device_for_codec(c->opts.codec,
+                                              c->opts.hw_device,
+                                              sizeof(c->opts.hw_device));
         }
-
         if (c->opts.hw_device[0] == '\0')
             return ERR_INVALID_OPTIONS;
-
         c->opts.hwaccel_enabled = 1;
     }
-#endif
 
     return ERR_OK;
 }
@@ -359,12 +260,17 @@ const char* converter_error_string(ConverterError err) {
         case ERR_POPEN_FAILED: return "popen failed";
         case ERR_PCLOSE_FAILED: return "pclose failed";
         case ERR_INVALID_OPTIONS: return "invalid options";
+        case ERR_PLATFORM_INIT_FAILED: return "platform initialization failed";
+        case ERR_AUDIO_FILTER_VALIDATION_FAILED: return "required FFmpeg audio filter not available";
+        case ERR_GPU_NOT_SUPPORTED: return "GPU codec not supported on this platform";
+        case ERR_PATH_TOO_LONG: return "path exceeds maximum length";
+        case ERR_HOME_DIR_NOT_FOUND: return "user home directory not found";
         default: return "unknown error";
     }
 }
 
 // ------------------------------------------------------------
-//  Helpers: time parsing
+//  Helpers: time parsing (retained for immutable audio functions)
 // ------------------------------------------------------------
 static double parse_time_hms(const char *s) {
     int h = 0, m = 0;
@@ -375,52 +281,9 @@ static double parse_time_hms(const char *s) {
     return 0.0;
 }
 
-static void format_eta(double eta, char *buf, size_t sz) {
-    if (eta <= 0) {
-        snprintf(buf, sz, "ETA --:--:--");
-        return;
-    }
-    int t = (int)eta;
-    int h = t / 3600;
-    int m = (t % 3600) / 60;
-    int s = t % 60;
-    snprintf(buf, sz, "ETA %02d:%02d:%02d", h, m, s);
-}
-
 // ------------------------------------------------------------
 //  Output dir preflight
 // ------------------------------------------------------------
-static int mkdir_p(const char* path) {
-    if (!path || path[0] == '\0')
-        return -1;
-
-    char tmp[1024];
-    size_t len = strlen(path);
-    if (len >= sizeof(tmp)) {
-        errno = ENAMETOOLONG;
-        return -1;
-    }
-
-    strcpy(tmp, path);
-
-    if (len > 1 && tmp[len - 1] == '/')
-        tmp[len - 1] = '\0';
-
-    for (char* p = tmp + 1; *p; ++p) {
-        if (*p == '/') {
-            *p = '\0';
-            if (mkdir(tmp, 0755) != 0 && errno != EEXIST)
-                return -1;
-            *p = '/';
-        }
-    }
-
-    if (mkdir(tmp, 0755) != 0 && errno != EEXIST)
-        return -1;
-
-    return 0;
-}
-
 static ConverterError ensure_output_dir_writable(
     Converter* c,
     const ConvertOptions* opts,
@@ -432,16 +295,22 @@ static ConverterError ensure_output_dir_writable(
 
     const char* configured = opts->output_dir;
     if (!configured || configured[0] == '\0') {
-        const char* home = getenv("HOME");
-        if (!home || home[0] == '\0')
-            home = ".";
-        snprintf(out_dir, out_dir_sz, "%s/ffmpeg_converter", home);
+        const char* home = platform_get_home_dir();
+        char* joined = platform_join_paths(home, "ffmpeg_converter");
+        if (joined) {
+            strncpy(out_dir, joined, out_dir_sz - 1);
+            out_dir[out_dir_sz - 1] = '\0';
+            free(joined);
+        } else {
+            strncpy(out_dir, "ffmpeg_converter", out_dir_sz - 1);
+            out_dir[out_dir_sz - 1] = '\0';
+        }
     } else {
         strncpy(out_dir, configured, out_dir_sz - 1);
         out_dir[out_dir_sz - 1] = '\0';
     }
 
-    if (mkdir_p(out_dir) != 0) {
+    if (platform_mkdir_recursive(out_dir) != 0) {
         if (c->cb.on_error)
             c->cb.on_error("output preflight failed: cannot create output directory", ERR_INVALID_OPTIONS);
         return ERR_INVALID_OPTIONS;
@@ -454,7 +323,7 @@ static ConverterError ensure_output_dir_writable(
         return ERR_INVALID_OPTIONS;
     }
 
-    if (access(out_dir, W_OK) != 0) {
+    if (!platform_is_dir_writable(out_dir)) {
         if (c->cb.on_error)
             c->cb.on_error("output preflight failed: output directory not writable", ERR_INVALID_OPTIONS);
         return ERR_INVALID_OPTIONS;
@@ -471,8 +340,8 @@ static double get_duration(const char *input) {
     const char *ffprobe_bin = get_ffprobe_bin();
     snprintf(cmd, sizeof(cmd),
              "\"%s\" -v error -show_entries format=duration "
-             "-of default=noprint_wrappers=1:nokey=1 \"%s\" 2>/dev/null",
-             ffprobe_bin, input);
+             "-of default=noprint_wrappers=1:nokey=1 \"%s\" 2>%s",
+             ffprobe_bin, input, platform_get_null_device());
 
     FILE *fp = popen(cmd, "r");
     if (!fp) return 0.0;
@@ -486,71 +355,6 @@ static double get_duration(const char *input) {
 
     return atof(buf);
 }
-
-// ------------------------------------------------------------
-//  macOS VideoToolbox helpers
-// ------------------------------------------------------------
-#if defined(__APPLE__)
-
-// Probe width, height, fps (as double) of the first video stream.
-static void get_video_info(const char *input,
-                            int *out_width,
-                            int *out_height,
-                            double *out_fps)
-{
-    *out_width  = 0;
-    *out_height = 0;
-    *out_fps    = 0.0;
-
-    char cmd[2048];
-    const char *ffprobe_bin = get_ffprobe_bin();
-    snprintf(cmd, sizeof(cmd),
-             "\"%s\" -v error -select_streams v:0"
-             " -show_entries stream=width,height,r_frame_rate"
-             " -of default=noprint_wrappers=1:nokey=1 \"%s\" 2>/dev/null",
-             ffprobe_bin, input);
-
-    FILE *fp = popen(cmd, "r");
-    if (!fp) return;
-
-    char line[256];
-    // line 1 = width
-    if (fgets(line, sizeof(line), fp)) *out_width  = atoi(line);
-    // line 2 = height
-    if (fgets(line, sizeof(line), fp)) *out_height = atoi(line);
-    // line 3 = r_frame_rate as "num/den"
-    if (fgets(line, sizeof(line), fp)) {
-        int num = 0, den = 1;
-        if (sscanf(line, "%d/%d", &num, &den) == 2 && den > 0)
-            *out_fps = (double)num / (double)den;
-        else
-            *out_fps = atof(line);
-    }
-    pclose(fp);
-}
-
-// Sub-linear bits-per-pixel formula:
-//   base = 35000 kbps @ 4K (3840x2160) 24 fps
-//   bitrate = base * (pixels / base_pixels) * (fps / base_fps)^0.75
-//   clamped to [2000, 80000] kbps
-static int calc_hevc_vt_bitrate_kbps(int width, int height, double fps)
-{
-    if (width <= 0 || height <= 0 || fps <= 0.0) return 35000;
-
-    const double BASE_KBPS   = 35000.0;
-    const double BASE_PIXELS = 3840.0 * 2160.0;
-    const double BASE_FPS    = 24.0;
-
-    double pixel_ratio = (double)(width * height) / BASE_PIXELS;
-    double fps_ratio   = pow(fps / BASE_FPS, 0.75);
-    double kbps        = BASE_KBPS * pixel_ratio * fps_ratio;
-
-    if (kbps < 2000.0)  kbps = 2000.0;
-    if (kbps > 80000.0) kbps = 80000.0;
-    return (int)kbps;
-}
-
-#endif /* __APPLE__ */
 
 // ------------------------------------------------------------
 //  File checks
@@ -570,7 +374,7 @@ static ConverterError check_file(Converter* c, const char *file) {
         return ERR_INPUT_NOT_REGULAR;
     }
 
-    if (access(file, R_OK) != 0) {
+    if (!platform_is_file_readable(file)) {
         if (c->cb.on_error)
             c->cb.on_error("input file not readable", ERR_INPUT_NOT_READABLE);
         return ERR_INPUT_NOT_READABLE;
@@ -589,88 +393,61 @@ static void make_output_name(
     size_t out_sz
 ) {
     if (out_sz == 0) return;
-    
-    // 1. basename
-    const char* slash = strrchr(input, '/');
-#ifdef _WIN32
-    const char* backslash = strrchr(input, '\\');
-    if (backslash && (!slash || backslash > slash))
-        slash = backslash;
-#endif
-    const char* name = slash ? slash + 1 : input;
+
+    // 1. basename — platform handles separator differences
+    const char* name = platform_get_filename(input);
 
     // 2. base without extension
     char base[512];
-    // Копируем имя файла с безопасным ограничением
     size_t name_len = strlen(name);
     size_t copy_len = (name_len < sizeof(base) - 1) ? name_len : sizeof(base) - 1;
     strncpy(base, name, copy_len);
     base[copy_len] = '\0';
 
-    // Удаляем расширение
+    // Remove extension
     char* dot = strrchr(base, '.');
     if (dot) *dot = '\0';
 
-    // 3. Формируем новое имя файла с безопасной длиной
+    // 3. Build new filename with safe length
     char filename[1024];
     size_t base_len = strlen(base);
-    
-    // Максимальная длина для base чтобы вместить "_converted.ext"
-    size_t max_safe_base_len = sizeof(filename) - 15; // 15 = "_converted.ext\0"
-    
-    if (base_len <= max_safe_base_len) {
-        // Имя вписывается нормально
-        const char *ext;
-        if (strcmp(opts->codec, "copy") == 0)
-            ext = "mkv";
-        else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
-            ext = "mp4";
-        else if (codec_uses_mov_container(opts->codec))
-            ext = "mov";
-        else
-            ext = "mkv";
-        snprintf(filename, sizeof(filename), "%s_converted.%s", base, ext);
-    } else {
-        // Имя слишком длинное - усекаем
-        char truncated[512];
-        snprintf(truncated, sizeof(truncated), "%s", base);
 
-        const char *ext;
-        if (strcmp(opts->codec, "copy") == 0)
-            ext = "mkv";
-        else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
-            ext = "mp4";
-        else if (codec_uses_mov_container(opts->codec))
-            ext = "mov";
-        else
-            ext = "mkv";
-        snprintf(filename, sizeof(filename), "%s_converted.%s", truncated, ext);
+    // Maximum base length to fit "_converted.ext\0" (15 chars)
+    size_t max_safe_base_len = sizeof(filename) - 15;
+
+    if (base_len > max_safe_base_len) {
+        /* Truncate base to fit */
+        base[max_safe_base_len] = '\0';
     }
 
-    // 4. Если output_dir не указан
+    const char *ext;
+    if (strcmp(opts->codec, "copy") == 0)
+        ext = "mkv";
+    else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
+        ext = "mp4";
+    else if (codec_uses_mov_container(opts->codec))
+        ext = "mov";
+    else
+        ext = "mkv";
+    snprintf(filename, sizeof(filename), "%s_converted.%s", base, ext);
+
+    // 4. If output_dir is not specified
     if (opts->output_dir[0] == '\0') {
         strncpy(out, filename, out_sz - 1);
         out[out_sz - 1] = '\0';
         return;
     }
 
-    // 5. С output_dir
-    size_t dir_len = strlen(opts->output_dir);
-    size_t filename_len = strlen(filename);
-    size_t total_len = dir_len + 1 + filename_len; // +1 для '/'
-    
-    if (total_len < out_sz) {
-        snprintf(out, out_sz, "%s/%s", opts->output_dir, filename);
+    // 5. With output_dir — use platform_join_paths for correct separator
+    char* joined = platform_join_paths(opts->output_dir, filename);
+    if (joined) {
+        strncpy(out, joined, out_sz - 1);
+        out[out_sz - 1] = '\0';
+        free(joined);
     } else {
-        // Слишком длинный путь - используем только имя файла
-        if (filename_len < out_sz) {
-            strncpy(out, filename, out_sz - 1);
-            out[out_sz - 1] = '\0';
-        } else {
-            // Даже имя файла слишком длинное
-            strncpy(out, "output", out_sz - 1);
-            out[out_sz - 1] = '\0';
-        }
+        /* Allocation failed — fall back to filename only */
+        strncpy(out, filename, out_sz - 1);
+        out[out_sz - 1] = '\0';
     }
 }
 
@@ -915,7 +692,6 @@ static void build_ffmpeg_cmd(
 ) {
     const ConvertOptions* opts = &c->opts;
     const char* ffmpeg_bin = get_ffmpeg_bin();
-    int is_linux_vaapi = codec_is_linux_vaapi(opts->codec);
     int is_dual_audio_output =
         audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q5_ac3_640") ||
         audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2_ac3_640");
@@ -943,7 +719,8 @@ static void build_ffmpeg_cmd(
     else
         strcat(cmd, "-n ");
 
-    if (is_linux_vaapi && opts->hw_device[0] != '\0') {
+    /* VAAPI requires a device node before the input */
+    if (opts->hwaccel_enabled && opts->hw_device[0] != '\0') {
         strcat(cmd, "-vaapi_device ");
         strcat(cmd, "\"");
         strcat(cmd, opts->hw_device);
@@ -968,8 +745,13 @@ static void build_ffmpeg_cmd(
     strcat(cmd, "-map_metadata 0 ");
 
     // video codec
-    if (strcmp(opts->codec, "prores") == 0 ||
-        strcmp(opts->codec, "prores_ks") == 0)
+    // Try platform-specific codec flags first (VAAPI, VideoToolbox, NVENC, etc.)
+    const char* platform_vcodec = platform_get_video_codec_flags(opts->codec, input, opts);
+    if (platform_vcodec != NULL) {
+        strcat(cmd, platform_vcodec);
+    }
+    else if (strcmp(opts->codec, "prores") == 0 ||
+             strcmp(opts->codec, "prores_ks") == 0)
     {
         int profile_value = opts->profile;
         if (profile_value < 1 || profile_value > 4) {
@@ -995,43 +777,12 @@ static void build_ffmpeg_cmd(
             strcat(cmd, tmp);
         }
     }
-    else if (strcmp(opts->codec, "prores_videotoolbox") == 0)
-    {
-        int profile_value = opts->profile;
-        if (profile_value < 1 || profile_value > 4) {
-            profile_value = 2; // standard
-        }
-        char tmp[128];
-        snprintf(tmp, sizeof(tmp),
-                 "-c:v prores_videotoolbox -profile:v %d -allow_sw 1 ",
-                 profile_value);
-        strcat(cmd, tmp);
-    }
-    else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
-    {
-        char tmp[128];
-        snprintf(tmp, sizeof(tmp),
-                 "-c:v hevc_videotoolbox -b:v %dk -tag:v hvc1 -spatial_aq 1 ",
-                 opts->hevc_vt_bitrate_kbps > 0 ? opts->hevc_vt_bitrate_kbps : 35000);
-        strcat(cmd, tmp);
-    }
-    else if (strcmp(opts->codec, "h264_vaapi") == 0)
-    {
-        strcat(cmd, "-c:v h264_vaapi -rc_mode auto ");
-    }
-    else if (strcmp(opts->codec, "hevc_vaapi") == 0)
-    {
-        strcat(cmd, "-c:v hevc_vaapi -rc_mode auto ");
-    }
     else {
         strcat(cmd, "-c:v copy ");
     }
 
-    // deblock (not applicable for hardware encoders)
-    if (strcmp(opts->codec, "hevc_videotoolbox") != 0 &&
-        strcmp(opts->codec, "prores_videotoolbox") != 0 &&
-        !is_linux_vaapi)
-    {
+    // deblock (not applicable for hardware encoders or hwaccel-enabled codecs)
+    if (platform_vcodec == NULL && !opts->hwaccel_enabled) {
         if (opts->deblock == 2) {
             strcat(cmd,
                 "-vf \"deblock=filter=weak:block=4:planes=1\" ");
@@ -1042,7 +793,8 @@ static void build_ffmpeg_cmd(
                 "alpha=0.12:beta=0.07:gamma=0.06:delta=0.05:planes=1\" ");
         }
     }
-    else if (is_linux_vaapi) {
+    else if (opts->hwaccel_enabled) {
+        /* VAAPI requires pixel format conversion and GPU upload */
         strcat(cmd, "-vf \"format=nv12,hwupload\" ");
     }
 
@@ -1135,10 +887,18 @@ static ConverterError run_ffmpeg_encode_with_progress(
     if (c->cb.on_stage)
         c->cb.on_stage("encoding");
 
-    char cmd[8192];
-    snprintf(cmd, sizeof(cmd), "%s 2>&1", cmd_base);
+    /* Allocate a command buffer large enough for cmd_base + " 2>&1\0" */
+    size_t base_len = strlen(cmd_base);
+    char* cmd = malloc(base_len + 8);
+    if (!cmd) {
+        if (c->cb.on_error)
+            c->cb.on_error("out of memory", ERR_UNKNOWN);
+        return ERR_UNKNOWN;
+    }
+    snprintf(cmd, base_len + 8, "%s 2>&1", cmd_base);
 
     FILE* fp = popen(cmd, "r");
+    free(cmd);
     if (!fp) {
         if (c->cb.on_error)
             c->cb.on_error("popen failed", ERR_POPEN_FAILED);
@@ -1151,6 +911,7 @@ static ConverterError run_ffmpeg_encode_with_progress(
     double start_ts = (double)time(NULL);
 
     while (fgets(line, sizeof(line), fp)) {
+        platform_normalize_output_line(line);
 
         // out_time_ms
         if (strncmp(line, "out_time_ms=", 12) == 0) {
@@ -1342,18 +1103,10 @@ ConverterError converter_process_files(
         // ----------------------------------------------------
         //  Build ffmpeg command
         // ----------------------------------------------------
-        char cmd[8192];
+        char cmd[16384];
         c->opts.use_aac_for_h265 = codec_uses_aac_audio(c->opts.codec) ? 1 : 0;
-#if defined(__APPLE__)
-        if (strcmp(c->opts.codec, "hevc_videotoolbox") == 0) {
-            int w = 0, h = 0;
-            double fps = 0.0;
-            get_video_info(input, &w, &h, &fps);
-            c->opts.hevc_vt_bitrate_kbps = calc_hevc_vt_bitrate_kbps(w, h, fps);
-        } else {
-            c->opts.hevc_vt_bitrate_kbps = 0;
-        }
-#endif
+        /* Platform-specific bitrate calculation for VideoToolbox is handled
+         * inside platform_get_video_codec_flags() in converter_macos.c. */
         build_ffmpeg_cmd(c, input, output, cmd, sizeof(cmd));
 
         // ----------------------------------------------------
