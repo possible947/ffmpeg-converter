@@ -1,0 +1,166 @@
+/**
+ * cli_platform.h
+ * Platform abstraction interface for the CLI entry point.
+ * All platform-specific operations are declared here and implemented
+ * in platform/cli_{linux,macos,windows}.c
+ *
+ * Rules:
+ *  - No platform #ifdef in this file
+ *  - No implementation in this file (header only)
+ *  - Every function must be implemented on every supported platform
+ */
+
+#ifndef CLI_PLATFORM_H
+#define CLI_PLATFORM_H
+
+#include <stddef.h>
+#include "converter.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ---------------------------------------------------------------
+ *  Opaque platform handle
+ * --------------------------------------------------------------- */
+
+/**
+ * CliPlatformHandle — opaque struct defined privately in each
+ * platform/cli_*.c file.  Callers treat it as a black box.
+ */
+typedef struct CliPlatformHandle CliPlatformHandle;
+
+/* ---------------------------------------------------------------
+ *  Codec entry for the interactive menu
+ * --------------------------------------------------------------- */
+
+typedef struct {
+    const char* name;         /* codec string, e.g. "prores_ks"  */
+    int         needs_profile; /* 1 = show profile selection step */
+    int         needs_deblock; /* 1 = show deblock selection step */
+} PlatformCodecEntry;
+
+/* ---------------------------------------------------------------
+ *  Lifecycle
+ * --------------------------------------------------------------- */
+
+/**
+ * cli_platform_init() — Probe GPU/codec support.
+ * Returns an opaque handle on success, NULL on fatal error.
+ * The caller owns the handle and must pass it to cli_platform_cleanup().
+ */
+CliPlatformHandle* cli_platform_init(void);
+
+/**
+ * cli_platform_cleanup() — Release resources from cli_platform_init().
+ * Safe to call with h == NULL.
+ */
+void cli_platform_cleanup(CliPlatformHandle* h);
+
+/* ---------------------------------------------------------------
+ *  Codec / audio-mode availability
+ * --------------------------------------------------------------- */
+
+/**
+ * platform_codec_is_available() — Returns 1 if the codec string is
+ * supported on this platform with the detected hardware.
+ */
+int platform_codec_is_available(const CliPlatformHandle* h,
+                                const char* codec);
+
+/**
+ * platform_audio_mode_is_available() — Returns 1 if the audio output
+ * mode string is valid on this platform.
+ */
+int platform_audio_mode_is_available(const char* mode);
+
+/**
+ * platform_mux_is_supported() — Returns 1 if "mux" mode is available
+ * (requires mkvmerge; currently Linux only).
+ */
+int platform_mux_is_supported(void);
+
+/* ---------------------------------------------------------------
+ *  Interactive menu codec list
+ * --------------------------------------------------------------- */
+
+/**
+ * platform_get_codec_count() — Returns the number of codec entries
+ * available in the interactive menu on this platform/hardware.
+ */
+int platform_get_codec_count(const CliPlatformHandle* h);
+
+/**
+ * platform_get_codec_entries() — Returns a pointer to the array of
+ * PlatformCodecEntry structs.  The array is valid for the lifetime of h.
+ */
+const PlatformCodecEntry* platform_get_codec_entries(const CliPlatformHandle* h);
+
+/* ---------------------------------------------------------------
+ *  Hardware device defaults
+ * --------------------------------------------------------------- */
+
+/**
+ * platform_apply_hw_device() — Sets opts->hw_device and
+ * opts->hwaccel_enabled based on the selected codec.
+ * No-op on platforms without hardware acceleration.
+ */
+void platform_apply_hw_device(ConvertOptions* opts,
+                              const CliPlatformHandle* h);
+
+/* ---------------------------------------------------------------
+ *  Home directory
+ * --------------------------------------------------------------- */
+
+/**
+ * platform_get_home_dir() — Returns the current user's home directory
+ * path, or "." if unavailable.
+ * The returned pointer is valid for the lifetime of the process.
+ *
+ * NOTE: This is a separate declaration from the converter library's
+ * platform_get_home_dir().  CLI platform files implement this function
+ * under the name cli_get_home_dir() to avoid link-time conflicts.
+ */
+const char* cli_get_home_dir(void);
+
+/* ---------------------------------------------------------------
+ *  File / directory helpers
+ * --------------------------------------------------------------- */
+
+/**
+ * platform_file_is_regular_readable() — Returns 1 if path refers to
+ * a regular, readable file.
+ */
+int platform_file_is_regular_readable(const char* path);
+
+/**
+ * platform_dir_is_writable() — Returns 1 if path is an existing
+ * directory that the process can write to.
+ */
+int platform_dir_is_writable(const char* path);
+
+/**
+ * platform_ensure_output_dir() — Creates path if it doesn't exist,
+ * then checks write access.
+ * Returns 1 on success (exists and writable), 0 on failure.
+ */
+int platform_ensure_output_dir(const char* path);
+
+/* ---------------------------------------------------------------
+ *  Mux post-processing
+ * --------------------------------------------------------------- */
+
+/**
+ * platform_run_mux_postprocess() — Runs the mkvmerge mux step after
+ * the main ffmpeg conversion (Linux only).
+ * Returns ERR_INVALID_OPTIONS on platforms where mux is not supported.
+ */
+ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
+                                            const ConverterCallbacks* cb,
+                                            const char* input_file);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* CLI_PLATFORM_H */

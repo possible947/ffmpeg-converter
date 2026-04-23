@@ -17,12 +17,6 @@ int    get_cpu_count(void);
 int    get_filter_threads(void);
 
 /**
- * Parses an "HH:MM:SS.mmm" string into seconds as a double.
- * Returns 0.0 if parsing fails.
- */
-double parse_time_hms(const char *s);
-
-/**
  * Returns 1 if path is absolute on any platform, 0 if relative.
  * POSIX: starts with '/'
  * Windows: starts with drive letter + ':' or UNC '\\\\'

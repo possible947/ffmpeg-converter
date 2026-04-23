@@ -1,10 +1,16 @@
-# Подключаем include‑директории модулей
+# Common include directories for all CLI targets
 include_directories(
     ${CMAKE_SOURCE_DIR}/src/utils
     ${CMAKE_SOURCE_DIR}/src/progress
     ${CMAKE_SOURCE_DIR}/src/audio
     ${CMAKE_SOURCE_DIR}/src/video
     ${CMAKE_SOURCE_DIR}/src/ffmpeg_cmd
+)
+
+# Shared CLI sources (platform-agnostic)
+set(CLI_COMMON_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/cli_common.c
 )
 
 # Ищем библиотеку jansson (MacPorts, Homebrew Intel, Homebrew Apple Silicon)
@@ -48,15 +54,15 @@ foreach(MP4BOX_CANDIDATE ${LINUX_SYSTEM_MP4BOX_CANDIDATES})
     endif()
 endforeach()
 
+# =============================================================
+# --- UNIFIED CLI (new platform-abstracted architecture) ---
+# =============================================================
+
 # --- LINUX CLI ---
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    # Файлы CLI для Linux (если есть)
-    file(GLOB LINUX_CLI_SRC "${CMAKE_CURRENT_SOURCE_DIR}/linux/*.c")
-
-    # Создаём бинарник, добавляя платформенные исходники
     add_executable(linux_cli
-        ${LINUX_CLI_SRC}
-        ${PLATFORM_LINUX_SRC}
+        ${CLI_COMMON_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/platform/cli_linux.c
     )
 
     set_target_properties(linux_cli PROPERTIES
@@ -64,10 +70,17 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
 
+    target_include_directories(linux_cli PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/src/platform
+        ${CMAKE_SOURCE_DIR}/src/platform/linux
+        ${CMAKE_SOURCE_DIR}/src/mux
+    )
+
     target_link_libraries(linux_cli
         PRIVATE converter
         PRIVATE mux
-        platform
+        PRIVATE platform
         ${JANSSON_LIB}
     )
 
@@ -102,47 +115,50 @@ endif()
 
 # --- MACOS CLI ---
 if (APPLE)
-    # Файлы CLI для macOS (если есть)
-    file(GLOB MACOS_CLI_SRC "${CMAKE_CURRENT_SOURCE_DIR}/macos/*.c")
-
-    # Создаём бинарник, добавляя платформенные исходники
     add_executable(macos_cli
-        ${MACOS_CLI_SRC}
-        ${PLATFORM_MACOS_SRC}
+        ${CLI_COMMON_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/platform/cli_macos.c
     )
 
     set_target_properties(macos_cli PROPERTIES OUTPUT_NAME "ffmpeg_converter")
 
-    # Пути MacPorts
+    # MacPorts include/lib paths
     target_include_directories(macos_cli PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/src/platform
+        ${CMAKE_SOURCE_DIR}/src/platform/macos
         /opt/local/include
     )
     target_link_directories(macos_cli PRIVATE
         /opt/local/lib
     )
 
-    # Линкуем только то, что реально нужно
     target_link_libraries(macos_cli
         PRIVATE converter
-        platform
+        PRIVATE platform
         jansson_headers
         ${JANSSON_LIB}
     )
 endif()
 
-# --- WINDOWS CLI (пока пустой, добавим позже) ---
+# --- WINDOWS CLI ---
 if (WIN32)
-    file(GLOB WINDOWS_CLI_SRC "${CMAKE_CURRENT_SOURCE_DIR}/windows/*.c")
-
     add_executable(windows_cli
-        ${WINDOWS_CLI_SRC}
+        ${CLI_COMMON_SOURCES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/platform/cli_windows.c
     )
 
     set_target_properties(windows_cli PROPERTIES OUTPUT_NAME "ffmpeg_converter")
 
+    target_include_directories(windows_cli PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/src/platform
+        ${CMAKE_SOURCE_DIR}/src/platform/windows
+    )
+
     target_link_libraries(windows_cli
         PRIVATE converter
-        platform
+        PRIVATE platform
         ${JANSSON_LIB}
     )
 endif()
