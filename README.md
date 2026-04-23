@@ -155,6 +155,7 @@ third_party/   Vendored jansson (C path)
 - Install guides: [docs/install-linux.md](docs/install-linux.md),
   [docs/install-macos.md](docs/install-macos.md),
   [docs/install-windows.md](docs/install-windows.md)
+- **Dependencies analysis**: [docs/DEPENDENCIES_ANALYSIS.md](docs/DEPENDENCIES_ANALYSIS.md) — complete reference for all libraries, codecs, filters, and GPU acceleration
 - C architecture: [docs/PROJECT_DESCRIPTION.md](docs/PROJECT_DESCRIPTION.md)
 - C developer description: [docs/PROJECT_DESCRIPTION.md](docs/PROJECT_DESCRIPTION.md)
 - Native macOS install + behavior notes: [docs/install-macos.md](docs/install-macos.md)
