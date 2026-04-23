@@ -82,7 +82,8 @@ void platform_shell_quote(const char *input, char *out, size_t out_sz)
     }
 
     out[pos++] = '\'';
-    while (*input && pos + 5 < out_sz) {
+    /* Guard: need pos + 6 ≤ out_sz to emit 4-byte escape + closing quote + NUL */
+    while (*input && pos + 6 <= out_sz) {
         if (*input == '\'') {
             /* End the current quote, emit escaped apostrophe, reopen */
             out[pos++] = '\'';
@@ -94,6 +95,8 @@ void platform_shell_quote(const char *input, char *out, size_t out_sz)
         }
         ++input;
     }
-    out[pos++] = '\'';
-    out[pos] = '\0';
+    /* Write closing quote if room (always true given the guard above) */
+    if (pos < out_sz - 1)
+        out[pos++] = '\'';
+    out[pos < out_sz ? pos : out_sz - 1] = '\0';
 }

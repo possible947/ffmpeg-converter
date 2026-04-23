@@ -132,7 +132,7 @@ void platform_shell_quote(const char *input, char *out, size_t out_sz)
         }
     }
 
-    if (pos + 2 <= out_sz) {
+    if (pos + 1 < out_sz) {
         out[pos++] = '"';
         out[pos] = '\0';
     } else {
