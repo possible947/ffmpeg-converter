@@ -474,7 +474,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     m4v_platform_shell_quote(aac_add, quoted_aac_add, sizeof(quoted_aac_add));
     m4v_platform_shell_quote(ac3_add, quoted_ac3_add, sizeof(quoted_ac3_add));
     {
-        char quoted_brand[32];
+        char quoted_brand[64];
         m4v_platform_shell_quote("M4V :0", quoted_brand, sizeof(quoted_brand));
         snprintf(cmd,
                  sizeof(cmd),

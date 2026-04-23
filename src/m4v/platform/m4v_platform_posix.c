@@ -74,10 +74,10 @@ int m4v_platform_make_temp_dir(char *path, size_t path_sz)
     return 1;
 }
 
-/* Recursive helper — removes all contents of dir, then dir itself */
+/* Recursive helper — removes all contents of dir, then dir itself.
+ * Uses opendir() instead of stat() to avoid TOCTOU race conditions. */
 static void posix_rmtree(const char *path)
 {
-    struct stat st;
     DIR *d;
     struct dirent *ent;
     char child[2048];
@@ -85,17 +85,10 @@ static void posix_rmtree(const char *path)
     if (!path || path[0] == '\0')
         return;
 
-    if (stat(path, &st) != 0)
-        return;
-
-    if (!S_ISDIR(st.st_mode)) {
-        unlink(path);
-        return;
-    }
-
+    /* Attempt to open as directory; if it is not a directory, treat as file */
     d = opendir(path);
     if (!d) {
-        rmdir(path);
+        unlink(path);
         return;
     }
 
@@ -160,15 +153,19 @@ void m4v_platform_shell_quote(const char *input, char *out, size_t out_sz)
     }
 
     out[pos++] = '\'';
-    /* Guard: need pos + 6 <= out_sz to emit 4-byte escape + closing quote + NUL */
-    while (*input && pos + 6 <= out_sz) {
+    while (*input) {
         if (*input == '\'') {
-            /* End the current quote, emit escaped apostrophe, reopen */
+            /* Need 4 bytes for escape sequence + closing quote + NUL = 6 bytes */
+            if (pos + 6 > out_sz)
+                break;
             out[pos++] = '\'';
             out[pos++] = '\\';
             out[pos++] = '\'';
             out[pos++] = '\'';
         } else {
+            /* Need 1 byte for char + closing quote + NUL = 3 bytes */
+            if (pos + 3 > out_sz)
+                break;
             out[pos++] = *input;
         }
         ++input;
