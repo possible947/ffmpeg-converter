@@ -14,6 +14,11 @@ target_include_directories(converter PUBLIC
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(converter PRIVATE
         platform/converter_windows.c
+        ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
+        ${CMAKE_SOURCE_DIR}/src/platform/windows/runtime_probe.c
+    )
+    target_include_directories(converter PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/platform/windows
     )
     target_link_libraries(converter PRIVATE
         shlwapi      # PathFindOnPathA, PathFileExistsA
@@ -22,6 +27,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(converter PRIVATE
         platform/converter_linux.c
+        ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
         ${CMAKE_SOURCE_DIR}/src/platform/linux/runtime_probe.c
     )
     target_compile_definitions(converter PRIVATE
@@ -31,6 +37,11 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     target_sources(converter PRIVATE
         platform/converter_macos.c
+        ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
+        ${CMAKE_SOURCE_DIR}/src/platform/macos/runtime_probe.c
+    )
+    target_include_directories(converter PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/platform/macos
     )
     target_link_libraries(converter PRIVATE
         "-framework CoreFoundation"
