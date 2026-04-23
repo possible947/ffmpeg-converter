@@ -30,8 +30,8 @@
 #  define cli_mkdir(p) _mkdir(p)
 #  define S_ISREG(m)  (((m) & _S_IFMT) == _S_IFREG)
 #  define S_ISDIR(m)  (((m) & _S_IFMT) == _S_IFDIR)
-#  define R_OK 4
-#  define W_OK 2
+#  define R_OK 4  /* read permission — matches Windows CRT _access() constant */
+#  define W_OK 2  /* write permission — matches Windows CRT _access() constant */
 #else
 /* Fallback for non-Windows targets (should not happen for this file) */
 #  include <sys/stat.h>

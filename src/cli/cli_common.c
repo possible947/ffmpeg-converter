@@ -542,11 +542,6 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         if (!strcmp(argv[i], "--audio-output")) {
             if (i + 1 >= argc) return 0;
             i++;
-            /* Alias: fdk_aac_q2 → fdk_aac_q5 */
-            if (!strcmp(argv[i], "fdk_aac_q2"))
-                argv[i] = "fdk_aac_q5";
-            else if (!strcmp(argv[i], "fdk_aac_q2_ac3_640"))
-                argv[i] = "fdk_aac_q5_ac3_640";
             if (!platform_audio_mode_is_available(argv[i]))
                 return 0;
             strncpy(opts->audio_output_mode, argv[i],
