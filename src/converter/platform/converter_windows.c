@@ -228,7 +228,7 @@ const char* platform_get_home_dir(void) {
     /* Fallback: HOMEDRIVE + HOMEPATH */
     const char* drive = getenv("HOMEDRIVE");
     const char* hpath = getenv("HOMEPATH");
-    if (drive && hpath && drive[0] != '\0') {
+    if (drive && hpath && drive[0] != '\0' && hpath[0] != '\0') {
         snprintf(home_dir, sizeof(home_dir), "%s%s", drive, hpath);
         return home_dir;
     }
@@ -381,7 +381,7 @@ int platform_detect_gpu_support(void) {
         if (strstr(line, " hevc_nvenc")) caps |= PLAT_CAP_NVENC_HEVC;
         if (strstr(line, " h264_qsv"))  caps |= PLAT_CAP_QSV_H264;
         if (strstr(line, " hevc_qsv"))  caps |= PLAT_CAP_QSV_HEVC;
-        if (strstr(line, " libfdk_aac"))caps |= PLAT_CAP_LIBFDK_AAC;
+        if (strstr(line, " libfdk_aac")) caps |= PLAT_CAP_LIBFDK_AAC;
     }
     pclose(fp);
     return caps;
