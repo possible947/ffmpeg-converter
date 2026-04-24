@@ -235,6 +235,29 @@ int platform_detect_gpu_support(void) {
     return caps;
 }
 
+int platform_get_hw_device_for_codec(const char* codec,
+                                     char* hw_device,
+                                     size_t hw_device_sz) {
+    LinuxCodecSupport support;
+
+    if (!codec || !hw_device || hw_device_sz == 0)
+        return 0;
+
+    /* Only VAAPI codecs need a hardware device on Linux */
+    if (strcmp(codec, "h264_vaapi") != 0 && strcmp(codec, "hevc_vaapi") != 0)
+        return 0;
+
+    linux_probe_codec_support(&support);
+
+    if (support.default_render_node[0] != '\0') {
+        strncpy(hw_device, support.default_render_node, hw_device_sz - 1);
+        hw_device[hw_device_sz - 1] = '\0';
+        return 1;
+    }
+
+    return 0;
+}
+
 /* ---------------------------------------------------------------
  *  Utilities
  * --------------------------------------------------------------- */

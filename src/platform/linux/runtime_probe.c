@@ -123,18 +123,53 @@ static int resolve_path_binary(const char *name, char *out_path, size_t out_path
     return 0;
 }
 
-static void resolve_preferred_binary(const char *env_name_primary,
-                                     const char *env_name_secondary,
-                                     const char *binary_name,
-                                     char *out_path,
-                                     size_t out_path_sz,
-                                     int *using_bundled)
+/* ---------------------------------------------------------------
+ *  Binary resolution — STRICT BUNDLED-ONLY FOR FFMPEG/FFPROBE
+ * ---------------------------------------------------------------
+ *
+ * Rule: ffmpeg and ffprobe MUST be bundled (same folder as utility).
+ * No environment override, no system PATH fallback.
+ *
+ * mkvmerge and MP4Box MAY be system-installed (checked via PATH).
+ * ---------------------------------------------------------------
+ */
+
+/* Strict bundled-only resolver: no env, no PATH, no fallback.
+ * Used for ffmpeg and ffprobe. */
+static void resolve_bundled_only(const char* binary_name,
+                                 char* out_path,
+                                 size_t out_path_sz,
+                                 int* using_bundled)
 {
-    const char *env_path;
+    if (using_bundled)
+        *using_bundled = 0;
+
+    if (resolve_bundled_binary(binary_name, out_path, out_path_sz)) {
+        if (using_bundled)
+            *using_bundled = 1;
+        return;
+    }
+
+    /* Bundled binary not found → empty path signals failure */
+    out_path[0] = '\0';
+}
+
+/* Flexible resolver with optional system fallback.
+ * Used for mkvmerge and MP4Box (env override + bundled + PATH). */
+static void resolve_preferred_binary(const char* env_name_primary,
+                                     const char* env_name_secondary,
+                                     const char* binary_name,
+                                     char* out_path,
+                                     size_t out_path_sz,
+                                     int* using_bundled,
+                                     int allow_system_fallback)
+{
+    const char* env_path;
 
     if (using_bundled)
         *using_bundled = 0;
 
+    /* Env override check (honored for all binaries) */
     env_path = env_name_primary ? getenv(env_name_primary) : NULL;
     if (is_executable_file(env_path)) {
         copy_string(out_path, out_path_sz, env_path);
@@ -147,16 +182,23 @@ static void resolve_preferred_binary(const char *env_name_primary,
         return;
     }
 
+    /* Bundled binary check (always tried) */
     if (resolve_bundled_binary(binary_name, out_path, out_path_sz)) {
         if (using_bundled)
             *using_bundled = 1;
         return;
     }
 
-    if (resolve_path_binary(binary_name, out_path, out_path_sz))
-        return;
-
-    copy_string(out_path, out_path_sz, binary_name);
+    if (allow_system_fallback) {
+        /* System PATH fallback — allowed for mkvmerge/MP4Box */
+        if (resolve_path_binary(binary_name, out_path, out_path_sz))
+            return;
+        /* Final fallback — raw binary name */
+        copy_string(out_path, out_path_sz, binary_name);
+    } else {
+        /* Strict mode: bundled not found → empty path */
+        out_path[0] = '\0';
+        }
 }
 
 static int probe_vaapi_encoder(const char *ffmpeg_bin,
@@ -200,22 +242,28 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
     }
 
     memset(&detected, 0, sizeof(detected));
-    resolve_preferred_binary("FFMPEG", "FFMPEG_BIN", "ffmpeg",
-                             detected.ffmpeg_bin,
-                             sizeof(detected.ffmpeg_bin),
-                             &detected.using_bundled_ffmpeg);
-    resolve_preferred_binary("FFPROBE", "FFPROBE_BIN", "ffprobe",
-                             detected.ffprobe_bin,
-                             sizeof(detected.ffprobe_bin),
-                             &detected.using_bundled_ffprobe);
+
+    /* FFMPEG/FFPROBE: STRICT bundled-only — no env, no PATH */
+    resolve_bundled_only("ffmpeg",
+                         detected.ffmpeg_bin,
+                         sizeof(detected.ffmpeg_bin),
+                         &detected.using_bundled_ffmpeg);
+    resolve_bundled_only("ffprobe",
+                         detected.ffprobe_bin,
+                         sizeof(detected.ffprobe_bin),
+                         &detected.using_bundled_ffprobe);
+
+    /* MKVMERGE/MP4BOX: flexible — envOverride → bundled → PATH */
     resolve_preferred_binary("MKVMERGE_BIN", NULL, "mkvmerge",
                              detected.mkvmerge_bin,
                              sizeof(detected.mkvmerge_bin),
-                             &detected.using_bundled_mkvmerge);
+                             &detected.using_bundled_mkvmerge,
+                             1);  /* system fallback allowed */
     resolve_preferred_binary("MP4BOX_BIN", NULL, "MP4Box",
                              detected.mp4box_bin,
                              sizeof(detected.mp4box_bin),
-                             &detected.using_bundled_mp4box);
+                             &detected.using_bundled_mp4box,
+                             1);  /* system fallback allowed */
 
     dir = opendir("/dev/dri");
     if (dir) {

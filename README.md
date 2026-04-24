@@ -25,6 +25,17 @@ Two independent implementations share the same conversion logic and CLI behavior
 - Native `.app` bundling includes `ffmpeg`/`ffprobe` and attempts to bundle
   `mkvmerge` (with runtime fallback to `MKVMERGE_BIN` or PATH lookup).
 
+## Linux v2.2 Highlights
+
+- Linux GUI: GTK4 with audio normalization, mux mode, and Apple M4V creator.
+- Runtime VAAPI codec probing: `h264_vaapi` and `hevc_vaapi` appear only when
+  the active system/driver supports them.
+- Optional **AppImage packaging** via CMake `ENABLE_APPIMAGE` option and
+  `package_appimage` target. Produces a single portable executable (~71 MB)
+  bundling the GUI, ffmpeg/ffprobe, mkvmerge, MP4Box, and required non-system
+  shared libraries. Run `cmake --build . --target package_appimage` after
+  enabling the option.
+
 ---
 
 ## Features
@@ -38,7 +49,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **Audio filter multithreading**: 2-pass analysis uses `-filter_threads N` (N = CPU/2) for parallel audio processing.
 - Encode progress: percent, FPS, ETA.
 - CLI with argument parsing and interactive menu.
-- **Linux GUI** — GTK4 (C implementation).
+- **Linux GUI** — GTK4 (C implementation). Build produces `linux_gui` binary; optional AppImage packaging available via `ENABLE_APPIMAGE=ON` and `package_appimage` target (produces single-file portable AppImage).
 - **macOS GUI** — native Cocoa/AppKit, self-contained `.app` bundle with bundled
   `ffmpeg`, `ffprobe`, and `MP4Box` (C native implementation).
 - Linux GTK Apple M4V creator: dedicated GUI-only workflow matching the macOS direct M4V path.
@@ -57,6 +68,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - `MP4Box` (GPAC) for Apple M4V packaging/runtime on macOS native GUI and Linux GTK M4V workflow.
 - `mkvmerge` for Linux mux mode.
 - Linux GUI only: `libgtk-4-dev` (or distro equivalent).
+- Optional AppImage packaging: `appimagetool` (https://github.com/AppImage/AppImageKit).
 
 ### Free Pascal path
 - Lazarus IDE + FPC (for GUI), or plain `fpc` compiler (for CLI/library).
@@ -77,6 +89,15 @@ cmake ..
 cmake --build . --target linux_cli
 cmake --build . --target linux_gui
 ```
+
+**AppImage package (optional):**
+```bash
+cmake -DENABLE_APPIMAGE=ON ..
+cmake --build . --target package_appimage
+# Output: src/gui/ffmpeg_converter_gui-x86_64.AppImage
+```
+Requires `appimagetool` in PATH. The script `src/gui/package_appimage.sh` can
+also be invoked directly.
 
 ### C/CMake — macOS (native Cocoa GUI)
 
@@ -121,7 +142,8 @@ CLI notes:
   and creates it if missing.
 
 GUI:
-- **Linux**: `./build/bin/ffmpeg_converter_gui`
+- **Linux**: `./build/bin/ffmpeg_converter_gui` or the AppImage:
+  `src/gui/ffmpeg_converter_gui-x86_64.AppImage`
 - **macOS native**: `open build/install/ffmpeg_converter_gui_macos.app`
 - **macOS Pascal**: `open fpc/gui/form.app`
 

@@ -94,4 +94,23 @@ else()
     message(WARNING "mkvmerge not found in common Linux locations; linux_gui will rely on MKVMERGE_BIN or PATH.")
 endif()
 
-install(TARGETS linux_gui RUNTIME DESTINATION bin)
+ install(TARGETS linux_gui RUNTIME DESTINATION bin)
+
+ # --- AppImage packaging (optional) ---
+ option(ENABLE_APPIMAGE "Build AppImage package for linux_gui" OFF)
+
+ if (ENABLE_APPIMAGE)
+     find_program(APPIMAGETOOL appimagetool)
+     if (NOT APPIMAGETOOL)
+         message(WARNING "appimagetool not found — ENABLE_APPIMAGE=ON but tool missing. Install from https://github.com/AppImage/AppImageKit")
+     else()
+         add_custom_target(package_appimage
+             COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/package_appimage.sh" "${CMAKE_BINARY_DIR}"
+             DEPENDS linux_gui
+             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+             COMMENT "Building AppImage package..."
+         )
+         message(STATUS "AppImage packaging enabled: run 'cmake --build . --target package_appimage'")
+     endif()
+ endif()
+

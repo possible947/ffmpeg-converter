@@ -36,6 +36,30 @@ Artifacts in the flat Linux layout:
 - `build/bin/mkvmerge` when found in common Linux system locations
 - `build/bin/MP4Box` when found in common Linux system locations
 
+### 1.3 AppImage packaging (optional)
+AppImage produces a single-file portable executable that bundles the GUI, ffmpeg/ffprobe, and required libraries.
+
+```bash
+# From the build directory (with ENABLE_APPIMAGE=ON)
+cmake -DENABLE_APPIMAGE=ON ..
+cmake --build . --target package_appimage
+```
+
+The AppImage is created at `src/gui/ffmpeg_converter_gui-x86_64.AppImage` (≈71 MB). Requires `appimagetool` in PATH.
+
+Alternatively, run the packaging script directly:
+```bash
+cd src/gui
+./package_appimage.sh ../build
+```
+
+The script:
+- Copies the GUI binary and bundled tools (ffmpeg, ffprobe, mkvmerge, MP4Box) into an AppDir
+- Resolves shared library dependencies via `ldd`, excluding system libraries (`/lib`, `/usr/lib` paths)
+- Generates `AppRun` wrapper that sets `PATH` and `LD_LIBRARY_PATH`
+- Creates a desktop entry with icon
+- Invokes `appimagetool` to produce the final `.AppImage`
+
 ## 2. Free Pascal Path
 
 ### 2.1 Install dependencies
