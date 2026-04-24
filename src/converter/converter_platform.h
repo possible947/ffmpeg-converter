@@ -251,6 +251,8 @@ int platform_get_video_info(const char* input_path,
 #define PLAT_CAP_QSV_HEVC        (1 << 6)
 #define PLAT_CAP_LIBFDK_AAC      (1 << 7)
 #define PLAT_CAP_AAC_AT          (1 << 8)  /* macOS only */
+#define PLAT_CAP_AMF_H264        (1 << 9)  /* Windows AMD AMF */
+#define PLAT_CAP_AMF_HEVC        (1 << 10) /* Windows AMD AMF */
 
 #ifdef __cplusplus
 }

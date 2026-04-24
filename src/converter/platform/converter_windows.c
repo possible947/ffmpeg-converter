@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <malloc.h>
 
 /* _access mode constants for Windows */
 #ifndef R_OK
@@ -334,10 +335,30 @@ void platform_normalize_output_line(char* line) {
  * --------------------------------------------------------------- */
 
 int platform_validate_audio_filters(void) {
-    /* On Windows we assume the provided ffmpeg binary was built with libsoxr.
-     * Return 1 (valid) unless ffmpeg binary is missing entirely. */
+    /* Check that the ffmpeg binary actually contains the libsoxr resampler.
+     * A minimal ffmpeg build without libsoxr will fail at the aresample filter. */
     const char* ffmpeg = platform_get_ffmpeg_bin();
-    return (ffmpeg && ffmpeg[0] != '\0') ? 1 : 0;
+    if (!ffmpeg || ffmpeg[0] == '\0')
+        return 0;
+
+    char cmd[MAX_PATH + 64];
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -hide_banner -v error -filters 2>nul", ffmpeg);
+
+    FILE* fp = _popen(cmd, "r");
+    if (!fp)
+        return 0;
+
+    char line[512];
+    int found_soxr = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        if (strstr(line, "aresample") || strstr(line, "soxr")) {
+            found_soxr = 1;
+            break;
+        }
+    }
+    _pclose(fp);
+    return found_soxr;
 }
 
 int platform_supports_codec(const char* codec) {
@@ -352,12 +373,16 @@ int platform_supports_codec(const char* codec) {
     /* Windows hardware codecs — check availability at runtime */
     if (strcmp(codec, "h264_nvenc") == 0 ||
         strcmp(codec, "hevc_nvenc") == 0 ||
+        strcmp(codec, "h264_amf")   == 0 ||
+        strcmp(codec, "hevc_amf")   == 0 ||
         strcmp(codec, "h264_qsv")   == 0 ||
         strcmp(codec, "hevc_qsv")   == 0)
     {
         int caps = platform_detect_gpu_support();
         if (strcmp(codec, "h264_nvenc") == 0) return (caps & PLAT_CAP_NVENC_H264) ? 1 : 0;
         if (strcmp(codec, "hevc_nvenc") == 0) return (caps & PLAT_CAP_NVENC_HEVC) ? 1 : 0;
+        if (strcmp(codec, "h264_amf")   == 0) return (caps & PLAT_CAP_AMF_H264)   ? 1 : 0;
+        if (strcmp(codec, "hevc_amf")   == 0) return (caps & PLAT_CAP_AMF_HEVC)   ? 1 : 0;
         if (strcmp(codec, "h264_qsv")   == 0) return (caps & PLAT_CAP_QSV_H264)   ? 1 : 0;
         if (strcmp(codec, "hevc_qsv")   == 0) return (caps & PLAT_CAP_QSV_HEVC)   ? 1 : 0;
     }
@@ -380,6 +405,10 @@ const char* platform_get_video_codec_flags(const char* codec,
         return "-c:v h264_nvenc ";
     if (strcmp(codec, "hevc_nvenc") == 0)
         return "-c:v hevc_nvenc ";
+    if (strcmp(codec, "h264_amf") == 0)
+        return "-c:v h264_amf ";
+    if (strcmp(codec, "hevc_amf") == 0)
+        return "-c:v hevc_amf ";
     if (strcmp(codec, "h264_qsv") == 0)
         return "-c:v h264_qsv ";
     if (strcmp(codec, "hevc_qsv") == 0)
@@ -433,8 +462,10 @@ int platform_detect_gpu_support(void) {
         platform_normalize_output_line(line);
         if (strstr(line, " h264_nvenc")) caps |= PLAT_CAP_NVENC_H264;
         if (strstr(line, " hevc_nvenc")) caps |= PLAT_CAP_NVENC_HEVC;
-        if (strstr(line, " h264_qsv"))  caps |= PLAT_CAP_QSV_H264;
-        if (strstr(line, " hevc_qsv"))  caps |= PLAT_CAP_QSV_HEVC;
+        if (strstr(line, " h264_amf"))   caps |= PLAT_CAP_AMF_H264;
+        if (strstr(line, " hevc_amf"))   caps |= PLAT_CAP_AMF_HEVC;
+        if (strstr(line, " h264_qsv"))   caps |= PLAT_CAP_QSV_H264;
+        if (strstr(line, " hevc_qsv"))   caps |= PLAT_CAP_QSV_HEVC;
         if (strstr(line, " libfdk_aac")) caps |= PLAT_CAP_LIBFDK_AAC;
     }
     _pclose(fp);
@@ -498,24 +529,34 @@ int platform_stat_is_directory(const char *path)
 FILE *platform_popen(const char *cmd, const char *mode)
 {
     FILE* fp;
-    char wrapped[16384];
+    char* wrapped;
+    size_t cmd_len;
 
     windows_diag_log("popen mode=%s cmd=%s", mode ? mode : "(null)", cmd ? cmd : "(null)");
 
     if (!cmd || !mode)
         return NULL;
 
-    /* _popen() executes through cmd.exe. Wrapping the full command in an
-     * outer quote pair keeps parser behavior consistent for commands that
-     * themselves start with a quoted executable path. */
-    _snprintf(wrapped, sizeof(wrapped), "\"%s\"", cmd);
-    wrapped[sizeof(wrapped) - 1] = '\0';
+    /* cmd.exe requires the entire command line to be wrapped in an outer
+     * quoted group when the first token is itself a quoted path.
+     * Allocate dynamically so we never silently truncate a long command. */
+    cmd_len = strlen(cmd);
+    wrapped = (char*)malloc(cmd_len + 3); /* '"' + cmd + '"' + '\0' */
+    if (!wrapped) {
+        windows_diag_log("popen: malloc failed for wrapped command");
+        return NULL;
+    }
+    wrapped[0] = '"';
+    memcpy(wrapped + 1, cmd, cmd_len);
+    wrapped[cmd_len + 1] = '"';
+    wrapped[cmd_len + 2] = '\0';
 
     fp = _popen(wrapped, mode);
     if (!fp) {
         windows_diag_log("popen wrapped command failed, retrying raw command");
         fp = _popen(cmd, mode);
     }
+    free(wrapped);
     return fp;
 }
 
