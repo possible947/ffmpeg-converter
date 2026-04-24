@@ -325,7 +325,7 @@ static int windows_probe_vulkan_prores(const char *ffmpeg_bin)
              "-init_hw_device vulkan=vk:0 -filter_hw_device vk "
              "-f lavfi -i color=size=1920x1080:rate=1 "
              "-frames:v 1 "
-             "-vf \"format=yuv422p10le,hwupload\" "
+             "-vf format=yuv422p10le,hwupload "
              "-c:v prores_ks_vulkan -f null - 2>nul",
              ffmpeg_bin);
 
