@@ -1,26 +1,54 @@
 # Windows Install and Build
 
 This document covers Windows install/build for both project paths:
-- C/CMake (`src/`) using MSYS2/MinGW
+- C/CMake (`src/`) using MSVC (Visual Studio Build Tools)
 - Free Pascal (`fpc/`)
 
-## 1. C/CMake Path (MSYS2/MinGW, recommended)
+## 1. C/CMake Path (MSVC only, recommended)
 
-Install MSYS2, then open `MSYS2 MinGW x64` shell.
+Install Visual Studio 2022 Build Tools (or Visual Studio 2022 with C++ workload).
 
 ### 1.1 Install dependencies
-```bash
-pacman -Syu
-pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-jansson
+- Install Visual Studio Build Tools with MSVC (x64) and CMake tools.
+- `ffmpeg`/`ffprobe` are **not** taken from system PATH for this build flow.
+
+### 1.2 Prepare bundled ffmpeg payload
+Before configuring/building, place Windows binaries in:
+
+```text
+src/platform/windows/bin/
+  ffmpeg.exe
+  ffprobe.exe
+  *.dll (all runtime dependencies required by ffmpeg/ffprobe)
 ```
 
-### 1.2 Build target
-From repository root in MinGW shell:
-```bash
-mkdir -p build
-cd build
-cmake -G "MSYS Makefiles" -DCMAKE_PREFIX_PATH=/mingw64 ..
-cmake --build . --target windows_cli
+Rules:
+- Keep all dependent DLLs in the same `bin` folder.
+- Do not rely on system-installed ffmpeg for the C/MSVC target.
+- `mkvmerge` and `MP4Box` may still be provided through system PATH at runtime.
+
+### 1.3 Build target
+From repository root in **x64 Native Tools Command Prompt for VS 2022**:
+```powershell
+cmake -S . -B build-msvc -G "Visual Studio 17 2022" -A x64
+cmake --build build-msvc --target windows_cli --config Release
+```
+
+Optional debug build:
+
+```powershell
+cmake --build build-msvc --target windows_cli --config Debug
+```
+
+### 1.4 Output layout
+Release output folder:
+
+```text
+build-msvc/src/cli/Release/
+  ffmpeg_converter.exe
+  ffmpeg.exe
+  ffprobe.exe
+  *.dll (copied from src/platform/windows/bin)
 ```
 
 ## 2. Free Pascal Path

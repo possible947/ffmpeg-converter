@@ -1,10 +1,11 @@
 /* platform/converter_windows.c
  * Windows-specific implementations of the converter platform abstraction.
  * Uses Win32 API for binary resolution, path operations, and GPU detection.
- * Targets MinGW and MSVC toolchains.
+ * Targets the MSVC toolchain.
  */
 
 #include "../converter_platform.h"
+#include "../converter.h"
 #include <windows.h>
 #include <shlwapi.h>    /* PathFindOnPathA, PathFileExistsA */
 #include <direct.h>     /* _mkdir */
@@ -13,6 +14,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
+#include <stdarg.h>
 
 /* _access mode constants for Windows */
 #ifndef R_OK
@@ -25,6 +27,25 @@
 /* ---------------------------------------------------------------
  *  Internal helpers
  * --------------------------------------------------------------- */
+
+static int windows_diag_enabled(void) {
+    const char* v = getenv("FFMPEG_CONVERTER_DIAG");
+    if (!v || v[0] == '\0')
+        v = getenv("FFMPEG_CONVERTER_DEBUG");
+    return (v && v[0] != '\0' && strcmp(v, "0") != 0) ? 1 : 0;
+}
+
+static void windows_diag_log(const char* fmt, ...) {
+    if (!windows_diag_enabled() || !fmt)
+        return;
+
+    va_list ap;
+    fprintf(stderr, "[windows-diag] ");
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    fputc('\n', stderr);
+}
 
 static const char* windows_get_exe_dir(void) {
     static char exe_dir[MAX_PATH] = {0};
@@ -81,6 +102,8 @@ static const char* windows_resolve_bin(const char* env_name,
         if (env && env[0] != '\0') {
             strncpy(cache, env, MAX_PATH - 1);
             cache[MAX_PATH - 1] = '\0';
+            windows_diag_log("resolved %s via env %s: %s",
+                             bin_filename, env_name, cache);
             return cache;
         }
     }
@@ -89,6 +112,8 @@ static const char* windows_resolve_bin(const char* env_name,
         if (env && env[0] != '\0') {
             strncpy(cache, env, MAX_PATH - 1);
             cache[MAX_PATH - 1] = '\0';
+            windows_diag_log("resolved %s via env %s: %s",
+                             bin_filename, env_name2, cache);
             return cache;
         }
     }
@@ -101,6 +126,7 @@ static const char* windows_resolve_bin(const char* env_name,
         if (PathFileExistsA(candidate)) {
             strncpy(cache, candidate, MAX_PATH - 1);
             cache[MAX_PATH - 1] = '\0';
+            windows_diag_log("resolved %s next to exe: %s", bin_filename, cache);
             return cache;
         }
     }
@@ -112,10 +138,12 @@ static const char* windows_resolve_bin(const char* env_name,
     if (PathFindOnPathA(on_path, NULL)) {
         strncpy(cache, on_path, MAX_PATH - 1);
         cache[MAX_PATH - 1] = '\0';
+        windows_diag_log("resolved %s via PATH: %s", bin_filename, cache);
         return cache;
     }
 
     cache[0] = '\0';
+    windows_diag_log("failed to resolve %s", bin_filename);
     return cache;
 }
 
@@ -269,7 +297,7 @@ int platform_path_is_absolute(const char* path) {
     /* UNC absolute: "\\server\..." */
     if (path[0] == '\\' && path[1] == '\\')
         return 1;
-    /* POSIX-style absolute (mingw) */
+    /* POSIX-style absolute path */
     if (path[0] == '/')
         return 1;
     return 0;
@@ -342,7 +370,9 @@ const char* platform_get_video_codec_flags(const char* codec,
                                             const char* input_path,
                                             const void* opts) {
     (void)input_path;
-    (void)opts;
+
+    const ConvertOptions* copt = (const ConvertOptions*)opts;
+    static char prores_flags[256];
 
     if (!codec) return NULL;
 
@@ -354,6 +384,30 @@ const char* platform_get_video_codec_flags(const char* codec,
         return "-c:v h264_qsv ";
     if (strcmp(codec, "hevc_qsv") == 0)
         return "-c:v hevc_qsv ";
+
+    /* Force software decode path for software ProRes encoders.
+     * This avoids FFmpeg auto-selecting an unsupported HW AV1 decoder
+     * on some Windows systems (causing frame decode failures). */
+    if (strcmp(codec, "prores") == 0) {
+        int profile = 2;
+        if (copt && copt->profile >= 1 && copt->profile <= 4)
+            profile = copt->profile;
+        snprintf(prores_flags, sizeof(prores_flags),
+                 "-hwaccel none -c:v prores -profile:v %d ", profile);
+        return prores_flags;
+    }
+
+    if (strcmp(codec, "prores_ks") == 0) {
+        const char* profile_name = "standard";
+        if (copt) {
+            if (copt->profile == 1) profile_name = "lt";
+            else if (copt->profile == 3) profile_name = "hq";
+            else if (copt->profile == 4) profile_name = "4444";
+        }
+        snprintf(prores_flags, sizeof(prores_flags),
+                 "-hwaccel none -c:v prores_ks -profile:v %s ", profile_name);
+        return prores_flags;
+    }
 
     /* Not a Windows platform-specific codec */
     return NULL;
@@ -443,10 +497,31 @@ int platform_stat_is_directory(const char *path)
 
 FILE *platform_popen(const char *cmd, const char *mode)
 {
-    return _popen(cmd, mode);
+    FILE* fp;
+    char wrapped[16384];
+
+    windows_diag_log("popen mode=%s cmd=%s", mode ? mode : "(null)", cmd ? cmd : "(null)");
+
+    if (!cmd || !mode)
+        return NULL;
+
+    /* _popen() executes through cmd.exe. Wrapping the full command in an
+     * outer quote pair keeps parser behavior consistent for commands that
+     * themselves start with a quoted executable path. */
+    _snprintf(wrapped, sizeof(wrapped), "\"%s\"", cmd);
+    wrapped[sizeof(wrapped) - 1] = '\0';
+
+    fp = _popen(wrapped, mode);
+    if (!fp) {
+        windows_diag_log("popen wrapped command failed, retrying raw command");
+        fp = _popen(cmd, mode);
+    }
+    return fp;
 }
 
 int platform_pclose(FILE *fp)
 {
-    return _pclose(fp);
+    int rc = _pclose(fp);
+    windows_diag_log("pclose rc=%d", rc);
+    return rc;
 }

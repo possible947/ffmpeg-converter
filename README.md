@@ -63,7 +63,10 @@ Two independent implementations share the same conversion logic and CLI behavior
 ### C/CMake path
 - `cmake` ≥ 3.16, C compiler (clang/gcc).
 - `jansson` library (JSON parsing for loudnorm).
-- `ffmpeg` + `ffprobe` — bundled inside macOS app bundle; staged next to Linux CLI/GUI in `build/bin` when available.
+- `ffmpeg` + `ffprobe`:
+  - Linux: staged next to CLI/GUI in `build/bin` when available from `src/platform/linux/bin/`.
+  - macOS: bundled inside native `.app` from `src/platform/macos/bin/`.
+  - Windows (MSVC): required in `src/platform/windows/bin/` (`ffmpeg.exe`, `ffprobe.exe`, and their DLL dependencies); copied next to `ffmpeg_converter.exe` at build time.
   On macOS, priority order: macports FFmpeg8 (`/opt/local/bin/ffmpeg8`) → macports (`/opt/local/bin/ffmpeg`) → system PATH.
 - `MP4Box` (GPAC) for Apple M4V packaging/runtime on macOS native GUI and Linux GTK M4V workflow.
 - `mkvmerge` for Linux mux mode.
@@ -109,6 +112,28 @@ cmake --build . --target macos_gui_native
 cmake --install .   # produces build/install/ffmpeg_converter_gui_macos.app
 ```
 
+### C/CMake — Windows (MSVC)
+
+Prepare bundled binaries before build:
+
+```text
+src/platform/windows/bin/
+  ffmpeg.exe
+  ffprobe.exe
+  *.dll (all runtime dependencies required by ffmpeg/ffprobe)
+```
+
+Build from repository root in **x64 Native Tools Command Prompt for VS 2022**:
+
+```powershell
+cmake -S . -B build-msvc -G "Visual Studio 17 2022" -A x64
+cmake --build build-msvc --target windows_cli --config Release
+```
+
+Output folder:
+- `build-msvc/src/cli/Release/`
+- Contains `ffmpeg_converter.exe` plus copied bundled `ffmpeg.exe`, `ffprobe.exe`, and DLL dependencies.
+
 ### Free Pascal — macOS
 
 ```bash
@@ -146,6 +171,7 @@ GUI:
   `src/gui/ffmpeg_converter_gui-x86_64.AppImage`
 - **macOS native**: `open build/install/ffmpeg_converter_gui_macos.app`
 - **macOS Pascal**: `open fpc/gui/form.app`
+- **Windows CLI**: `build-msvc/src/cli/Release/ffmpeg_converter.exe`
 
 ---
 
@@ -207,6 +233,7 @@ third_party/   Vendored jansson (C path)
 - The macOS Pascal `.app` bundle is fully self-contained — no system ffmpeg needed.
 - The Pascal `.app` bundle now includes `icon.icns` (imported from C macOS GUI resources).
 - Bundled ffmpeg/ffprobe targets Intel x86_64; runs via Rosetta 2 on Apple Silicon.
+- Windows MSVC CLI requires bundled ffmpeg/ffprobe payload in `src/platform/windows/bin/`; build copies that directory content next to the generated `.exe`.
 
 ---
 

@@ -138,6 +138,12 @@ endif()
 
 # --- WINDOWS CLI ---
 if (WIN32)
+    set(WINDOWS_BUNDLED_BIN_DIR "${CMAKE_SOURCE_DIR}/src/platform/windows/bin")
+
+    if (NOT EXISTS "${WINDOWS_BUNDLED_BIN_DIR}")
+        message(FATAL_ERROR "src/platform/windows/bin not found. Place bundled ffmpeg/ffprobe and dependencies there before building windows_cli.")
+    endif()
+
     add_executable(windows_cli
         ${CLI_COMMON_SOURCES}
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/cli_windows.c
@@ -155,6 +161,11 @@ if (WIN32)
         PRIVATE converter
         PRIVATE platform
         PRIVATE jansson
+    )
+
+    add_custom_command(TARGET windows_cli POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${WINDOWS_BUNDLED_BIN_DIR}" "$<TARGET_FILE_DIR:windows_cli>"
+        COMMENT "Copying bundled ffmpeg/ffprobe and dependencies next to windows_cli"
     )
 endif()
 

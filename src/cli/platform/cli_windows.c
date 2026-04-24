@@ -17,8 +17,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <windows.h>
 
-/* Use Windows CRT stat/access/mkdir compatible with MSVC and MinGW */
+/* Use Windows CRT stat/access/mkdir compatible with MSVC */
 #ifdef _WIN32
 #  include <sys/types.h>
 #  include <sys/stat.h>
@@ -226,19 +227,52 @@ const char* cli_get_home_dir(void) {
  * --------------------------------------------------------------- */
 
 int platform_file_is_regular_readable(const char* path) {
-    cli_statbuf st;
-    return path && path[0] != '\0' &&
-           cli_stat(path, &st) == 0 &&
-           S_ISREG(st.st_mode) &&
-           cli_access(path, R_OK) == 0;
+    wchar_t wpath[2048];
+    int wlen;
+    DWORD attrs;
+
+    if (!path || path[0] == '\0')
+        return 0;
+
+    /* Prefer UTF-8; fallback to active ANSI code page. */
+    wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1,
+                               wpath, (int)(sizeof(wpath) / sizeof(wpath[0])));
+    if (wlen == 0) {
+        wlen = MultiByteToWideChar(CP_ACP, 0, path, -1,
+                                   wpath, (int)(sizeof(wpath) / sizeof(wpath[0])));
+    }
+    if (wlen == 0)
+        return 0;
+
+    attrs = GetFileAttributesW(wpath);
+    if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY))
+        return 0;
+
+    return (_waccess(wpath, R_OK) == 0) ? 1 : 0;
 }
 
 int platform_dir_is_writable(const char* path) {
-    cli_statbuf st;
-    return path && path[0] != '\0' &&
-           cli_stat(path, &st) == 0 &&
-           S_ISDIR(st.st_mode) &&
-           cli_access(path, W_OK) == 0;
+    wchar_t wpath[2048];
+    int wlen;
+    DWORD attrs;
+
+    if (!path || path[0] == '\0')
+        return 0;
+
+    wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1,
+                               wpath, (int)(sizeof(wpath) / sizeof(wpath[0])));
+    if (wlen == 0) {
+        wlen = MultiByteToWideChar(CP_ACP, 0, path, -1,
+                                   wpath, (int)(sizeof(wpath) / sizeof(wpath[0])));
+    }
+    if (wlen == 0)
+        return 0;
+
+    attrs = GetFileAttributesW(wpath);
+    if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+        return 0;
+
+    return (_waccess(wpath, W_OK) == 0) ? 1 : 0;
 }
 
 int platform_ensure_output_dir(const char* path) {
