@@ -12,8 +12,6 @@ if (NOT CMAKE_OBJC_COMPILER)
 endif()
 enable_language(OBJC)
 
-# Keep jansson linkage aligned with the existing GUI targets.
-find_library(JANSSON_LIB jansson)
 set(BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg")
 set(BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffprobe")
 set(BUNDLE_MP4BOX_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_mp4box_deps.sh")
@@ -43,7 +41,7 @@ target_include_directories(macos_gui_native
 target_link_libraries(macos_gui_native
     PRIVATE converter
     PRIVATE mux
-    PRIVATE ${JANSSON_LIB}
+    PRIVATE jansson
     PRIVATE "-framework Cocoa"
 )
 

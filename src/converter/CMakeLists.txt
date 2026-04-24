@@ -54,4 +54,4 @@ target_include_directories(converter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(converter PUBLIC jansson_headers)
+target_link_libraries(converter PUBLIC jansson)

@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
 
-find_library(JANSSON_LIB jansson)
-
 add_library(m4v STATIC
     m4v.c
 )
@@ -20,5 +18,5 @@ endif()
 
 target_link_libraries(m4v
     PUBLIC converter
-    PRIVATE ${JANSSON_LIB}
+    PRIVATE jansson
 )

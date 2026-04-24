@@ -11,8 +11,6 @@ pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
 include_directories(${GTK4_INCLUDE_DIRS})
 link_directories(${GTK4_LIBRARY_DIRS})
 
-# Find jansson (used by converter)
-find_library(JANSSON_LIB jansson)
 set(LINUX_BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffmpeg")
 set(LINUX_BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffprobe")
 set(LINUX_SYSTEM_MKVMERGE_CANDIDATES
@@ -65,7 +63,7 @@ set_target_properties(linux_gui PROPERTIES
 target_link_libraries(linux_gui
     PRIVATE gui_lib
     PRIVATE converter
-    PRIVATE ${JANSSON_LIB}
+    PRIVATE jansson
 )
 
 if (EXISTS "${LINUX_BUNDLED_FFMPEG}" AND EXISTS "${LINUX_BUNDLED_FFPROBE}")

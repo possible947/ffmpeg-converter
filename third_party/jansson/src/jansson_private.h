@@ -8,7 +8,10 @@
 #ifndef JANSSON_PRIVATE_H
 #define JANSSON_PRIVATE_H
 
+#include "hashtable.h"
 #include "jansson.h"
+#include "jansson_private_config.h"
+#include "strbuffer.h"
 #include <stddef.h>
 
 #define container_of(ptr_, type_, member_)                                               \
@@ -31,6 +34,7 @@
 
 typedef struct {
     json_t json;
+    hashtable_t hashtable;
 } json_object_t;
 
 typedef struct {
@@ -56,10 +60,14 @@ typedef struct {
     json_int_t value;
 } json_integer_t;
 
+#define json_to_object(json_)  container_of(json_, json_object_t, json)
 #define json_to_array(json_)   container_of(json_, json_array_t, json)
 #define json_to_string(json_)  container_of(json_, json_string_t, json)
 #define json_to_real(json_)    container_of(json_, json_real_t, json)
 #define json_to_integer(json_) container_of(json_, json_integer_t, json)
+
+/* Create a string by taking ownership of an existing buffer */
+json_t *jsonp_stringn_nocheck_own(const char *value, size_t len);
 
 /* Error message formatting */
 void jsonp_error_init(json_error_t *error, const char *source);
@@ -70,14 +78,21 @@ void jsonp_error_vset(json_error_t *error, int line, int column, size_t position
                       enum json_error_code code, const char *msg, va_list ap);
 
 /* Locale independent string<->double conversions */
-int jsonp_strtod(char *str, double *out);
+int jsonp_strtod(strbuffer_t *strbuffer, double *out);
 int jsonp_dtostr(char *buffer, size_t size, double value, int prec);
 
 /* Wrappers for custom memory functions */
 void *jsonp_malloc(size_t size) JANSSON_ATTRS((warn_unused_result));
+void *jsonp_realloc(void *ptr, size_t originalSize, size_t newSize)
+    JANSSON_ATTRS((warn_unused_result));
 void jsonp_free(void *ptr);
 char *jsonp_strndup(const char *str, size_t len) JANSSON_ATTRS((warn_unused_result));
-char *jsonp_strdup(const char *str) JANSSON_ATTRS((warn_unused_result));
+
+/* Circular reference check*/
+/* Space for "0x", double the sizeof a pointer for the hex and a terminator. */
+#define LOOP_KEY_LEN (2 + (sizeof(json_t *) * 2) + 1)
+int jsonp_loop_check(hashtable_t *parents, const json_t *json, char *key, size_t key_size,
+                     size_t *key_len_out);
 
 /* Windows compatibility */
 #if defined(_WIN32) || defined(WIN32)

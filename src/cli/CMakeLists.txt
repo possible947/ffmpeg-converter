@@ -13,18 +13,6 @@ set(CLI_COMMON_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/cli_common.c
 )
 
-# Ищем библиотеку jansson (MacPorts, Homebrew Intel, Homebrew Apple Silicon)
-find_library(JANSSON_LIB jansson
-    HINTS
-        /opt/local/lib
-        /usr/local/lib
-        /opt/homebrew/lib
-)
-
-if (NOT JANSSON_LIB)
-    message(FATAL_ERROR "jansson library not found. Please install it (e.g. 'brew install jansson' or 'port install jansson').")
-endif()
-
 set(LINUX_BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffmpeg")
 set(LINUX_BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffprobe")
 set(LINUX_SYSTEM_MKVMERGE_CANDIDATES
@@ -81,7 +69,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         PRIVATE converter
         PRIVATE mux
         PRIVATE platform
-        ${JANSSON_LIB}
+        PRIVATE jansson
     )
 
     if (EXISTS "${LINUX_BUNDLED_FFMPEG}" AND EXISTS "${LINUX_BUNDLED_FFPROBE}")
@@ -122,22 +110,16 @@ if (APPLE)
 
     set_target_properties(macos_cli PROPERTIES OUTPUT_NAME "ffmpeg_converter")
 
-    # MacPorts include/lib paths
     target_include_directories(macos_cli PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/src/platform
         ${CMAKE_SOURCE_DIR}/src/platform/macos
-        /opt/local/include
-    )
-    target_link_directories(macos_cli PRIVATE
-        /opt/local/lib
     )
 
     target_link_libraries(macos_cli
         PRIVATE converter
         PRIVATE platform
-        jansson_headers
-        ${JANSSON_LIB}
+        PRIVATE jansson
     )
 endif()
 
@@ -159,7 +141,7 @@ if (WIN32)
     target_link_libraries(windows_cli
         PRIVATE converter
         PRIVATE platform
-        ${JANSSON_LIB}
+        PRIVATE jansson
     )
 endif()
 
