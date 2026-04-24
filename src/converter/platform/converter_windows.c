@@ -418,8 +418,18 @@ const char* platform_get_video_codec_flags(const char* codec,
         return "-c:v hevc_qsv -preset slow -scenario archive -profile main "
                "-min_qp_i 16 -max_qp_i 24 -min_qp_p 18 -max_qp_p 26 -min_qp_b 20 -max_qp_b 28 ";
 
-    if (strcmp(codec, "prores_ks_vulkan") == 0)
-        return "-c:v prores_ks_vulkan -profile:v hq ";
+    if (strcmp(codec, "prores_ks_vulkan") == 0) {
+        const char* profile_name = "hq"; /* default: HQ */
+        if (copt) {
+            if      (copt->profile == 1) profile_name = "lt";
+            else if (copt->profile == 2) profile_name = "standard";
+            else if (copt->profile == 3) profile_name = "hq";
+            else if (copt->profile == 4) profile_name = "4444";
+        }
+        snprintf(prores_flags, sizeof(prores_flags),
+                 "-c:v prores_ks_vulkan -profile:v %s ", profile_name);
+        return prores_flags;
+    }
 
     /* ProRes is a software codec on Windows — no hwaccel flags needed.
      * The -hwaccel option is an INPUT option (must precede -i); it cannot

@@ -138,7 +138,7 @@ CliPlatformHandle* cli_platform_init(void) {
     /* Vulkan — GPU-accelerated ProRes (any vendor with Vulkan 1.1+) */
     if (h->support.has_prores_ks_vulkan) {
         h->entries[h->codec_count].name          = "prores_ks_vulkan";
-        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_profile = 1;
         h->entries[h->codec_count].needs_deblock = 0;
         h->codec_count++;
     }
