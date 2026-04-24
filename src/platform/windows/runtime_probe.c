@@ -304,6 +304,35 @@ static int windows_probe_encoder(const char *ffmpeg_bin,
     return rc == 0;
 }
 
+/**
+ * windows_probe_vulkan_prores()
+ * Specialized probe for prores_ks_vulkan, which requires Vulkan device
+ * initialisation and a yuv422p10le hwupload filter chain.
+ * Returns 1 if the encoder is available, 0 otherwise.
+ */
+static int windows_probe_vulkan_prores(const char *ffmpeg_bin)
+{
+    char cmd[8192];
+    int  rc;
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0')
+        return 0;
+    if (!windows_path_is_cmd_safe(ffmpeg_bin))
+        return 0;
+
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -v error -hide_banner "
+             "-init_hw_device vulkan=vk:0 -filter_hw_device vk "
+             "-f lavfi -i color=size=1920x1080:rate=1 "
+             "-frames:v 1 "
+             "-vf \"format=yuv422p10le,hwupload\" "
+             "-c:v prores_ks_vulkan -f null - 2>nul",
+             ffmpeg_bin);
+
+    rc = system(cmd);
+    return rc == 0;
+}
+
 /* ---- Main Probe Function ----------------------------------------------- */
 
 /**
@@ -344,9 +373,9 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
     g_cache.support.has_hevc_qsv =
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_qsv");
 
-    /* Probe Vulkan ProRes encoder */
+    /* Probe Vulkan ProRes encoder (requires full Vulkan device init pipeline) */
     g_cache.support.has_prores_ks_vulkan =
-        windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "prores_ks_vulkan");
+        windows_probe_vulkan_prores(g_cache.support.bins.ffmpeg_bin);
 
     /* Resolve remaining tool binaries */
     resolve_preferred_binary("FFPROBE", "FFPROBE_BIN", "ffprobe",
