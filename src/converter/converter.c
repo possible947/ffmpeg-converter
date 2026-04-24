@@ -111,7 +111,7 @@ static int ffmpeg_encoder_available(const char* encoder_name) {
                  "\"%s\" -hide_banner -v error -encoders 2>%s",
                  ffmpeg_bin, platform_get_null_device());
 
-        FILE* fp = popen(cmd, "r");
+        FILE* fp = platform_popen(cmd, "r");
         if (fp) {
             char line[1024];
             while (fgets(line, sizeof(line), fp)) {
@@ -125,7 +125,7 @@ static int ffmpeg_encoder_available(const char* encoder_name) {
                     has_aac = 1;
                 }
             }
-            pclose(fp);
+            platform_pclose(fp);
         }
 
         initialized = 1;
@@ -316,8 +316,7 @@ static ConverterError ensure_output_dir_writable(
         return ERR_INVALID_OPTIONS;
     }
 
-    struct stat st;
-    if (stat(out_dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+    if (!platform_stat_is_directory(out_dir)) {
         if (c->cb.on_error)
             c->cb.on_error("output preflight failed: output path is not a directory", ERR_INVALID_OPTIONS);
         return ERR_INVALID_OPTIONS;
@@ -343,15 +342,15 @@ static double get_duration(const char *input) {
              "-of default=noprint_wrappers=1:nokey=1 \"%s\" 2>%s",
              ffprobe_bin, input, platform_get_null_device());
 
-    FILE *fp = popen(cmd, "r");
+    FILE *fp = platform_popen(cmd, "r");
     if (!fp) return 0.0;
 
     char buf[256];
     if (!fgets(buf, sizeof(buf), fp)) {
-        pclose(fp);
+        platform_pclose(fp);
         return 0.0;
     }
-    pclose(fp);
+    platform_pclose(fp);
 
     return atof(buf);
 }
@@ -360,15 +359,15 @@ static double get_duration(const char *input) {
 //  File checks
 // ------------------------------------------------------------
 static ConverterError check_file(Converter* c, const char *file) {
-    struct stat st;
-
-    if (stat(file, &st) != 0) {
-        if (c->cb.on_error)
-            c->cb.on_error("input file not found", ERR_INPUT_NOT_FOUND);
-        return ERR_INPUT_NOT_FOUND;
-    }
-
-    if (!S_ISREG(st.st_mode)) {
+    if (!platform_stat_is_regular_file(file)) {
+        /* Distinguish between a missing file and a non-regular file (directory,
+         * symlink, etc.).  stat() itself is available on MSVC via <sys/stat.h>. */
+        struct stat st;
+        if (stat(file, &st) != 0) {
+            if (c->cb.on_error)
+                c->cb.on_error("input file not found", ERR_INPUT_NOT_FOUND);
+            return ERR_INPUT_NOT_FOUND;
+        }
         if (c->cb.on_error)
             c->cb.on_error("input file is not a regular file", ERR_INPUT_NOT_REGULAR);
         return ERR_INPUT_NOT_REGULAR;
@@ -495,7 +494,7 @@ static ConverterError peak_two_pass(
         ffmpeg_bin, filter_threads, input);
 
     double duration = get_duration(input);
-    FILE* fp = popen(cmd, "r");
+    FILE* fp = platform_popen(cmd, "r");
     if (!fp) {
         if (c->cb.on_error)
             c->cb.on_error("popen failed", ERR_POPEN_FAILED);
@@ -538,12 +537,12 @@ static ConverterError peak_two_pass(
         }
 
         if (c->stop_flag) {
-            pclose(fp);
+            platform_pclose(fp);
             return ERR_SKIP_FILE;
         }
     }
 
-    int status = pclose(fp);
+    int status = platform_pclose(fp);
     if (status != 0) {
         if (c->cb.on_error)
             c->cb.on_error("peak analysis failed", ERR_PEAK_ANALYSIS_FAILED);
@@ -592,7 +591,7 @@ static ConverterError loudnorm_two_pass(
         ffmpeg_bin, filter_threads, input, I_target, TP_target, LRA_target);
 
     double duration = get_duration(input);
-    FILE* fp = popen(cmd, "r");
+    FILE* fp = platform_popen(cmd, "r");
     if (!fp) {
         if (c->cb.on_error)
             c->cb.on_error("popen failed", ERR_POPEN_FAILED);
@@ -634,13 +633,13 @@ static ConverterError loudnorm_two_pass(
         }
 
         if (c->stop_flag) {
-            pclose(fp);
+            platform_pclose(fp);
             return ERR_SKIP_FILE;
         }
     }
 
     buf[pos] = 0;
-    int status = pclose(fp);
+    int status = platform_pclose(fp);
     if (status != 0) {
         if (c->cb.on_error)
             c->cb.on_error("loudnorm analysis failed", ERR_LOUDNORM_ANALYSIS_FAILED);
@@ -894,7 +893,7 @@ static ConverterError run_ffmpeg_encode_with_progress(
     }
     snprintf(cmd, base_len + 8, "%s 2>&1", cmd_base);
 
-    FILE* fp = popen(cmd, "r");
+    FILE* fp = platform_popen(cmd, "r");
     free(cmd);
     if (!fp) {
         if (c->cb.on_error)
@@ -946,12 +945,12 @@ static ConverterError run_ffmpeg_encode_with_progress(
         }
 
         if (c->stop_flag) {
-            pclose(fp);
+            platform_pclose(fp);
             return ERR_SKIP_FILE;
         }
     }
 
-    int status = pclose(fp);
+    int status = platform_pclose(fp);
     if (status != 0) {
         if (c->cb.on_error)
             c->cb.on_error("ffmpeg failed", ERR_FFMPEG_FAILED);

@@ -97,7 +97,7 @@ static int probe_video_rate_string(const char* ffprobe_bin,
              quoted_tool,
              quoted_input,
              platform_null_redirect());
-    fp = platform_popen(cmd, "r");
+    fp = mux_platform_popen(cmd, "r");
     if (!fp)
         return 0;
 
@@ -118,7 +118,7 @@ static int probe_video_rate_string(const char* ffprobe_bin,
              quoted_tool,
              quoted_input,
              platform_null_redirect());
-    fp = platform_popen(cmd, "r");
+    fp = mux_platform_popen(cmd, "r");
     if (!fp)
         return 0;
 
@@ -156,7 +156,7 @@ static int validate_mux_output(const char* ffprobe_bin, const char* output_file)
              quoted_tool,
              quoted_output,
              platform_null_redirect());
-    fp = platform_popen(cmd, "r");
+    fp = mux_platform_popen(cmd, "r");
     if (!fp)
         return 0;
 
@@ -177,7 +177,7 @@ static int run_mux_command(const char* cmd, const ConverterCallbacks* callbacks)
     FILE* fp;
     char line[1024];
 
-    fp = platform_popen(cmd, "r");
+    fp = mux_platform_popen(cmd, "r");
     if (!fp)
         return -1;
 

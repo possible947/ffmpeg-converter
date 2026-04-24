@@ -27,6 +27,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(converter PRIVATE
         platform/converter_linux.c
+        platform/converter_posix.c
         ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
         ${CMAKE_SOURCE_DIR}/src/platform/linux/runtime_probe.c
     )
@@ -37,6 +38,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     target_sources(converter PRIVATE
         platform/converter_macos.c
+        platform/converter_posix.c
         ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
         ${CMAKE_SOURCE_DIR}/src/platform/macos/runtime_probe.c
     )

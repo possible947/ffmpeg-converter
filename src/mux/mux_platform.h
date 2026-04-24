@@ -60,11 +60,11 @@ int platform_unlink(const char *path);
  * --------------------------------------------------------------- */
 
 /**
- * platform_popen() — Open a process pipe for reading.
+ * mux_platform_popen() — Open a process pipe for reading.
  * POSIX: popen(cmd, mode)
  * Windows: _popen(cmd, mode)
  */
-FILE *platform_popen(const char *cmd, const char *mode);
+FILE *mux_platform_popen(const char *cmd, const char *mode);
 
 /**
  * platform_pclose_exitcode() — Close a process pipe and return the
