@@ -544,7 +544,7 @@ const char* platform_get_hw_vfilter(const char* codec)
     /* Upload frames to Vulkan device memory in yuv422p10le (ProRes native
      * format) before handing them to the prores_ks_vulkan encoder. */
     if (codec && strcmp(codec, "prores_ks_vulkan") == 0)
-        return "format=yuv422p10le,hwupload";
+        return "yuv422p10le,hwupload";
     return NULL;
 }
 
