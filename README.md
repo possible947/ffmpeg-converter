@@ -21,7 +21,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - AAC encoder selection for M4V and converter audio now uses runtime fallback:
   `aac_at` -> `libfdk_aac` -> `aac`.
 - ProRes profile handling is hardened: invalid or missing profile defaults to
-  `standard`; `prores_ks` uses explicit profile names.
+  `standard`; `prores_ks` uses explicit profile names (`lt`, `standard`, `hq`).
 - Native `.app` bundling includes `ffmpeg`/`ffprobe` and attempts to bundle
   `mkvmerge` (with runtime fallback to `MKVMERGE_BIN` or PATH lookup).
 

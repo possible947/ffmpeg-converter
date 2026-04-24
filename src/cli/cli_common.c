@@ -695,7 +695,6 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             printf("  1. lt\n");
             printf("  2. standard (default)\n");
             printf("  3. hq\n");
-            printf("  4. 4444\n");
             printf("-----------------------\n");
             printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
             ch = read_choice();
@@ -705,7 +704,6 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
                 else if (ch == '1') { profile = 1; step = next; }
                 else if (ch == '2') { profile = 2; step = next; }
                 else if (ch == '3') { profile = 3; step = next; }
-                else if (ch == '4') { profile = 4; step = next; }
                 else if (ch == 'c' || ch == 'C') {
                     free_temp_files(temp_files, temp_file_count);
                     return -1;
