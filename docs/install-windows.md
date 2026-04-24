@@ -51,7 +51,42 @@ build-msvc/src/cli/Release/
   *.dll (copied from src/platform/windows/bin)
 ```
 
-## 2. Free Pascal Path
+## 2. Windows Codec Support
+
+The following video codecs are available on Windows:
+
+| Codec | Type | Requirement |
+|---|---|---|
+| `copy` | Passthrough | Always available |
+| `prores` | Software CPU | Always available |
+| `prores_ks` | Software CPU | Always available |
+| `h264_nvenc` | NVIDIA GPU | NVIDIA GPU + driver |
+| `hevc_nvenc` | NVIDIA GPU | NVIDIA GPU + driver |
+| `h264_amf` | AMD GPU | AMD GPU + AMF runtime |
+| `hevc_amf` | AMD GPU | AMD GPU + AMF runtime |
+| `h264_qsv` | Intel GPU | Intel GPU + MFX runtime |
+| `hevc_qsv` | Intel GPU | Intel GPU + MFX runtime |
+| `prores_ks_vulkan` | Any GPU (Vulkan) | Vulkan 1.1 driver (any vendor) |
+
+### prores_ks_vulkan
+
+`prores_ks_vulkan` is a GPU-accelerated ProRes encoder that works on **any GPU** with a Vulkan 1.1+ driver (NVIDIA, AMD, Intel). It encodes in ProRes HQ profile (`-profile:v hq`).
+
+The ffmpeg command pipeline it uses:
+```
+-init_hw_device vulkan=vk:0 -filter_hw_device vk
+-i "input"
+-vf "format=yuv422p10le,hwupload"
+-c:v prores_ks_vulkan -profile:v hq
+```
+
+Requirements:
+- GPU with Vulkan 1.1 support (all modern GPUs from 2017+)
+- `vulkan-1.dll` present in the `bin/` folder (already included in the DLL set)
+
+The codec is automatically available in the menu when `prores_ks_vulkan` appears in `ffmpeg -encoders` output.
+
+## 3. Free Pascal Path
 
 ### 2.1 Install dependencies
 Install FPC. Install Lazarus too if GUI work is needed.

@@ -277,3 +277,16 @@ int platform_get_video_info(const char* input_path,
     if (fps)    *fps    = 0.0;
     return 0;
 }
+
+const char* platform_get_preinput_hw_flags(const char* codec, const void* opts) {
+    (void)codec; (void)opts;
+    /* Linux VAAPI uses the hw_device path (-vaapi_device) in converter.c */
+    return NULL;
+}
+
+const char* platform_get_hw_vfilter(const char* codec) {
+    if (codec &&
+        (strcmp(codec, "h264_vaapi") == 0 || strcmp(codec, "hevc_vaapi") == 0))
+        return "format=nv12,hwupload";
+    return NULL;
+}

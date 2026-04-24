@@ -344,6 +344,10 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
     g_cache.support.has_hevc_qsv =
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_qsv");
 
+    /* Probe Vulkan ProRes encoder */
+    g_cache.support.has_prores_ks_vulkan =
+        windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "prores_ks_vulkan");
+
     /* Resolve remaining tool binaries */
     resolve_preferred_binary("FFPROBE", "FFPROBE_BIN", "ffprobe",
                              g_cache.support.bins.ffprobe_bin,

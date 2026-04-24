@@ -253,6 +253,27 @@ int platform_get_video_info(const char* input_path,
 #define PLAT_CAP_AAC_AT          (1 << 8)  /* macOS only */
 #define PLAT_CAP_AMF_H264        (1 << 9)  /* Windows AMD AMF */
 #define PLAT_CAP_AMF_HEVC        (1 << 10) /* Windows AMD AMF */
+#define PLAT_CAP_VULKAN_PRORES   (1 << 11) /* prores_ks_vulkan (GPU-accelerated ProRes via Vulkan) */
+
+/**
+ * Returns pre-input hardware device initialization flags for the given codec.
+ * Called once before -i in build_ffmpeg_cmd.
+ * Example (Windows Vulkan): "-init_hw_device vulkan=vk:0 -filter_hw_device vk "
+ * Returns NULL if no pre-input flags are needed for this codec.
+ * The returned pointer is valid until the next call from the same thread.
+ */
+const char* platform_get_preinput_hw_flags(const char* codec,
+                                            const void* opts);
+
+/**
+ * Returns the hwupload video filter string for hw-accelerated codecs.
+ * Used in the -vf option when hwaccel_enabled is set.
+ * Example (Linux VAAPI):    "format=nv12,hwupload"
+ * Example (Windows Vulkan): "format=yuv422p10le,hwupload"
+ * Returns NULL to fall back to the default ("format=nv12,hwupload").
+ * The returned pointer is valid until the next call from the same thread.
+ */
+const char* platform_get_hw_vfilter(const char* codec);
 
 #ifdef __cplusplus
 }

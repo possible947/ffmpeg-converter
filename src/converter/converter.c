@@ -25,11 +25,16 @@ static int codec_is_vaapi(const char* codec) {
             strcmp(codec, "hevc_vaapi") == 0);
 }
 
+static int codec_is_vulkan(const char* codec) {
+    return codec && strcmp(codec, "prores_ks_vulkan") == 0;
+}
+
 static int codec_uses_mov_container(const char* codec) {
     return codec &&
            (strcmp(codec, "prores") == 0 ||
             strcmp(codec, "prores_ks") == 0 ||
-            strcmp(codec, "prores_videotoolbox") == 0);
+            strcmp(codec, "prores_videotoolbox") == 0 ||
+            strcmp(codec, "prores_ks_vulkan") == 0);
 }
 
 static int audio_output_mode_is(const char* mode, const char* expected) {
@@ -228,6 +233,12 @@ ConverterError converter_set_options(
         }
         if (c->opts.hw_device[0] == '\0')
             return ERR_INVALID_OPTIONS;
+        c->opts.hwaccel_enabled = 1;
+    }
+
+    /* For Vulkan codecs: enable the hwupload filter path.
+     * No explicit device path is needed — Vulkan auto-selects the first GPU. */
+    if (codec_is_vulkan(c->opts.codec)) {
         c->opts.hwaccel_enabled = 1;
     }
 
@@ -715,6 +726,16 @@ static void build_ffmpeg_cmd(
     else
         strcat(cmd, "-n ");
 
+    /* Pre-input hardware device initialisation (Vulkan, future HW APIs).
+     * Must appear before -i so ffmpeg can locate the device context. */
+    {
+        const char* pre_hw = platform_get_preinput_hw_flags(opts->codec, opts);
+        if (pre_hw && pre_hw[0] != '\0') {
+            strcat(cmd, pre_hw);
+            strcat(cmd, " ");
+        }
+    }
+
     /* VAAPI requires a device node before the input */
     if (opts->hwaccel_enabled && opts->hw_device[0] != '\0') {
         strcat(cmd, "-vaapi_device ");
@@ -790,8 +811,12 @@ static void build_ffmpeg_cmd(
         }
     }
     else if (opts->hwaccel_enabled) {
-        /* VAAPI requires pixel format conversion and GPU upload */
-        strcat(cmd, "-vf \"format=nv12,hwupload\" ");
+        /* Pixel format conversion and GPU upload for hw-accelerated codecs.
+         * The filter string is provided by the platform; defaults to VAAPI. */
+        const char* hw_vf = platform_get_hw_vfilter(opts->codec);
+        strcat(cmd, "-vf \"format=");
+        strcat(cmd, (hw_vf && hw_vf[0] != '\0') ? hw_vf : "nv12,hwupload");
+        strcat(cmd, "\" ");
     }
 
     // audio codec

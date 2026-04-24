@@ -401,3 +401,15 @@ int platform_get_video_info(const char* input_path,
     macos_get_video_info(input_path, width, height, fps);
     return (*width > 0 && *height > 0 && *fps > 0.0) ? 1 : 0;
 }
+
+const char* platform_get_preinput_hw_flags(const char* codec, const void* opts) {
+    (void)codec; (void)opts;
+    /* VideoToolbox uses implicit system device — no pre-input flags needed */
+    return NULL;
+}
+
+const char* platform_get_hw_vfilter(const char* codec) {
+    (void)codec;
+    /* VideoToolbox accepts CPU-decoded frames directly — no hwupload filter */
+    return NULL;
+}

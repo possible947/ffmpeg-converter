@@ -27,6 +27,9 @@ typedef struct {
     /* Intel QSV */
     int has_h264_qsv;
     int has_hevc_qsv;
+
+    /* Vulkan (GPU-accelerated ProRes via Vulkan) */
+    int has_prores_ks_vulkan;
 } WindowsCodecSupport;
 
 /* Windows-specific public API */

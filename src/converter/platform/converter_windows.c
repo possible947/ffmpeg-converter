@@ -371,20 +371,22 @@ int platform_supports_codec(const char* codec) {
         return 1;
 
     /* Windows hardware codecs — check availability at runtime */
-    if (strcmp(codec, "h264_nvenc") == 0 ||
-        strcmp(codec, "hevc_nvenc") == 0 ||
-        strcmp(codec, "h264_amf")   == 0 ||
-        strcmp(codec, "hevc_amf")   == 0 ||
-        strcmp(codec, "h264_qsv")   == 0 ||
-        strcmp(codec, "hevc_qsv")   == 0)
+    if (strcmp(codec, "h264_nvenc")       == 0 ||
+        strcmp(codec, "hevc_nvenc")       == 0 ||
+        strcmp(codec, "h264_amf")         == 0 ||
+        strcmp(codec, "hevc_amf")         == 0 ||
+        strcmp(codec, "h264_qsv")         == 0 ||
+        strcmp(codec, "hevc_qsv")         == 0 ||
+        strcmp(codec, "prores_ks_vulkan") == 0)
     {
         int caps = platform_detect_gpu_support();
-        if (strcmp(codec, "h264_nvenc") == 0) return (caps & PLAT_CAP_NVENC_H264) ? 1 : 0;
-        if (strcmp(codec, "hevc_nvenc") == 0) return (caps & PLAT_CAP_NVENC_HEVC) ? 1 : 0;
-        if (strcmp(codec, "h264_amf")   == 0) return (caps & PLAT_CAP_AMF_H264)   ? 1 : 0;
-        if (strcmp(codec, "hevc_amf")   == 0) return (caps & PLAT_CAP_AMF_HEVC)   ? 1 : 0;
-        if (strcmp(codec, "h264_qsv")   == 0) return (caps & PLAT_CAP_QSV_H264)   ? 1 : 0;
-        if (strcmp(codec, "hevc_qsv")   == 0) return (caps & PLAT_CAP_QSV_HEVC)   ? 1 : 0;
+        if (strcmp(codec, "h264_nvenc")       == 0) return (caps & PLAT_CAP_NVENC_H264)     ? 1 : 0;
+        if (strcmp(codec, "hevc_nvenc")       == 0) return (caps & PLAT_CAP_NVENC_HEVC)     ? 1 : 0;
+        if (strcmp(codec, "h264_amf")         == 0) return (caps & PLAT_CAP_AMF_H264)       ? 1 : 0;
+        if (strcmp(codec, "hevc_amf")         == 0) return (caps & PLAT_CAP_AMF_HEVC)       ? 1 : 0;
+        if (strcmp(codec, "h264_qsv")         == 0) return (caps & PLAT_CAP_QSV_H264)       ? 1 : 0;
+        if (strcmp(codec, "hevc_qsv")         == 0) return (caps & PLAT_CAP_QSV_HEVC)       ? 1 : 0;
+        if (strcmp(codec, "prores_ks_vulkan") == 0) return (caps & PLAT_CAP_VULKAN_PRORES)  ? 1 : 0;
     }
 
     /* Linux / macOS platform-specific codecs are not supported on Windows */
@@ -410,9 +412,14 @@ const char* platform_get_video_codec_flags(const char* codec,
     if (strcmp(codec, "hevc_amf") == 0)
         return "-c:v hevc_amf ";
     if (strcmp(codec, "h264_qsv") == 0)
-        return "-c:v h264_qsv -preset slow -scenario archive -profile high ";
+        return "-c:v h264_qsv -preset slow -scenario archive -profile high "
+               "-min_qp_i 16 -max_qp_i 24 -min_qp_p 18 -max_qp_p 26 -min_qp_b 20 -max_qp_b 28 ";
     if (strcmp(codec, "hevc_qsv") == 0)
-        return "-c:v hevc_qsv -preset slow -scenario archive -profile main ";
+        return "-c:v hevc_qsv -preset slow -scenario archive -profile main "
+               "-min_qp_i 16 -max_qp_i 24 -min_qp_p 18 -max_qp_p 26 -min_qp_b 20 -max_qp_b 28 ";
+
+    if (strcmp(codec, "prores_ks_vulkan") == 0)
+        return "-c:v prores_ks_vulkan -profile:v hq ";
 
     /* ProRes is a software codec on Windows — no hwaccel flags needed.
      * The -hwaccel option is an INPUT option (must precede -i); it cannot
@@ -464,9 +471,10 @@ int platform_detect_gpu_support(void) {
         if (strstr(line, " hevc_nvenc")) caps |= PLAT_CAP_NVENC_HEVC;
         if (strstr(line, " h264_amf"))   caps |= PLAT_CAP_AMF_H264;
         if (strstr(line, " hevc_amf"))   caps |= PLAT_CAP_AMF_HEVC;
-        if (strstr(line, " h264_qsv"))   caps |= PLAT_CAP_QSV_H264;
-        if (strstr(line, " hevc_qsv"))   caps |= PLAT_CAP_QSV_HEVC;
-        if (strstr(line, " libfdk_aac")) caps |= PLAT_CAP_LIBFDK_AAC;
+        if (strstr(line, " h264_qsv"))          caps |= PLAT_CAP_QSV_H264;
+        if (strstr(line, " hevc_qsv"))          caps |= PLAT_CAP_QSV_HEVC;
+        if (strstr(line, " prores_ks_vulkan"))  caps |= PLAT_CAP_VULKAN_PRORES;
+        if (strstr(line, " libfdk_aac"))        caps |= PLAT_CAP_LIBFDK_AAC;
     }
     _pclose(fp);
     return caps;
@@ -504,6 +512,30 @@ int platform_get_video_info(const char* input_path,
     if (height) *height = 0;
     if (fps)    *fps    = 0.0;
     return 0;
+}
+
+/* ---------------------------------------------------------------
+ *  Vulkan hardware pipeline hooks
+ * --------------------------------------------------------------- */
+
+const char* platform_get_preinput_hw_flags(const char* codec,
+                                            const void* opts)
+{
+    (void)opts;
+    /* prores_ks_vulkan requires a Vulkan device context and a filter device
+     * handle to be set up before the input file is opened. */
+    if (codec && strcmp(codec, "prores_ks_vulkan") == 0)
+        return "-init_hw_device vulkan=vk:0 -filter_hw_device vk";
+    return NULL;
+}
+
+const char* platform_get_hw_vfilter(const char* codec)
+{
+    /* Upload frames to Vulkan device memory in yuv422p10le (ProRes native
+     * format) before handing them to the prores_ks_vulkan encoder. */
+    if (codec && strcmp(codec, "prores_ks_vulkan") == 0)
+        return "format=yuv422p10le,hwupload";
+    return NULL;
 }
 
 /* ---------------------------------------------------------------

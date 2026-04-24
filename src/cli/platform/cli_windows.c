@@ -54,8 +54,9 @@
 /* Maximum codec entries: copy + prores + prores_ks +
  *                        h264_nvenc + hevc_nvenc +
  *                        h264_amf  + hevc_amf  +
- *                        h264_qsv  + hevc_qsv           */
-#define WINDOWS_MAX_CODECS 9
+ *                        h264_qsv  + hevc_qsv  +
+ *                        prores_ks_vulkan            */
+#define WINDOWS_MAX_CODECS 10
 
 struct CliPlatformHandle {
     WindowsCodecSupport support;
@@ -134,6 +135,14 @@ CliPlatformHandle* cli_platform_init(void) {
         h->codec_count++;
     }
 
+    /* Vulkan — GPU-accelerated ProRes (any vendor with Vulkan 1.1+) */
+    if (h->support.has_prores_ks_vulkan) {
+        h->entries[h->codec_count].name          = "prores_ks_vulkan";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
     return h;
 }
 
@@ -158,12 +167,13 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
     if (!h)
         return 0;
 
-    if (!strcmp(codec, "h264_nvenc")) return h->support.has_h264_nvenc;
-    if (!strcmp(codec, "hevc_nvenc")) return h->support.has_hevc_nvenc;
-    if (!strcmp(codec, "h264_amf"))   return h->support.has_h264_amf;
-    if (!strcmp(codec, "hevc_amf"))   return h->support.has_hevc_amf;
-    if (!strcmp(codec, "h264_qsv"))   return h->support.has_h264_qsv;
-    if (!strcmp(codec, "hevc_qsv"))   return h->support.has_hevc_qsv;
+    if (!strcmp(codec, "h264_nvenc"))       return h->support.has_h264_nvenc;
+    if (!strcmp(codec, "hevc_nvenc"))       return h->support.has_hevc_nvenc;
+    if (!strcmp(codec, "h264_amf"))         return h->support.has_h264_amf;
+    if (!strcmp(codec, "hevc_amf"))         return h->support.has_hevc_amf;
+    if (!strcmp(codec, "h264_qsv"))         return h->support.has_h264_qsv;
+    if (!strcmp(codec, "hevc_qsv"))         return h->support.has_hevc_qsv;
+    if (!strcmp(codec, "prores_ks_vulkan")) return h->support.has_prores_ks_vulkan;
 
     return 0;
 }
