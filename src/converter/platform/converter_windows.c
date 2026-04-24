@@ -371,7 +371,7 @@ int platform_detect_gpu_support(void) {
     snprintf(cmd, sizeof(cmd),
              "\"%s\" -hide_banner -v error -encoders 2>nul", ffmpeg);
 
-    FILE* fp = popen(cmd, "r");
+    FILE* fp = _popen(cmd, "r");
     if (!fp) return caps;
 
     char line[1024];
@@ -383,7 +383,7 @@ int platform_detect_gpu_support(void) {
         if (strstr(line, " hevc_qsv"))  caps |= PLAT_CAP_QSV_HEVC;
         if (strstr(line, " libfdk_aac")) caps |= PLAT_CAP_LIBFDK_AAC;
     }
-    pclose(fp);
+    _pclose(fp);
     return caps;
 }
 
@@ -419,4 +419,34 @@ int platform_get_video_info(const char* input_path,
     if (height) *height = 0;
     if (fps)    *fps    = 0.0;
     return 0;
+}
+
+/* ---------------------------------------------------------------
+ *  File-system and process helpers
+ * --------------------------------------------------------------- */
+
+int platform_stat_is_regular_file(const char *path)
+{
+    DWORD attrs;
+    if (!path || path[0] == '\0') return 0;
+    attrs = GetFileAttributesA(path);
+    return (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
+}
+
+int platform_stat_is_directory(const char *path)
+{
+    DWORD attrs;
+    if (!path || path[0] == '\0') return 0;
+    attrs = GetFileAttributesA(path);
+    return (attrs != INVALID_FILE_ATTRIBUTES) && (attrs & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
+}
+
+FILE *platform_popen(const char *cmd, const char *mode)
+{
+    return _popen(cmd, mode);
+}
+
+int platform_pclose(FILE *fp)
+{
+    return _pclose(fp);
 }

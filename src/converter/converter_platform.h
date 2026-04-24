@@ -13,6 +13,7 @@
 #define CONVERTER_PLATFORM_H
 
 #include <stddef.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -128,6 +129,38 @@ int platform_is_file_readable(const char* path);
  * 0 otherwise.
  */
 int platform_is_dir_writable(const char* path);
+
+/* ---------------------------------------------------------------
+ *  File-system and process helpers
+ * --------------------------------------------------------------- */
+
+/**
+ * Returns 1 if path refers to a regular file (exists and is not a directory).
+ * POSIX: stat() + S_ISREG
+ * Windows: GetFileAttributesA() without FILE_ATTRIBUTE_DIRECTORY
+ */
+int platform_stat_is_regular_file(const char *path);
+
+/**
+ * Returns 1 if path refers to an existing directory.
+ * POSIX: stat() + S_ISDIR
+ * Windows: GetFileAttributesA() with FILE_ATTRIBUTE_DIRECTORY
+ */
+int platform_stat_is_directory(const char *path);
+
+/**
+ * Open a process pipe for reading (replaces popen()).
+ * POSIX: popen(cmd, mode)
+ * Windows: _popen(cmd, mode)
+ */
+FILE *platform_popen(const char *cmd, const char *mode);
+
+/**
+ * Close a process pipe and return its raw exit status (replaces pclose()).
+ * POSIX: pclose(fp)
+ * Windows: _pclose(fp)
+ */
+int platform_pclose(FILE *fp);
 
 /* ---------------------------------------------------------------
  *  Output handling

@@ -46,7 +46,7 @@ int platform_unlink(const char *path)
  *  Process execution
  * --------------------------------------------------------------- */
 
-FILE *platform_popen(const char *cmd, const char *mode)
+FILE *mux_platform_popen(const char *cmd, const char *mode)
 {
     return _popen(cmd, mode);
 }
