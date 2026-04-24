@@ -414,15 +414,15 @@ const char* platform_get_video_codec_flags(const char* codec,
     if (strcmp(codec, "hevc_qsv") == 0)
         return "-c:v hevc_qsv ";
 
-    /* Force software decode path for software ProRes encoders.
-     * This avoids FFmpeg auto-selecting an unsupported HW AV1 decoder
-     * on some Windows systems (causing frame decode failures). */
+    /* ProRes is a software codec on Windows — no hwaccel flags needed.
+     * The -hwaccel option is an INPUT option (must precede -i); it cannot
+     * be included here because these flags are appended after the input. */
     if (strcmp(codec, "prores") == 0) {
         int profile = 2;
         if (copt && copt->profile >= 1 && copt->profile <= 4)
             profile = copt->profile;
         snprintf(prores_flags, sizeof(prores_flags),
-                 "-hwaccel none -c:v prores -profile:v %d ", profile);
+                 "-c:v prores -profile:v %d ", profile);
         return prores_flags;
     }
 
@@ -434,7 +434,7 @@ const char* platform_get_video_codec_flags(const char* codec,
             else if (copt->profile == 4) profile_name = "4444";
         }
         snprintf(prores_flags, sizeof(prores_flags),
-                 "-hwaccel none -c:v prores_ks -profile:v %s ", profile_name);
+                 "-c:v prores_ks -profile:v %s ", profile_name);
         return prores_flags;
     }
 
