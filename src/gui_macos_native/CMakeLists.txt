@@ -16,6 +16,7 @@ set(BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg")
 set(BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffprobe")
 set(BUNDLE_MP4BOX_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_mp4box_deps.sh")
 set(BUNDLE_MKVMERGE_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_mkvmerge_deps.sh")
+set(BUNDLE_FFMPEG_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_ffmpeg_deps.sh")
 
 set(ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/icon.icns")
 set_source_files_properties("${ICON_FILE}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
@@ -52,6 +53,15 @@ if (EXISTS "${BUNDLED_FFMPEG}" AND EXISTS "${BUNDLED_FFPROBE}")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${BUNDLED_FFPROBE}" "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/bin/ffprobe"
         COMMENT "Bundling ffmpeg/ffprobe into app Resources/bin"
     )
+
+    if (EXISTS "${BUNDLE_FFMPEG_SCRIPT}")
+        add_custom_command(TARGET macos_gui_native POST_BUILD
+            COMMAND /bin/bash "${BUNDLE_FFMPEG_SCRIPT}" "$<TARGET_FILE_DIR:macos_gui_native>"
+            COMMENT "Bundling ffmpeg/ffprobe dependent dylibs into app Resources"
+        )
+    else()
+        message(WARNING "bundle_ffmpeg_deps.sh not found; ffmpeg/ffprobe dylibs will not be bundled.")
+    endif()
 else()
     message(WARNING "src/platform/macos/bin/ffmpeg or ffprobe not found. App will rely on system PATH or FFMPEG/FFPROBE env vars.")
 endif()

@@ -136,19 +136,7 @@ const char* platform_get_ffmpeg_bin(void) {
     v = getenv("FFMPEG_BIN");
     if (v && v[0] != '\0') return v;
 
-    /* MacPorts priority (per DEPENDENCIES_ANALYSIS.md) */
-    if (access("/opt/local/bin/ffmpeg8", X_OK) == 0)
-        return "/opt/local/bin/ffmpeg8";
-    if (access("/opt/local/bin/ffmpeg", X_OK) == 0)
-        return "/opt/local/bin/ffmpeg";
-
-    /* Homebrew */
-    if (access("/usr/local/bin/ffmpeg", X_OK) == 0)
-        return "/usr/local/bin/ffmpeg";
-    if (access("/opt/homebrew/bin/ffmpeg", X_OK) == 0)
-        return "/opt/homebrew/bin/ffmpeg";
-
-    /* App bundle */
+    /* Bundled binary (app bundle or CLI-adjacent) */
     const char* bundled = macos_resolve_bundled_bin("ffmpeg");
     if (bundled) return bundled;
 
@@ -161,15 +149,7 @@ const char* platform_get_ffprobe_bin(void) {
     v = getenv("FFPROBE_BIN");
     if (v && v[0] != '\0') return v;
 
-    if (access("/opt/local/bin/ffprobe8", X_OK) == 0)
-        return "/opt/local/bin/ffprobe8";
-    if (access("/opt/local/bin/ffprobe", X_OK) == 0)
-        return "/opt/local/bin/ffprobe";
-    if (access("/usr/local/bin/ffprobe", X_OK) == 0)
-        return "/usr/local/bin/ffprobe";
-    if (access("/opt/homebrew/bin/ffprobe", X_OK) == 0)
-        return "/opt/homebrew/bin/ffprobe";
-
+    /* Bundled binary (app bundle or CLI-adjacent) */
     const char* bundled = macos_resolve_bundled_bin("ffprobe");
     if (bundled) return bundled;
 
@@ -180,15 +160,16 @@ const char* platform_get_mkvmerge_bin(void) {
     const char* v = getenv("MKVMERGE");
     if (v && v[0] != '\0') return v;
 
+    /* App bundle */
+    const char* bundled = macos_resolve_bundled_bin("mkvmerge");
+    if (bundled) return bundled;
+
     if (access("/opt/local/bin/mkvmerge", X_OK) == 0)
         return "/opt/local/bin/mkvmerge";
     if (access("/usr/local/bin/mkvmerge", X_OK) == 0)
         return "/usr/local/bin/mkvmerge";
     if (access("/opt/homebrew/bin/mkvmerge", X_OK) == 0)
         return "/opt/homebrew/bin/mkvmerge";
-
-    const char* bundled = macos_resolve_bundled_bin("mkvmerge");
-    if (bundled) return bundled;
 
     return "";
 }
@@ -197,13 +178,14 @@ const char* platform_get_mp4box_bin(void) {
     const char* v = getenv("MP4BOX");
     if (v && v[0] != '\0') return v;
 
+    /* App bundle */
+    const char* bundled = macos_resolve_bundled_bin("MP4Box");
+    if (bundled) return bundled;
+
     if (access("/opt/local/bin/MP4Box", X_OK) == 0)
         return "/opt/local/bin/MP4Box";
     if (access("/usr/local/bin/MP4Box", X_OK) == 0)
         return "/usr/local/bin/MP4Box";
-
-    const char* bundled = macos_resolve_bundled_bin("MP4Box");
-    if (bundled) return bundled;
 
     return "";
 }

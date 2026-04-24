@@ -102,7 +102,14 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # --- MACOS CLI ---
+set(MACOS_BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg")
+set(MACOS_BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffprobe")
+
 if (APPLE)
+    if (NOT EXISTS "${MACOS_BUNDLED_FFMPEG}" OR NOT EXISTS "${MACOS_BUNDLED_FFPROBE}")
+        message(FATAL_ERROR "src/platform/macos/bin/ffmpeg or ffprobe not found. Place static binaries there before building macOS CLI.")
+    endif()
+
     add_executable(macos_cli
         ${CLI_COMMON_SOURCES}
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/cli_macos.c
@@ -120,6 +127,12 @@ if (APPLE)
         PRIVATE converter
         PRIVATE platform
         PRIVATE jansson
+    )
+
+    add_custom_command(TARGET macos_cli POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MACOS_BUNDLED_FFMPEG}" "$<TARGET_FILE_DIR:macos_cli>/ffmpeg"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MACOS_BUNDLED_FFPROBE}" "$<TARGET_FILE_DIR:macos_cli>/ffprobe"
+        COMMENT "Copying bundled ffmpeg/ffprobe next to macos_cli"
     )
 endif()
 
