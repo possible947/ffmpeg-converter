@@ -402,17 +402,17 @@ const char* platform_get_video_codec_flags(const char* codec,
     if (!codec) return NULL;
 
     if (strcmp(codec, "h264_nvenc") == 0)
-        return "-c:v h264_nvenc ";
+        return "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 ";
     if (strcmp(codec, "hevc_nvenc") == 0)
-        return "-c:v hevc_nvenc ";
+        return "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto ";
     if (strcmp(codec, "h264_amf") == 0)
         return "-c:v h264_amf ";
     if (strcmp(codec, "hevc_amf") == 0)
         return "-c:v hevc_amf ";
     if (strcmp(codec, "h264_qsv") == 0)
-        return "-c:v h264_qsv ";
+        return "-c:v h264_qsv -preset slow -scenario archive -profile high ";
     if (strcmp(codec, "hevc_qsv") == 0)
-        return "-c:v hevc_qsv ";
+        return "-c:v hevc_qsv -preset slow -scenario archive -profile main ";
 
     /* ProRes is a software codec on Windows — no hwaccel flags needed.
      * The -hwaccel option is an INPUT option (must precede -i); it cannot

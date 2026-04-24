@@ -3,6 +3,12 @@
 /bin/
 */build/
 !fpc/build/
+
+# MSVC build output
+/build-msvc/
+
+# Bundled Windows ffmpeg/ffprobe binaries and their DLL dependencies
+src/platform/windows/bin/
 !fpc/build/Makefile
 !fpc/build/fpmake.pp
 !fpc/build/package_macos_app.sh
