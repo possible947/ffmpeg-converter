@@ -54,7 +54,7 @@ typedef struct {
     char codec[32];     // "copy", "prores", "prores_ks",
                         // "prores_videotoolbox" (macOS),
                         // "hevc_videotoolbox"   (macOS)
-    int  profile;       // 0=none, 1=lt, 2=standard, 3=hq, 4=4444
+    int  profile;       // 0=none, 1=lt, 2=standard, 3=hq
     int  deblock;       // 1=none, 2=weak, 3=strong
 
     // AUDIO NORMALIZATION
