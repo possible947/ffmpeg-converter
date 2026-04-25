@@ -325,7 +325,7 @@ static int windows_probe_vulkan_prores(const char *ffmpeg_bin)
         char cmd[8192];
         snprintf(cmd, sizeof(cmd),
                  "\"%s\" -v error -hide_banner "
-                 "-init_hw_device vulkan=vk:%d "
+                 "-init_hw_device vulkan=vk:%d -filter_hw_device vk "
                  "-f lavfi -i color=size=1920x1080:rate=1 "
                  "-frames:v 1 "
                  "-vf format=yuv422p10le,hwupload "
