@@ -123,7 +123,31 @@ src/platform/windows/bin/
   *.dll (all runtime dependencies required by ffmpeg/ffprobe)
 ```
 
-Build from repository root in **x64 Native Tools Command Prompt for VS 2022**:
+**Recommended — use the build script** (PowerShell 5.1+, auto-detects VS/CMake):
+
+```powershell
+# Incremental build (most common)
+.\scripts\windows_build.ps1
+
+# Clean build (wipes build-msvc and reconfigures)
+.\scripts\windows_build.ps1 -Clean
+
+# Debug build
+.\scripts\windows_build.ps1 -Config Debug
+
+# Show all options
+.\scripts\windows_build.ps1 -Help
+```
+
+Or via the `.bat` launcher (works from CMD and Explorer):
+
+```bat
+scripts\windows_build.bat
+scripts\windows_build.bat -Clean
+scripts\windows_build.bat -Config Debug
+```
+
+Manual build from **x64 Native Tools Command Prompt for VS 2022**:
 
 ```powershell
 cmake -S . -B build-msvc -G "Visual Studio 17 2022" -A x64

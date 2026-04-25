@@ -28,6 +28,52 @@ Rules:
 - `mkvmerge` and `MP4Box` may still be provided through system PATH at runtime.
 
 ### 1.3 Build target
+
+#### Option A — Build script (recommended)
+
+The repo includes a PowerShell build script that automatically locates Visual
+Studio, detects the correct CMake generator, and drives the build. It is
+compatible with **PowerShell 5.1** (Windows built-in) and later.
+
+```powershell
+# Normal incremental build
+.\scripts\windows_build.ps1
+
+# Clean build — deletes build-msvc/ and reconfigures from scratch
+.\scripts\windows_build.ps1 -Clean
+
+# Debug build
+.\scripts\windows_build.ps1 -Config Debug
+
+# Force full recompile of all sources (no CMake reconfigure)
+.\scripts\windows_build.ps1 -Rebuild
+
+# Build all targets (not just windows_cli)
+.\scripts\windows_build.ps1 -Target ALL_BUILD
+
+# Show all options
+.\scripts\windows_build.ps1 -Help
+```
+
+A thin CMD launcher is also provided for use from the Windows Explorer or
+Command Prompt:
+
+```bat
+scripts\windows_build.bat
+scripts\windows_build.bat -Clean
+scripts\windows_build.bat -Config Debug
+```
+
+The script:
+- Finds `vswhere.exe` to locate the Visual Studio install path and MSBuild.
+- Auto-detects the CMake generator string from the installed VS version
+  (e.g. `Visual Studio 17 2022` for VS 2022, `Visual Studio 18 2025` for VS 2025).
+- Falls back to reading the generator from an existing `build-msvc/CMakeCache.txt`.
+- Skips CMake configuration when `build-msvc/CMakeCache.txt` already exists.
+- Finds `cmake.exe` on PATH or falls back to the copy bundled inside VS.
+
+#### Option B — Manual build
+
 From repository root in **x64 Native Tools Command Prompt for VS 2022**:
 ```powershell
 cmake -S . -B build-msvc -G "Visual Studio 17 2022" -A x64
