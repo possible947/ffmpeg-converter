@@ -18,6 +18,19 @@ Fedora:
 sudo dnf install -y gcc gcc-c++ make cmake pkgconf-pkg-config ffmpeg jansson-devel gtk4-devel
 ```
 
+> **AV1 input decoding note:** The `ffmpeg` package from the default Debian/Ubuntu APT
+> repositories may not include `libdav1d` support. To decode AV1 source files reliably,
+> use an ffmpeg build that includes `--enable-libdav1d`. Options:
+> - Ubuntu 22.04+: `sudo apt install ffmpeg` usually includes libdav1d.
+> - Debian stable: consider [deb-multimedia.org](https://deb-multimedia.org/) or a
+>   custom build.
+> - Fedora: `ffmpeg` from RPM Fusion includes libdav1d.
+> - Or place a custom-built `ffmpeg`/`ffprobe` in `src/platform/linux/bin/` — the
+>   converter prefers the bundled binary over the system one.
+> If libdav1d is unavailable at runtime, the converter falls back to the native `av1`
+> decoder with `-hwaccel none` (may fail on systems with NVIDIA GPUs that lack AV1
+> NVDEC support).
+
 ### 1.2 Build targets
 From repository root:
 ```bash
@@ -91,6 +104,10 @@ Artifacts:
 	and then `PATH`.
 - Linux hardware codec exposure is runtime-detected. Current C path exposes
 	`h264_vaapi` and `hevc_vaapi` only when the active system/driver actually supports them.
+- AV1 input decoding is runtime-detected. The converter probes `ffmpeg -decoders` at
+	startup and selects `av1_qsv` (when Intel QSV encoders are present), then `libdav1d`
+	(when available), then falls back to the native `av1` decoder with `-hwaccel none`.
+	Requires ffmpeg compiled with `--enable-libdav1d` for the software-decoder path.
 - C CLI inputs are positional (`ffmpeg_converter [options] file1 file2 ...`).
 - `-o/--output` sets output directory; if omitted, default is
 	`$HOME/ffmpeg_converter` (created automatically).

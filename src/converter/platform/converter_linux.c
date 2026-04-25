@@ -251,25 +251,29 @@ int platform_detect_gpu_support(void) {
     if (support.has_hevc_qsv)         caps |= PLAT_CAP_QSV_HEVC;
     if (support.has_prores_ks_vulkan) caps |= PLAT_CAP_VULKAN_PRORES;
 
-    /* Probe decoders for software AV1 decode (libdav1d) and QSV AV1 decode.
-     * Only flag av1_qsv when QSV encoders are present and working. */
-    const char* ffmpeg = platform_get_ffmpeg_bin();
-    if (ffmpeg && ffmpeg[0] != '\0') {
-        char cmd[1024];
-        snprintf(cmd, sizeof(cmd),
-                 "\"%s\" -hide_banner -v error -decoders 2>/dev/null",
-                 ffmpeg);
-        FILE* fp = platform_popen(cmd, "r");
-        if (fp) {
-            char line[1024];
-            while (fgets(line, sizeof(line), fp)) {
-                if ((caps & (PLAT_CAP_QSV_H264 | PLAT_CAP_QSV_HEVC)) &&
-                    strstr(line, " av1_qsv"))
-                    caps |= PLAT_CAP_AV1_QSV_DEC;
-                if (strstr(line, " libdav1d"))
-                    caps |= PLAT_CAP_LIBDAV1D_DEC;
+    /* Probe decoders: libdav1d (software AV1) and av1_qsv (Intel QSV).
+     * libdav1d is a pure-software AV1 decoder with no hardware dependency —
+     * it bypasses the native av1 decoder which can crash on systems where
+     * the GPU does not support hardware AV1 decode (NVDEC/VAAPI). */
+    {
+        const char* ffmpeg = platform_get_ffmpeg_bin();
+        if (ffmpeg && ffmpeg[0] != '\0') {
+            char cmd[1024];
+            snprintf(cmd, sizeof(cmd),
+                     "\"%s\" -hide_banner -v error -decoders 2>/dev/null",
+                     ffmpeg);
+            FILE* fp = platform_popen(cmd, "r");
+            if (fp) {
+                char line[1024];
+                while (fgets(line, sizeof(line), fp)) {
+                    if (strstr(line, " libdav1d"))
+                        caps |= PLAT_CAP_LIBDAV1D_DEC;
+                    if ((caps & (PLAT_CAP_QSV_H264 | PLAT_CAP_QSV_HEVC)) &&
+                        strstr(line, " av1_qsv"))
+                        caps |= PLAT_CAP_AV1_QSV_DEC;
+                }
+                platform_pclose(fp);
             }
-            platform_pclose(fp);
         }
     }
 
@@ -338,6 +342,6 @@ const char* platform_get_hw_vfilter(const char* codec, const void* opts) {
         (strcmp(codec, "h264_vaapi") == 0 || strcmp(codec, "hevc_vaapi") == 0))
         return "nv12,hwupload";
     if (codec && strcmp(codec, "prores_ks_vulkan") == 0)
-        return "format=yuv422p10le,hwupload";
+        return "yuv422p10le,hwupload";
     return NULL;
 }

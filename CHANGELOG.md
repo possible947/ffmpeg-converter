@@ -37,6 +37,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **AV1 input decoding support (Windows and Linux).**
+  The native `av1` decoder in ffmpeg triggers NVIDIA NVDEC pixel-format negotiation even
+  on GPUs that do not support AV1 hardware decoding, producing a fatal
+  `"Failed to get pixel format"` error. The converter now detects the input video codec
+  via `ffprobe` before encoding and selects the appropriate decoder automatically:
+  - `av1_qsv` — used when Intel QSV encoders are detected (Intel Arc / UHD via libvpl).
+  - `libdav1d` — pure-software fallback, used when QSV is unavailable.
+  - Native `av1` with `-hwaccel none` — only when neither decoder is detected.
+  Detection is runtime-based via `ffmpeg -decoders` at startup. **Requires ffmpeg
+  built with `--enable-libdav1d`.** Windows bundled binary includes `libdav1d-7.dll`.
+- `-hwaccel none` added to `peak_two_pass` and `loudnorm_two_pass` analysis passes
+  to prevent NVDEC negotiation failure on AV1 input during audio analysis.
+
 ### Fixed
 - **Critical: loudness normalization 2-pass producing wrong gain (~10–14 LUFS error).**
   FFmpeg `loudnorm` filter always outputs measurement values as JSON strings

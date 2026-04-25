@@ -532,7 +532,7 @@ static ConverterError peak_two_pass(
     const char *ffmpeg_bin = get_ffmpeg_bin();
     int filter_threads = get_filter_threads();
     snprintf(cmd, sizeof(cmd),
-        "\"%s\" -filter_threads %d -vn -i \"%s\" -af volumedetect -f null - 2>&1",
+        "\"%s\" -hwaccel none -filter_threads %d -vn -i \"%s\" -af volumedetect -f null - 2>&1",
         ffmpeg_bin, filter_threads, input);
 
     double duration = get_duration(input);
@@ -627,7 +627,7 @@ static ConverterError loudnorm_two_pass(
     const char *ffmpeg_bin = get_ffmpeg_bin();
     int filter_threads = get_filter_threads();
     snprintf(cmd, sizeof(cmd),
-        "\"%s\" -filter_threads %d -vn -i \"%s\" -af "
+        "\"%s\" -hwaccel none -filter_threads %d -vn -i \"%s\" -af "
         "\"loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:linear=true:print_format=json\" "
         "-f null - 2>&1",
         ffmpeg_bin, filter_threads, input, I_target, TP_target, LRA_target);
@@ -775,32 +775,35 @@ static void build_ffmpeg_cmd(
         strcat(cmd, "\" ");
     }
 
-    /* Detect input video codec to select a working decoder.
-     * Some ffmpeg builds (e.g. 8.x with D3D12VA) try hardware AV1 decode
-     * internally even with -hwaccel none, failing when the GPU lacks AV1
-     * support.  We select a software or QSV decoder in that case. */
+    /* Select input decoder.
+     * The native `av1` decoder in ffmpeg builds with --enable-nvdec tries
+     * NVDEC pixel formats internally even with -hwaccel none.  On systems
+     * where the NVIDIA GPU does not support AV1 hardware decode, this
+     * causes a fatal "Failed to get pixel format" error.  We avoid this
+     * by using av1_qsv (Intel QSV/D3D11VA) when available, which uses the
+     * Intel GPU instead.  All other codecs use -hwaccel none (software). */
     {
         char input_vcodec[64];
         int input_is_av1 = (probe_input_video_codec(input, input_vcodec,
                                                      sizeof(input_vcodec)) &&
                             strcmp(input_vcodec, "av1") == 0);
-
-        if (input_is_av1) {
-            if (c->platform_caps & PLAT_CAP_AV1_QSV_DEC) {
-                /* Intel QSV AV1 decoder: outputs nv12 software frames,
-                 * compatible with all downstream encoders. */
-                strcat(cmd, "-hwaccel qsv -hwaccel_output_format nv12 "
-                            "-c:v av1_qsv ");
-            } else if (c->platform_caps & PLAT_CAP_LIBDAV1D_DEC) {
-                strcat(cmd, "-c:v libdav1d ");
-            }
-            /* Otherwise: let ffmpeg choose; may fail on some builds. */
-        } else if (!codec_is_vaapi(opts->codec) && !codec_is_vulkan(opts->codec)) {
-            /* Suppress hardware decode for non-AV1 inputs to avoid
-             * unintended HW decode on Windows (D3D12VA/D3D11VA).
-             * Skip for VAAPI/Vulkan outputs: those codecs set up their own
-             * hardware device context (-vaapi_device/-init_hw_device) and
-             * -hwaccel none can conflict with it on Linux. */
+        if (input_is_av1 && (c->platform_caps & PLAT_CAP_AV1_QSV_DEC)) {
+            /* Intel QSV AV1 decoder via D3D11VA: bypasses broken native av1
+             * decoder on systems with NVDEC that doesn't support AV1.  The
+             * hwaccel_output_format=nv12 ensures CPU-readable frames for
+             * downstream software encoders (prores_ks, prores, etc.). */
+            strcat(cmd, "-hwaccel qsv -hwaccel_output_format nv12 "
+                        "-c:v av1_qsv ");
+        } else if (input_is_av1 && (c->platform_caps & PLAT_CAP_LIBDAV1D_DEC)) {
+            /* libdav1d: pure software AV1 decoder, no hardware dependency.
+             * Bypasses the native av1 decoder which probes NVDEC/VAAPI
+             * pixel formats and crashes when the GPU lacks AV1 decode
+             * support.  Works on all platforms including Linux without QSV. */
+            strcat(cmd, "-hwaccel none -c:v libdav1d ");
+        } else {
+            /* Software decode for all other inputs (VP9, H264, HEVC, etc.).
+             * Also used as AV1 fallback when neither QSV nor libdav1d
+             * is available (may fail on NVDEC systems for AV1). */
             strcat(cmd, "-hwaccel none ");
         }
     }

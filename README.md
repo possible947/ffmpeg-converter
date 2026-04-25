@@ -43,6 +43,8 @@ Two independent implementations share the same conversion logic and CLI behavior
 - Video codecs (cross-platform): `copy`, `prores`, `prores_ks`.
 - Linux runtime-probed video codecs: `h264_vaapi`, `hevc_vaapi`.
 - Video codecs (macOS VideoToolbox): `prores_videotoolbox`, `hevc_videotoolbox`.
+- **AV1 input decoding**: runtime-detected; uses `av1_qsv` (Intel QSV/Arc) when available,
+  falls back to `libdav1d` (pure software). Requires ffmpeg built with `--enable-libdav1d`.
 - Audio normalization: `none`, `peak`, `peak 2-pass`, `loudness`, `loudness 2-pass`.
 - Audio output modes: PCM, FDK AAC q5, FDK AAC q5 + AC3 640.
 - Linux MKV mux mode: one source file + external replacement video track, final output via `mkvmerge`.
@@ -68,6 +70,10 @@ Two independent implementations share the same conversion logic and CLI behavior
   - Linux: staged next to CLI/GUI in `build/bin` when available from `src/platform/linux/bin/`.
   - macOS: bundled inside native `.app` from `src/platform/macos/bin/`.
   - Windows (MSVC): required in `src/platform/windows/bin/` (`ffmpeg.exe`, `ffprobe.exe`, and their DLL dependencies); copied next to `ffmpeg_converter.exe` at build time.
+  - **AV1 input decoding** requires ffmpeg compiled with `--enable-libdav1d` and `libdav1d-7.dll`
+    present in the `bin/` folder. The bundled Windows binary set already satisfies this requirement.
+    On Linux, ensure the system or bundled `ffmpeg` includes libdav1d support
+    (see [docs/install-linux.md](docs/install-linux.md)).
   On macOS, priority order: macports FFmpeg8 (`/opt/local/bin/ffmpeg8`) → macports (`/opt/local/bin/ffmpeg`) → system PATH.
 - `MP4Box` (GPAC) for Apple M4V packaging/runtime on macOS native GUI and Linux GTK M4V workflow.
 - `mkvmerge` for mux mode (Linux, macOS, and Windows). On Windows: install via `choco install mkvtoolnix`, MSYS2 `pacman -S mingw-w64-x86_64-mkvtoolnix`, or place `mkvmerge.exe` next to `ffmpeg_converter.exe`. The `MKVMERGE` or `MKVMERGE_BIN` environment variable can also point to a custom path. Mux mode is silently disabled when mkvmerge is not found.

@@ -254,8 +254,8 @@ int platform_get_video_info(const char* input_path,
 #define PLAT_CAP_AMF_H264        (1 << 9)  /* Windows AMD AMF */
 #define PLAT_CAP_AMF_HEVC        (1 << 10) /* Windows AMD AMF */
 #define PLAT_CAP_VULKAN_PRORES   (1 << 11) /* prores_ks_vulkan (GPU-accelerated ProRes via Vulkan) */
-#define PLAT_CAP_AV1_QSV_DEC    (1 << 12) /* av1_qsv decoder available (Intel QSV AV1 decode) */
-#define PLAT_CAP_LIBDAV1D_DEC   (1 << 13) /* libdav1d decoder available (software AV1 decode) */
+#define PLAT_CAP_AV1_QSV_DEC    (1 << 12) /* av1_qsv decoder available (Intel QSV/D3D11VA AV1 decode) */
+#define PLAT_CAP_LIBDAV1D_DEC   (1 << 13) /* libdav1d decoder available (pure software AV1 decode) */
 
 /**
  * Returns pre-input hardware device initialization flags for the given codec.

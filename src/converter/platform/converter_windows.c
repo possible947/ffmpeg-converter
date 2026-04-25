@@ -491,21 +491,37 @@ int platform_detect_gpu_support(void) {
     }
     _pclose(fp);
 
-    /* Also probe decoders for software/HW AV1 decode support. Only flag
-     * av1_qsv as available when QSV is actually working (encoder present). */
-    snprintf(cmd, sizeof(cmd),
-             "\"%s\" -hide_banner -v error -decoders 2>nul", ffmpeg);
-    fp = _popen(cmd, "r");
-    if (fp) {
-        while (fgets(line, sizeof(line), fp)) {
-            platform_normalize_output_line(line);
-            if ((caps & (PLAT_CAP_QSV_H264 | PLAT_CAP_QSV_HEVC)) &&
-                strstr(line, " av1_qsv"))
-                caps |= PLAT_CAP_AV1_QSV_DEC;
-            if (strstr(line, " libdav1d"))
-                caps |= PLAT_CAP_LIBDAV1D_DEC;
+    /* Probe decoders: flag av1_qsv only when Intel QSV is present.
+     * av1_qsv uses D3D11VA via Intel Arc/UHD and reliably decodes AV1
+     * without triggering the NVDEC pixel-format negotiation bug in the
+     * native av1 decoder (which fails on GPUs without AV1 NVDEC support). */
+    if (caps & (PLAT_CAP_QSV_H264 | PLAT_CAP_QSV_HEVC)) {
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s\" -hide_banner -v error -decoders 2>nul", ffmpeg);
+        fp = _popen(cmd, "r");
+        if (fp) {
+            while (fgets(line, sizeof(line), fp)) {
+                platform_normalize_output_line(line);
+                if (strstr(line, " av1_qsv"))
+                    caps |= PLAT_CAP_AV1_QSV_DEC;
+                if (strstr(line, " libdav1d"))
+                    caps |= PLAT_CAP_LIBDAV1D_DEC;
+            }
+            _pclose(fp);
         }
-        _pclose(fp);
+    } else {
+        /* No QSV — still probe for libdav1d (software AV1 decode fallback) */
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s\" -hide_banner -v error -decoders 2>nul", ffmpeg);
+        fp = _popen(cmd, "r");
+        if (fp) {
+            while (fgets(line, sizeof(line), fp)) {
+                platform_normalize_output_line(line);
+                if (strstr(line, " libdav1d"))
+                    caps |= PLAT_CAP_LIBDAV1D_DEC;
+            }
+            _pclose(fp);
+        }
     }
 
     return caps;

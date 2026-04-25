@@ -27,6 +27,16 @@ Rules:
 - Do not rely on system-installed ffmpeg for the C/MSVC target.
 - `mkvmerge` and `MP4Box` may still be provided through system PATH at runtime.
 
+**AV1 input decoding requirement:**
+To decode AV1 source files, `ffmpeg.exe` must be compiled with `--enable-libdav1d` and
+`libdav1d-7.dll` must be present in the `bin/` folder alongside `ffmpeg.exe`.
+The default bundled binary set in this repository already includes both.
+Build `ffmpeg` in MSYS2 ucrt64 with at minimum:
+```bash
+./configure --enable-libdav1d ...other-flags...
+```
+Then copy `libdav1d-7.dll` from `/ucrt64/bin/` into `src/platform/windows/bin/`.
+
 ### 1.3 Build target
 
 #### Option A — Build script (recommended)
@@ -133,6 +143,36 @@ Requirements:
 - `vulkan-1.dll` present in the `bin/` folder (already included in the DLL set)
 
 The codec is automatically available in the menu when `prores_ks_vulkan` appears in `ffmpeg -encoders` output.
+
+### AV1 Input Decoding
+
+When a source file contains an AV1 video stream, the converter automatically selects
+an appropriate decoder instead of the native `av1` decoder.
+
+**Why this is necessary:** FFmpeg's native `av1` decoder internally negotiates NVDEC
+pixel formats even when no explicit hardware acceleration is requested. NVIDIA GPUs that
+do not support AV1 hardware decoding (most GPUs before RTX 30 series) return an error:
+`"Failed to get pixel format"`, which terminates the conversion.
+
+**Decoder selection priority (automatic, no user configuration required):**
+
+| Priority | Decoder | Condition |
+|---|---|---|
+| 1 | `av1_qsv` | Intel QSV encoder detected (Intel Arc / UHD 770+) |
+| 2 | `libdav1d` | `libdav1d` decoder present in `ffmpeg -decoders` output |
+| 3 | `av1` + `-hwaccel none` | Fallback when neither of the above is available |
+
+**Requirements:**
+- `ffmpeg.exe` must be compiled with `--enable-libdav1d` for the `libdav1d` path.
+- `libdav1d-7.dll` must be present in the `bin/` folder (already included in the
+  default bundled binary set).
+- For `av1_qsv`: Intel Arc or 12th-gen+ Intel CPU with integrated graphics and
+  the Intel oneVPL/MFX runtime. Detected automatically at startup.
+
+**MSYS2 ucrt64 build flags required:**
+```bash
+./configure --enable-libdav1d --enable-libvpl  # for libdav1d + QSV
+```
 
 ### mux
 
