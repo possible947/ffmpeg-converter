@@ -259,7 +259,7 @@ int platform_detect_gpu_support(void) {
         snprintf(cmd, sizeof(cmd),
                  "\"%s\" -hide_banner -v error -decoders 2>/dev/null",
                  ffmpeg);
-        FILE* fp = popen(cmd, "r");
+        FILE* fp = platform_popen(cmd, "r");
         if (fp) {
             char line[1024];
             while (fgets(line, sizeof(line), fp)) {
@@ -269,7 +269,7 @@ int platform_detect_gpu_support(void) {
                 if (strstr(line, " libdav1d"))
                     caps |= PLAT_CAP_LIBDAV1D_DEC;
             }
-            pclose(fp);
+            platform_pclose(fp);
         }
     }
 
