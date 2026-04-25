@@ -155,10 +155,14 @@ if (WIN32)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/src/platform
         ${CMAKE_SOURCE_DIR}/src/platform/windows
+        ${CMAKE_SOURCE_DIR}/src/mux
+        ${CMAKE_SOURCE_DIR}/src/m4v
     )
 
     target_link_libraries(windows_cli
         PRIVATE converter
+        PRIVATE mux
+        PRIVATE m4v
         PRIVATE platform
         PRIVATE jansson
         PRIVATE Shell32

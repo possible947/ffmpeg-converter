@@ -32,12 +32,27 @@ void cli_on_error(const char* text, ConverterError code);
 void cli_on_complete(void);
 
 /* ---------------------------------------------------------------
+ *  Apple M4V options (platform-agnostic mirror of M4VOptions)
+ *  Filled by parse_args / run_menu; copied into M4VOptions in main.c.
+ * --------------------------------------------------------------- */
+
+typedef struct {
+    int  video_track_index; /* 0-based index of the video stream to use */
+    int  audio_track_index; /* 0-based index of the audio stream to use */
+    int  aac_quality;       /* libfdk_aac VBR quality 1-5 (default 5)  */
+    int  ac3_bitrate_kbps;  /* AC3 bitrate in kbps (default 640)        */
+    char audio_lang[16];    /* ISO 639 language tag (default "rus")      */
+    int  add_chapters;      /* 1 = embed chapter markers (default 1)    */
+} CliM4VOptions;
+
+/* ---------------------------------------------------------------
  *  Display helpers
  * --------------------------------------------------------------- */
 
 void clear_screen(void);
 void print_usage(const CliPlatformHandle* h);
 void print_summary(const ConvertOptions* opts,
+                   const CliM4VOptions* m4v_opts,
                    const char** files, int file_count);
 
 /* ---------------------------------------------------------------
@@ -94,15 +109,16 @@ int verify_all_files(const char** files, int file_count);
  * Returns 1 on success (continue), 0 on error/help shown.
  */
 int parse_args(int argc, char** argv, const CliPlatformHandle* h,
-               ConvertOptions* opts,
+               ConvertOptions* opts, CliM4VOptions* m4v_opts,
                const char** files, int* file_count);
 
 /**
  * Runs the interactive step-by-step menu.
- * On success, fills opts, *files_ptr, and *file_count.
+ * On success, fills opts, m4v_opts, *files_ptr, and *file_count.
  * Returns 0 on success, -1 on cancel/error.
  */
 int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
+             CliM4VOptions* m4v_opts,
              const char*** files_ptr, int* file_count);
 
 #ifdef __cplusplus

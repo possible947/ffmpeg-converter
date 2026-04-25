@@ -109,13 +109,32 @@ void print_usage(const CliPlatformHandle* h) {
         printf("  - requires --video-track <file>\n");
         printf("  - runs normal audio processing, then writes final .mkv\n\n");
     }
+    if (platform_m4v_is_supported()) {
+        printf("Apple M4V options (only used with -c m4v):\n");
+        printf("      --m4v-video-track <N>   video stream index (default: 0)\n");
+        printf("      --m4v-audio-track <N>   audio stream index (default: 0)\n");
+        printf("      --m4v-aac-quality <1-5> libfdk_aac VBR quality (default: 5)\n");
+        printf("      --m4v-ac3-bitrate <kbps> AC3 bitrate in kbps (default: 640)\n");
+        printf("      --m4v-lang <tag>        audio language tag (default: rus)\n");
+        printf("      --m4v-chapters          embed chapter markers (default: on)\n");
+        printf("      --no-m4v-chapters       disable chapter markers\n\n");
+        printf("Apple M4V mode:\n");
+        printf("  - requires MP4Box (GPAC) on PATH\n");
+        printf("  - requires libfdk_aac support in bundled ffmpeg\n");
+        printf("  - accepts input with h264, hevc, or prores video\n");
+        printf("  - produces dual-audio .m4v (AAC + AC3) compatible with Apple TV\n\n");
+    }
     printf("Examples:\n");
     printf("  ffmpeg_converter input.mov\n");
     printf("  ffmpeg_converter -c prores_ks -p hq input.mov\n");
-    printf("  ffmpeg_converter -a loudnorm2 -g rock input1.mov input2.mov\n\n");
+    printf("  ffmpeg_converter -a loudnorm2 -g rock input1.mov input2.mov\n");
+    if (platform_m4v_is_supported())
+        printf("  ffmpeg_converter -c m4v --m4v-lang eng --m4v-aac-quality 4 input.mov\n");
+    printf("\n");
 }
 
 void print_summary(const ConvertOptions* opts,
+                   const CliM4VOptions* m4v_opts,
                    const char** files, int file_count)
 {
     int i;
@@ -124,7 +143,10 @@ void print_summary(const ConvertOptions* opts,
     printf("\n=== Summary ===\n");
     printf("Codec:        %s\n", opts->codec);
 
-    if (!strcmp(opts->codec, "mux")) {
+    if (!strcmp(opts->codec, "m4v")) {
+        printf("Profile:      (m4v)\n");
+        printf("Deblock:      (m4v)\n");
+    } else if (!strcmp(opts->codec, "mux")) {
         printf("Profile:      (mux)\n");
         printf("Deblock:      (mux)\n");
     } else if (!strcmp(opts->codec, "prores") ||
@@ -168,6 +190,16 @@ void print_summary(const ConvertOptions* opts,
         printf("Video track:  %s\n",
                opts->video_track_path[0] != '\0'
                    ? opts->video_track_path : "(missing)");
+
+    if (!strcmp(opts->codec, "m4v") && m4v_opts) {
+        printf("M4V video idx:%d\n", m4v_opts->video_track_index);
+        printf("M4V audio idx:%d\n", m4v_opts->audio_track_index);
+        printf("M4V AAC qual: %d\n", m4v_opts->aac_quality);
+        printf("M4V AC3 kbps: %d\n", m4v_opts->ac3_bitrate_kbps);
+        printf("M4V lang:     %s\n", m4v_opts->audio_lang[0] != '\0'
+                                        ? m4v_opts->audio_lang : "rus");
+        printf("M4V chapters: %s\n", m4v_opts->add_chapters ? "yes" : "no");
+    }
 
     if (!strcmp(opts->audio_norm, "loudness_norm_2pass")) {
         const char* genre_str = "none";
@@ -549,7 +581,7 @@ int verify_all_files(const char** files, int file_count) {
  * --------------------------------------------------------------- */
 
 int parse_args(int argc, char** argv, const CliPlatformHandle* h,
-               ConvertOptions* opts,
+               ConvertOptions* opts, CliM4VOptions* m4v_opts,
                const char** files, int* file_count)
 {
     int i;
@@ -565,6 +597,16 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
     opts->output_dir_status = 0;
     opts->video_track_path[0] = '\0';
     opts->vulkan_device = 1;  /* default: vk:1 (NVIDIA on mixed-GPU systems) */
+
+    /* M4V defaults */
+    if (m4v_opts) {
+        m4v_opts->video_track_index = 0;
+        m4v_opts->audio_track_index = 0;
+        m4v_opts->aac_quality       = 5;
+        m4v_opts->ac3_bitrate_kbps  = 640;
+        strcpy(m4v_opts->audio_lang, "rus");
+        m4v_opts->add_chapters      = 1;
+    }
 
     *file_count = 0;
 
@@ -656,6 +698,61 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             continue;
         }
 
+        if (!strcmp(argv[i], "--m4v-video-track")) {
+            if (i + 1 >= argc) return 0;
+            i++;
+            if (m4v_opts) m4v_opts->video_track_index = atoi(argv[i]);
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--m4v-audio-track")) {
+            if (i + 1 >= argc) return 0;
+            i++;
+            if (m4v_opts) m4v_opts->audio_track_index = atoi(argv[i]);
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--m4v-aac-quality")) {
+            int q;
+            if (i + 1 >= argc) return 0;
+            i++;
+            q = atoi(argv[i]);
+            if (q < 1 || q > 5) return 0;
+            if (m4v_opts) m4v_opts->aac_quality = q;
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--m4v-ac3-bitrate")) {
+            int b;
+            if (i + 1 >= argc) return 0;
+            i++;
+            b = atoi(argv[i]);
+            if (b <= 0) return 0;
+            if (m4v_opts) m4v_opts->ac3_bitrate_kbps = b;
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--m4v-lang")) {
+            if (i + 1 >= argc) return 0;
+            i++;
+            if (m4v_opts) {
+                strncpy(m4v_opts->audio_lang, argv[i],
+                        sizeof(m4v_opts->audio_lang) - 1);
+                m4v_opts->audio_lang[sizeof(m4v_opts->audio_lang) - 1] = '\0';
+            }
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--m4v-chapters")) {
+            if (m4v_opts) m4v_opts->add_chapters = 1;
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--no-m4v-chapters")) {
+            if (m4v_opts) m4v_opts->add_chapters = 0;
+            continue;
+        }
+
         if (!strcmp(argv[i], "--vk_device")) {
             if (i + 1 >= argc) return 0;
             i++;
@@ -719,6 +816,7 @@ static void free_temp_files(char** files, int count) {
 }
 
 int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
+             CliM4VOptions* m4v_opts,
              const char*** files_ptr, int* file_count)
 {
     int step        = 1;
@@ -732,6 +830,15 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
     char output_dir[CLI_BUFFER_SIZE];
     int output_dir_status = 0;
     char video_track_path[CLI_BUFFER_SIZE];
+
+    /* M4V interactive state */
+    int  m4v_aac_quality      = 5;
+    int  m4v_ac3_bitrate_kbps = 640;
+    char m4v_audio_lang[16];
+    int  m4v_add_chapters     = 1;
+    int  m4v_video_track      = 0;
+    int  m4v_audio_track      = 0;
+
     char** temp_files      = NULL;
     int    temp_file_count = 0;
     int    result          = -1;
@@ -741,6 +848,7 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
 
     output_dir[0]        = '\0';
     video_track_path[0]  = '\0';
+    strcpy(m4v_audio_lang, "rus");
 
     while (step != 12 && step != 0) {
         switch (step) {
@@ -760,10 +868,12 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             ch = read_choice();
             if (ch == '\n') {
                 codec_idx = 0;
-                step = entries[0].needs_profile ? 2 : 4;
+                step = entries[0].needs_profile ? 2
+                     : (!strcmp(entries[0].name, "m4v") ? 7 : 4);
             } else if (ch >= '1' && ch < '1' + codec_count) {
                 codec_idx = ch - '1';
-                step = entries[codec_idx].needs_profile ? 2 : 4;
+                step = entries[codec_idx].needs_profile ? 2
+                     : (!strcmp(entries[codec_idx].name, "m4v") ? 7 : 4);
             } else if (ch == 'c' || ch == 'C') {
                 free_temp_files(temp_files, temp_file_count);
                 return -1;
@@ -932,6 +1042,8 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
         /* ---- Step 7: overwrite ---- */
         case 7: {
             int ch;
+            int prev = (!strcmp(entries[codec_idx].name, "m4v")) ? 1
+                     : 6;
             printf("\nchoice if overwrite files: yes/No\n");
             printf("select:y/n,Enter->(default),c->cancel,b->back\n>");
             ch = read_choice();
@@ -942,7 +1054,7 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
                 free_temp_files(temp_files, temp_file_count);
                 return -1;
             } else if (ch == 'b' || ch == 'B') {
-                step = 6;
+                step = prev;
             } else {
                 printf("Invalid choice\n");
             }
@@ -993,6 +1105,10 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             if (platform_mux_is_supported() &&
                 !strcmp(entries[codec_idx].name, "mux"))
                 step = 10;
+            /* m4v codec → collect m4v-specific options */
+            else if (platform_m4v_is_supported() &&
+                     !strcmp(entries[codec_idx].name, "m4v"))
+                step = 13;
             else
                 step = 11;
             break;
@@ -1053,6 +1169,18 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
                 opts->video_track_path[sizeof(opts->video_track_path) - 1] = '\0';
             }
 
+            /* Copy collected M4V options */
+            if (m4v_opts && !strcmp(opts->codec, "m4v")) {
+                m4v_opts->video_track_index = m4v_video_track;
+                m4v_opts->audio_track_index = m4v_audio_track;
+                m4v_opts->aac_quality       = m4v_aac_quality;
+                m4v_opts->ac3_bitrate_kbps  = m4v_ac3_bitrate_kbps;
+                strncpy(m4v_opts->audio_lang, m4v_audio_lang,
+                        sizeof(m4v_opts->audio_lang) - 1);
+                m4v_opts->audio_lang[sizeof(m4v_opts->audio_lang) - 1] = '\0';
+                m4v_opts->add_chapters = m4v_add_chapters;
+            }
+
             platform_apply_hw_device(opts, h);
 
             *files_ptr  = (const char**)temp_files;
@@ -1060,6 +1188,157 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
 
             result = 0;
             step   = 12;
+            break;
+        }
+
+        /* ---- Step 12: done (loop exit) ---- */
+
+        /* ---- Step 13: M4V — AAC quality ---- */
+        case 13: {
+            int ch;
+            clear_screen();
+            printf("----ffmpeg_converter_simple_gui----\n\n");
+            printf("Apple M4V: AAC quality (libfdk_aac VBR)\n");
+            printf("------------------------------------------\n");
+            printf("  1. quality 1  (lowest)\n");
+            printf("  2. quality 2\n");
+            printf("  3. quality 3\n");
+            printf("  4. quality 4\n");
+            printf("  5. quality 5  (highest, default)\n");
+            printf("------------------------------------------\n");
+            printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
+            ch = read_choice();
+            if      (ch == '\n') { m4v_aac_quality = 5; step = 14; }
+            else if (ch >= '1' && ch <= '5') { m4v_aac_quality = ch - '0'; step = 14; }
+            else if (ch == 'c' || ch == 'C') {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            } else if (ch == 'b' || ch == 'B') {
+                step = 9;
+            } else {
+                printf("Invalid choice\n");
+            }
+            break;
+        }
+
+        /* ---- Step 14: M4V — AC3 bitrate ---- */
+        case 14: {
+            int ch;
+            clear_screen();
+            printf("----ffmpeg_converter_simple_gui----\n\n");
+            printf("Apple M4V: AC3 audio bitrate\n");
+            printf("------------------------------------------\n");
+            printf("  1. 384 kbps\n");
+            printf("  2. 448 kbps\n");
+            printf("  3. 640 kbps (default)\n");
+            printf("------------------------------------------\n");
+            printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
+            ch = read_choice();
+            if      (ch == '\n') { m4v_ac3_bitrate_kbps = 640; step = 15; }
+            else if (ch == '1')  { m4v_ac3_bitrate_kbps = 384; step = 15; }
+            else if (ch == '2')  { m4v_ac3_bitrate_kbps = 448; step = 15; }
+            else if (ch == '3')  { m4v_ac3_bitrate_kbps = 640; step = 15; }
+            else if (ch == 'c' || ch == 'C') {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            } else if (ch == 'b' || ch == 'B') {
+                step = 13;
+            } else {
+                printf("Invalid choice\n");
+            }
+            break;
+        }
+
+        /* ---- Step 15: M4V — audio language ---- */
+        case 15: {
+            char line[32];
+            clear_screen();
+            printf("----ffmpeg_converter_simple_gui----\n\n");
+            printf("Apple M4V: audio language tag\n");
+            printf("  Examples: rus, eng, deu, fra, spa\n");
+            printf("  Press Enter for default (rus), c to cancel, b to go back\n>");
+            fflush(stdout);
+            if (!fgets(line, sizeof(line), stdin)) {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            }
+            line[strcspn(line, "\r\n")] = '\0';
+            if (strcmp(line, "c") == 0 || strcmp(line, "C") == 0) {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            } else if (strcmp(line, "b") == 0 || strcmp(line, "B") == 0) {
+                step = 14;
+            } else {
+                if (line[0] != '\0') {
+                    strncpy(m4v_audio_lang, line, sizeof(m4v_audio_lang) - 1);
+                    m4v_audio_lang[sizeof(m4v_audio_lang) - 1] = '\0';
+                }
+                step = 16;
+            }
+            break;
+        }
+
+        /* ---- Step 16: M4V — chapters + track indices ---- */
+        case 16: {
+            char line[32];
+            clear_screen();
+            printf("----ffmpeg_converter_simple_gui----\n\n");
+            printf("Apple M4V: embed chapter markers?\n");
+            printf("  y/Enter=yes (default), n=no, c=cancel, b=back\n>");
+            fflush(stdout);
+            if (!fgets(line, sizeof(line), stdin)) {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            }
+            line[strcspn(line, "\r\n")] = '\0';
+            if (strcmp(line, "c") == 0 || strcmp(line, "C") == 0) {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            } else if (strcmp(line, "b") == 0 || strcmp(line, "B") == 0) {
+                step = 15;
+            } else {
+                m4v_add_chapters = (line[0] == 'n' || line[0] == 'N') ? 0 : 1;
+                step = 17;
+            }
+            break;
+        }
+
+        /* ---- Step 17: M4V — stream track indices ---- */
+        case 17: {
+            char line[32];
+            clear_screen();
+            printf("----ffmpeg_converter_simple_gui----\n\n");
+            printf("Apple M4V: video stream index (0-based, default 0)\n>");
+            fflush(stdout);
+            if (!fgets(line, sizeof(line), stdin)) {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            }
+            line[strcspn(line, "\r\n")] = '\0';
+            if (strcmp(line, "c") == 0 || strcmp(line, "C") == 0) {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            } else if (strcmp(line, "b") == 0 || strcmp(line, "B") == 0) {
+                step = 16;
+                break;
+            } else {
+                if (line[0] != '\0') m4v_video_track = atoi(line);
+            }
+
+            printf("Apple M4V: audio stream index (0-based, default 0)\n>");
+            fflush(stdout);
+            if (!fgets(line, sizeof(line), stdin)) {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            }
+            line[strcspn(line, "\r\n")] = '\0';
+            if (strcmp(line, "c") == 0 || strcmp(line, "C") == 0) {
+                free_temp_files(temp_files, temp_file_count);
+                return -1;
+            }
+            if (line[0] != '\0') m4v_audio_track = atoi(line);
+
+            step = 11;
             break;
         }
 

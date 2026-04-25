@@ -96,6 +96,15 @@ const char *platform_null_redirect(void);
 void platform_shell_quote(const char *input, char *out, size_t out_sz);
 
 /**
+ * platform_rename() — Rename (move) a file from src to dst, replacing dst
+ * if it already exists.
+ * POSIX: rename() (atomic replace)
+ * Windows: MoveFileExA(..., MOVEFILE_REPLACE_EXISTING)
+ * Returns 0 on success, -1 on error.
+ */
+int platform_rename(const char *src, const char *dst);
+
+/**
  * platform_get_ffprobe_bin() and platform_get_mkvmerge_bin() are provided
  * by the converter library (converter_platform.h / platform_get_*).
  * mux.c includes converter_platform.h directly to call them.

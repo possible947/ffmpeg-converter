@@ -38,6 +38,12 @@ int platform_unlink(const char *path)
     return unlink(path);
 }
 
+int platform_rename(const char *src, const char *dst)
+{
+    /* POSIX rename() atomically replaces dst if it already exists. */
+    return rename(src, dst);
+}
+
 /* ---------------------------------------------------------------
  *  Process execution
  * --------------------------------------------------------------- */

@@ -270,7 +270,7 @@ ConverterError mux_run_postprocess(
         return ERR_FFPROBE_FAILED;
     }
 
-    if (rename(temp_output, opts->output_file) != 0) {
+    if (platform_rename(temp_output, opts->output_file) != 0) {
         platform_unlink(temp_output);
         emit_error(callbacks, "post-mux failed: could not move validated output into place", ERR_UNKNOWN);
         return ERR_UNKNOWN;

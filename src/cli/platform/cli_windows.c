@@ -10,7 +10,10 @@
  * Codec support: copy, prores (software), prores_ks (software),
  *                h264_nvenc / hevc_nvenc (NVIDIA, if available),
  *                h264_amf / hevc_amf (AMD, if available),
- *                h264_qsv / hevc_qsv (Intel, if available)
+ *                h264_qsv / hevc_qsv (Intel, if available),
+ *                prores_ks_vulkan (any GPU with Vulkan 1.1+, if available)
+ *                mux (mkvmerge post-process; requires mkvmerge on PATH or
+ *                     next to the executable)
  */
 
 #include <stdio.h>
@@ -45,8 +48,10 @@
 #endif
 
 #include "converter.h"
+#include "converter_platform.h"
 #include "cli_platform.h"
 #include "windows/runtime_probe.h"
+#include "mux.h"
 
 /* ---------------------------------------------------------------
  *  Private platform handle definition
@@ -56,8 +61,10 @@
  *                        h264_nvenc + hevc_nvenc +
  *                        h264_amf  + hevc_amf  +
  *                        h264_qsv  + hevc_qsv  +
- *                        prores_ks_vulkan            */
-#define WINDOWS_MAX_CODECS 10
+ *                        prores_ks_vulkan +
+ *                        mux +
+ *                        m4v                        */
+#define WINDOWS_MAX_CODECS 12
 
 struct CliPlatformHandle {
     WindowsCodecSupport support;
@@ -149,6 +156,22 @@ CliPlatformHandle* cli_platform_init(void) {
         h->codec_count++;
     }
 
+    /* Mux — available only when mkvmerge is found on PATH or next to exe */
+    if (platform_mux_is_supported()) {
+        h->entries[h->codec_count].name          = "mux";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
+    /* Apple M4V — available when MP4Box is found on PATH or next to exe */
+    if (platform_m4v_is_supported()) {
+        h->entries[h->codec_count].name          = "m4v";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
     return h;
 }
 
@@ -170,6 +193,10 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
         !strcmp(codec, "prores_ks"))
         return 1;
 
+    /* Mux availability is runtime-probed (mkvmerge on PATH or next to exe) */
+    if (!strcmp(codec, "mux"))
+        return platform_mux_is_supported();
+
     if (!h)
         return 0;
 
@@ -180,6 +207,7 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
     if (!strcmp(codec, "h264_qsv"))         return h->support.has_h264_qsv;
     if (!strcmp(codec, "hevc_qsv"))         return h->support.has_hevc_qsv;
     if (!strcmp(codec, "prores_ks_vulkan")) return h->support.has_prores_ks_vulkan;
+    if (!strcmp(codec, "m4v"))              return platform_m4v_is_supported();
 
     return 0;
 }
@@ -194,7 +222,16 @@ int platform_audio_mode_is_available(const char* mode) {
 }
 
 int platform_mux_is_supported(void) {
-    return 0;
+    const char* bin = windows_get_preferred_mkvmerge_bin();
+    /* The resolver falls back to the bare name "mkvmerge" when nothing is
+     * found; a bare name has no path separator, so treat that as "not found". */
+    return bin && (strchr(bin, '\\') != NULL || strchr(bin, '/') != NULL);
+}
+
+int platform_m4v_is_supported(void) {
+    const char* bin = platform_get_mp4box_bin();
+    /* An empty string means the resolver found nothing. */
+    return bin && bin[0] != '\0';
 }
 
 /* ---------------------------------------------------------------
@@ -321,17 +358,51 @@ int platform_ensure_output_dir(const char* path) {
 }
 
 /* ---------------------------------------------------------------
- *  Mux post-processing (not supported on Windows)
+ *  Mux post-processing
  * --------------------------------------------------------------- */
 
 ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
                                             const ConverterCallbacks* cb,
                                             const char* input_file)
 {
-    (void)opts;
-    (void)cb;
-    (void)input_file;
-    return ERR_INVALID_OPTIONS;
+    ConvertOptions file_opts;
+    MuxOptions     mux_opts;
+    char           effective_output_dir[4096];
+
+    if (!opts || !cb || !input_file)
+        return ERR_INVALID_OPTIONS;
+
+    memset(&file_opts, 0, sizeof(file_opts));
+    file_opts = *opts;
+    strcpy(file_opts.codec, "copy");
+
+    if (opts->output_dir[0] != '\0') {
+        strncpy(effective_output_dir, opts->output_dir,
+                sizeof(effective_output_dir) - 1);
+        effective_output_dir[sizeof(effective_output_dir) - 1] = '\0';
+    } else {
+        const char* home = cli_get_home_dir();
+        snprintf(effective_output_dir, sizeof(effective_output_dir),
+                 "%s\\ffmpeg_converter", home);
+    }
+
+    strncpy(file_opts.output_dir, effective_output_dir,
+            sizeof(file_opts.output_dir) - 1);
+    file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = '\0';
+
+    memset(&mux_opts, 0, sizeof(mux_opts));
+    converter_make_output_name(input_file, &file_opts,
+                               mux_opts.intermediate_file,
+                               sizeof(mux_opts.intermediate_file));
+    strncpy(mux_opts.video_track_file, opts->video_track_path,
+            sizeof(mux_opts.video_track_file) - 1);
+    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
+    strncpy(mux_opts.output_file, mux_opts.intermediate_file,
+            sizeof(mux_opts.output_file) - 1);
+    mux_opts.output_file[sizeof(mux_opts.output_file) - 1] = '\0';
+    mux_opts.overwrite = opts->overwrite;
+
+    return mux_run_postprocess(&mux_opts, opts, cb);
 }
 
 /* ---------------------------------------------------------------

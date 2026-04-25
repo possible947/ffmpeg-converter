@@ -280,6 +280,9 @@ const char* platform_get_filename(const char* path) {
 char* platform_join_paths(const char* dir, const char* file) {
     if (!dir || !file) return NULL;
     size_t dir_len  = strlen(dir);
+    /* Strip trailing path separators from dir */
+    while (dir_len > 0 && (dir[dir_len - 1] == '\\' || dir[dir_len - 1] == '/'))
+        --dir_len;
     size_t file_len = strlen(file);
     /* dir + "\" + file + NUL */
     char* out = malloc(dir_len + 1 + file_len + 1);

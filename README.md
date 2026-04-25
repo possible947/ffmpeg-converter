@@ -46,6 +46,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - Audio normalization: `none`, `peak`, `peak 2-pass`, `loudness`, `loudness 2-pass`.
 - Audio output modes: PCM, FDK AAC q5, FDK AAC q5 + AC3 640.
 - Linux MKV mux mode: one source file + external replacement video track, final output via `mkvmerge`.
+- **Windows MKV mux mode**: same workflow available on Windows when `mkvmerge` is found on PATH or next to the executable (installed via MKVToolNix, Chocolatey, or MSYS2).
 - **Audio filter multithreading**: 2-pass analysis uses `-filter_threads N` (N = CPU/2) for parallel audio processing.
 - Encode progress: percent, FPS, ETA.
 - CLI with argument parsing and interactive menu.
@@ -69,7 +70,7 @@ Two independent implementations share the same conversion logic and CLI behavior
   - Windows (MSVC): required in `src/platform/windows/bin/` (`ffmpeg.exe`, `ffprobe.exe`, and their DLL dependencies); copied next to `ffmpeg_converter.exe` at build time.
   On macOS, priority order: macports FFmpeg8 (`/opt/local/bin/ffmpeg8`) → macports (`/opt/local/bin/ffmpeg`) → system PATH.
 - `MP4Box` (GPAC) for Apple M4V packaging/runtime on macOS native GUI and Linux GTK M4V workflow.
-- `mkvmerge` for Linux mux mode.
+- `mkvmerge` for mux mode (Linux, macOS, and Windows). On Windows: install via `choco install mkvtoolnix`, MSYS2 `pacman -S mingw-w64-x86_64-mkvtoolnix`, or place `mkvmerge.exe` next to `ffmpeg_converter.exe`. The `MKVMERGE` or `MKVMERGE_BIN` environment variable can also point to a custom path. Mux mode is silently disabled when mkvmerge is not found.
 - Linux GUI only: `libgtk-4-dev` (or distro equivalent).
 - Optional AppImage packaging: `appimagetool` (https://github.com/AppImage/AppImageKit).
 
@@ -182,6 +183,7 @@ make -C fpc/build gui-app
 ./build/bin/ffmpeg_converter -c prores_ks -p hq -a loudnorm2 -g rock input.mov
 ./build/bin/ffmpeg_converter -c mux --video-track replacement.hevc input.mkv
 ./build/bin/ffmpeg_converter -o /tmp/out -c hevc_videotoolbox input.mov  # macOS
+ffmpeg_converter.exe -c mux --video-track replacement.hevc input.mkv     # Windows
 ```
 
 CLI notes:
@@ -247,6 +249,9 @@ third_party/   Vendored jansson (C path)
   and driver expose working VAAPI H.264 or HEVC encode.
 - Linux `mux` mode is a one-source-file workflow that keeps processed audio and
   replaces the final video through `mkvmerge`.
+- Windows `mux` mode uses the same `mkvmerge`-based pipeline. The `mux` codec
+  appears in the menu and is accepted on the command line only when `mkvmerge`
+  is detected at startup (PATH, env var `MKVMERGE`/`MKVMERGE_BIN`, or bundled).
 - Linux GTK Apple M4V creator is GUI-only and now uses `libfdk_aac -vbr 5`
   by default for the AAC track.
 - `prores_videotoolbox` uses Apple's proprietary ProRes encoder (hardware on

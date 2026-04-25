@@ -80,6 +80,13 @@ int platform_audio_mode_is_available(const char* mode);
  */
 int platform_mux_is_supported(void);
 
+/**
+ * platform_m4v_is_supported() — Returns 1 if Apple M4V creation is
+ * available (requires MP4Box found on PATH or next to the executable).
+ * Windows only; always returns 0 on other platforms.
+ */
+int platform_m4v_is_supported(void);
+
 /* ---------------------------------------------------------------
  *  Interactive menu codec list
  * --------------------------------------------------------------- */

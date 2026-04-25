@@ -309,7 +309,8 @@ ConverterError m4v_validate_input_supported(const char *input_file,
     }
 
     output[strcspn(output, "\r\n")] = '\0';
-    if (strcmp(output, "h264") != 0 && strcmp(output, "hevc") != 0 && strcmp(output, "prores") != 0) {
+    if (strcmp(output, "h264") != 0 && strcmp(output, "hevc") != 0 &&
+        strcmp(output, "prores") != 0 && strcmp(output, "prores_ks") != 0) {
         snprintf(detail, detail_sz, "unsupported video codec for M4V: %s", output[0] != '\0' ? output : "unknown");
         return ERR_INVALID_OPTIONS;
     }

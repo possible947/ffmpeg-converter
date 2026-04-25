@@ -129,6 +129,10 @@ int platform_mux_is_supported(void) {
     return 1;
 }
 
+int platform_m4v_is_supported(void) {
+    return 0;
+}
+
 /* ---------------------------------------------------------------
  *  Codec list
  * --------------------------------------------------------------- */

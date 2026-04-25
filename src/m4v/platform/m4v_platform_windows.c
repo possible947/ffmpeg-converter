@@ -134,6 +134,51 @@ void m4v_platform_remove_temp_dir(const char *dir)
 
 FILE *m4v_platform_popen(const char *cmd, const char *mode)
 {
+    FILE*    fp;
+    wchar_t* wcmd  = NULL;
+    wchar_t* wmode = NULL;
+    int      wlen;
+
+    if (!cmd || !mode)
+        return NULL;
+
+    /* Convert UTF-8 strings to wide so _wpopen handles non-ANSI paths. */
+    wlen = MultiByteToWideChar(CP_UTF8, 0, cmd, -1, NULL, 0);
+    if (wlen <= 0) goto fallback;
+    wcmd = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
+    if (!wcmd) goto fallback;
+    MultiByteToWideChar(CP_UTF8, 0, cmd, -1, wcmd, wlen);
+
+    wlen = MultiByteToWideChar(CP_UTF8, 0, mode, -1, NULL, 0);
+    if (wlen <= 0) goto fallback;
+    wmode = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
+    if (!wmode) goto fallback;
+    MultiByteToWideChar(CP_UTF8, 0, mode, -1, wmode, wlen);
+
+    /* cmd.exe strips the outer quotes when the command line starts with a
+     * quoted path (e.g. "C:\Program Files\..." args).  Wrap the whole
+     * command in an extra pair of double-quotes to prevent this. */
+    if (wcmd[0] == L'"') {
+        size_t   cmd_wlen = wcslen(wcmd);
+        wchar_t* wrapped  = (wchar_t*)malloc((cmd_wlen + 3) * sizeof(wchar_t));
+        if (!wrapped) goto fallback;
+        wrapped[0] = L'"';
+        memcpy(wrapped + 1, wcmd, cmd_wlen * sizeof(wchar_t));
+        wrapped[cmd_wlen + 1] = L'"';
+        wrapped[cmd_wlen + 2] = L'\0';
+        fp = _wpopen(wrapped, wmode);
+        free(wrapped);
+    } else {
+        fp = _wpopen(wcmd, wmode);
+    }
+
+    free(wcmd);
+    free(wmode);
+    return fp;
+
+fallback:
+    free(wcmd);
+    free(wmode);
     return _popen(cmd, mode);
 }
 
