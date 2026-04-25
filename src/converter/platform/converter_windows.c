@@ -619,7 +619,7 @@ FILE *platform_popen(const char *cmd, const char *mode)
         wchar_t* wrapped = (wchar_t*)malloc((cmd_wlen + 3) * sizeof(wchar_t));
         if (!wrapped) goto fallback;
         wrapped[0] = L'"';
-        wmemcpy(wrapped + 1, wcmd, cmd_wlen);
+        memcpy(wrapped + 1, wcmd, cmd_wlen * sizeof(wchar_t));
         wrapped[cmd_wlen + 1] = L'"';
         wrapped[cmd_wlen + 2] = L'\0';
         fp = _wpopen(wrapped, wmode);
