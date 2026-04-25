@@ -6,7 +6,6 @@
 
 #include "../converter_platform.h"
 #include "../converter.h"
-#include "../../platform/windows/runtime_probe.h"  /* WindowsCodecSupport, windows_probe_codec_support */
 #include <windows.h>
 #include <shlwapi.h>    /* PathFindOnPathA, PathFileExistsA */
 #include <direct.h>     /* _mkdir */
@@ -542,15 +541,8 @@ const char* platform_get_preinput_hw_flags(const char* codec,
 
     /* prores_ks_vulkan requires a Vulkan device context before -i.
      * Use whichever device index passed the startup probe. */
-    if (strcmp(codec, "prores_ks_vulkan") == 0) {
-        static char vk_flag[64];
-        WindowsCodecSupport sup;
-        windows_probe_codec_support(&sup);
-        snprintf(vk_flag, sizeof(vk_flag),
-                 "-init_hw_device vulkan=vk:%d -filter_hw_device vk",
-                 sup.vulkan_device_index);
-        return vk_flag;
-    }
+    if (strcmp(codec, "prores_ks_vulkan") == 0)
+        return "-init_hw_device vulkan=vk:1 -filter_hw_device vk";
     return NULL;
 }
 
