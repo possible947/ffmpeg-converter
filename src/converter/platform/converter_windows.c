@@ -541,8 +541,14 @@ const char* platform_get_preinput_hw_flags(const char* codec,
 
     /* prores_ks_vulkan requires a Vulkan device context before -i.
      * Use whichever device index passed the startup probe. */
-    if (strcmp(codec, "prores_ks_vulkan") == 0)
-        return "-init_hw_device vulkan=vk:1 -filter_hw_device vk";
+    if (strcmp(codec, "prores_ks_vulkan") == 0) {
+        static char vk_flag[64];
+        const ConvertOptions* copt = (const ConvertOptions*)opts;
+        int vk_idx = (copt && copt->vulkan_device >= 0) ? copt->vulkan_device : 1;
+        snprintf(vk_flag, sizeof(vk_flag),
+                 "-init_hw_device vulkan=vk:%d -filter_hw_device vk", vk_idx);
+        return vk_flag;
+    }
     return NULL;
 }
 

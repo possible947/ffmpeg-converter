@@ -100,6 +100,7 @@ void print_usage(const CliPlatformHandle* h) {
     printf("  -g, --genre <edm|rock|hiphop|classical|podcast>\n");
     printf("      (genre is used only with loudnorm2)\n");
     printf("  --overwrite        overwrite output files\n");
+    printf("      --vk_device <0|1>  Vulkan adapter index for prores_ks_vulkan (default: 1)\n");
     printf("  -o, --output <directory> set output directory\n");
     printf("  -h, --help         show this help\n\n");
     if (platform_mux_is_supported()) {
@@ -486,6 +487,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
     opts->output_dir[0] = '\0';
     opts->output_dir_status = 0;
     opts->video_track_path[0] = '\0';
+    opts->vulkan_device = 1;  /* default: vk:1 (NVIDIA on mixed-GPU systems) */
 
     *file_count = 0;
 
@@ -574,6 +576,15 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
 
         if (!strcmp(argv[i], "--overwrite")) {
             opts->overwrite = 1;
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--vk_device")) {
+            if (i + 1 >= argc) return 0;
+            i++;
+            if (!strcmp(argv[i], "0"))      opts->vulkan_device = 0;
+            else if (!strcmp(argv[i], "1")) opts->vulkan_device = 1;
+            else return 0;
             continue;
         }
 

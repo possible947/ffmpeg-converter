@@ -306,28 +306,33 @@ static int windows_probe_encoder(const char *ffmpeg_bin,
 
 /**
  * windows_probe_vulkan_prores()
- * Tests prores_ks_vulkan on Vulkan device vk:1 (hard-locked).
- * vk:0 is Intel Arc on this system which produces broken output;
- * vk:1 is NVIDIA and produces correct ProRes output.
- * Returns 1 if the encode exits 0, -1 if unavailable.
+ * Tests prores_ks_vulkan on vk:1 (default) and vk:0 as fallback.
+ * Returns 1 if either device succeeds, -1 if unavailable.
+ * The user can override the encode device at runtime via --vk_device.
  */
 static int windows_probe_vulkan_prores(const char *ffmpeg_bin)
 {
-    char cmd[8192];
+    int i;
 
     if (!ffmpeg_bin || ffmpeg_bin[0] == '\0') return -1;
     if (!windows_path_is_cmd_safe(ffmpeg_bin)) return -1;
 
-    snprintf(cmd, sizeof(cmd),
-             "\"%s\" -v error -hide_banner "
-             "-init_hw_device vulkan=vk:1 -filter_hw_device vk "
-             "-f lavfi -i color=size=1920x1080:rate=1 "
-             "-frames:v 1 "
-             "-vf format=yuv422p10le,hwupload "
-             "-c:v prores_ks_vulkan -f null - 2>nul",
-             ffmpeg_bin);
-
-    return system(cmd) == 0 ? 1 : -1;
+    /* Try vk:1 first (NVIDIA on mixed-GPU systems), then vk:0 */
+    int order[] = {1, 0};
+    for (i = 0; i < 2; i++) {
+        char cmd[8192];
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s\" -v error -hide_banner "
+                 "-init_hw_device vulkan=vk:%d -filter_hw_device vk "
+                 "-f lavfi -i color=size=1920x1080:rate=1 "
+                 "-frames:v 1 "
+                 "-vf format=yuv422p10le,hwupload "
+                 "-c:v prores_ks_vulkan -f null - 2>nul",
+                 ffmpeg_bin, order[i]);
+        if (system(cmd) == 0)
+            return 1;
+    }
+    return -1;
 }
 
 /* ---- Main Probe Function ----------------------------------------------- */

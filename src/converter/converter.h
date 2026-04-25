@@ -85,7 +85,8 @@ typedef struct {
     int hwaccel_enabled;
     int video_quality;
     int use_aac_for_h265;
-    int hevc_vt_bitrate_kbps;  // calculated at runtime for hevc_videotoolbox
+    int hevc_vt_bitrate_kbps;  /* calculated at runtime for hevc_videotoolbox */
+    int vulkan_device;         /* Vulkan adapter index for prores_ks_vulkan (default 1) */
 
 } ConvertOptions;
 
