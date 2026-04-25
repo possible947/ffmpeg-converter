@@ -19,14 +19,15 @@
 #include "converter.h"
 #include "cli_platform.h"
 #include "macos/runtime_probe.h"
+#include "m4v.h"
 
 /* ---------------------------------------------------------------
  *  Private platform handle definition
  * --------------------------------------------------------------- */
 
 /* Maximum codec entries: copy + prores + prores_ks +
- *                        prores_videotoolbox + hevc_videotoolbox  */
-#define MACOS_MAX_CODECS 5
+ *                        prores_videotoolbox + hevc_videotoolbox + m4v */
+#define MACOS_MAX_CODECS 6
 
 struct CliPlatformHandle {
     MacosCodecSupport   support;
@@ -74,6 +75,13 @@ CliPlatformHandle* cli_platform_init(void) {
     h->entries[h->codec_count].needs_deblock = 0;
     h->codec_count++;
 
+    if (platform_m4v_is_supported()) {
+        h->entries[h->codec_count].name          = "m4v";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
     return h;
 }
 
@@ -95,7 +103,8 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
            !strcmp(codec, "prores")               ||
            !strcmp(codec, "prores_ks")            ||
            !strcmp(codec, "prores_videotoolbox")  ||
-           !strcmp(codec, "hevc_videotoolbox");
+           !strcmp(codec, "hevc_videotoolbox")    ||
+           (!strcmp(codec, "m4v") && platform_m4v_is_supported());
 }
 
 int platform_audio_mode_is_available(const char* mode) {
@@ -112,7 +121,9 @@ int platform_mux_is_supported(void) {
 }
 
 int platform_m4v_is_supported(void) {
-    return 0;
+    const char* bin = macos_get_preferred_mp4box_bin();
+    /* A bare binary name (no path separator) means the resolver found nothing. */
+    return bin && (strchr(bin, '/') != NULL);
 }
 
 /* ---------------------------------------------------------------
@@ -135,6 +146,12 @@ void platform_apply_hw_device(ConvertOptions* opts, const CliPlatformHandle* h) 
     /* VideoToolbox does not require a device path */
     (void)opts;
     (void)h;
+}
+
+int platform_get_default_vulkan_device(const CliPlatformHandle* h) {
+    /* Vulkan not supported on macOS */
+    (void)h;
+    return 0;
 }
 
 /* ---------------------------------------------------------------

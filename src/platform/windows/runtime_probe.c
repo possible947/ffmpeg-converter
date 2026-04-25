@@ -306,21 +306,30 @@ static int windows_probe_encoder(const char *ffmpeg_bin,
 
 /**
  * windows_probe_vulkan_prores()
- * Tests prores_ks_vulkan on vk:1 (default) and vk:0 as fallback.
- * Returns 1 if either device succeeds, -1 if unavailable.
+ * Scans vk:0 through vk:7 for prores_ks_vulkan support.
+ * Records a working_mask bitmask and device_count for all passing devices.
+ * Returns the highest working device index (statistically more likely to
+ * be a discrete GPU), or -1 if no device passes.
  * The user can override the encode device at runtime via --vk_device.
  */
-static int windows_probe_vulkan_prores(const char *ffmpeg_bin)
+#define WINDOWS_VULKAN_MAX_DEVICES 8
+
+static int windows_probe_vulkan_prores(const char *ffmpeg_bin,
+                                       int *out_working_mask,
+                                       int *out_device_count)
 {
-    int i;
+    int i, mask = 0, count = 0, best = -1;
+
+    if (out_working_mask)  *out_working_mask  = 0;
+    if (out_device_count)  *out_device_count  = 0;
 
     if (!ffmpeg_bin || ffmpeg_bin[0] == '\0') return -1;
     if (!windows_path_is_cmd_safe(ffmpeg_bin)) return -1;
 
-    /* Try vk:1 first (NVIDIA on mixed-GPU systems), then vk:0 */
-    int order[] = {1, 0};
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < WINDOWS_VULKAN_MAX_DEVICES; i++) {
         char cmd[8192];
+        int  rc;
+
         snprintf(cmd, sizeof(cmd),
                  "\"%s\" -v error -hide_banner "
                  "-init_hw_device vulkan=vk:%d -filter_hw_device vk "
@@ -328,11 +337,22 @@ static int windows_probe_vulkan_prores(const char *ffmpeg_bin)
                  "-frames:v 1 "
                  "-vf format=yuv422p10le,hwupload "
                  "-c:v prores_ks_vulkan -f null - 2>nul",
-                 ffmpeg_bin, order[i]);
-        if (system(cmd) == 0)
-            return 1;
+                 ffmpeg_bin, i);
+
+        rc = system(cmd);
+        if (rc == 0) {
+            mask |= (1 << i);
+            best = i;
+            count++;
+        } else if (count == 0 && i >= 2) {
+            /* No successes after 3 attempts — no Vulkan GPU present */
+            break;
+        }
     }
-    return -1;
+
+    if (out_working_mask)  *out_working_mask  = mask;
+    if (out_device_count)  *out_device_count  = count;
+    return best;
 }
 
 /* ---- Main Probe Function ----------------------------------------------- */
@@ -377,9 +397,13 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
 
     /* Probe Vulkan ProRes encoder (requires full Vulkan device init pipeline) */
     {
-        int vk_idx = windows_probe_vulkan_prores(g_cache.support.bins.ffmpeg_bin);
-        g_cache.support.has_prores_ks_vulkan  = (vk_idx >= 0) ? 1 : 0;
-        g_cache.support.vulkan_device_index   = (vk_idx >= 0) ? vk_idx : 0;
+        int mask = 0, count = 0;
+        int best = windows_probe_vulkan_prores(g_cache.support.bins.ffmpeg_bin,
+                                               &mask, &count);
+        g_cache.support.has_prores_ks_vulkan = (best >= 0) ? 1 : 0;
+        g_cache.support.vulkan_working_mask  = mask;
+        g_cache.support.vulkan_device_index  = (best >= 0) ? best : 0;
+        g_cache.support.vulkan_device_count  = count;
     }
 
     /* Resolve remaining tool binaries */

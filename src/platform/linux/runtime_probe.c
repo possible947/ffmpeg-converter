@@ -201,6 +201,108 @@ static void resolve_preferred_binary(const char* env_name_primary,
         }
 }
 
+/**
+ * linux_path_is_shell_safe()
+ * Returns 1 if path contains no characters interpreted specially by
+ * the shell inside a double-quoted argument (", $, `, \).
+ * Paths failing this check are not used in system() calls.
+ */
+static int linux_path_is_shell_safe(const char *path)
+{
+    const char *p;
+    if (!path)
+        return 0;
+    for (p = path; *p != '\0'; ++p) {
+        if (*p == '"' || *p == '$' || *p == '`' || *p == '\\')
+            return 0;
+    }
+    return 1;
+}
+
+/**
+ * probe_simple_encoder()
+ * Tests a single GPU encoder (NVENC, AMF, QSV) via a one-frame encode.
+ * No device path is required — these encoders auto-select the GPU.
+ * Returns 1 if the encoder is available, 0 otherwise.
+ */
+static int probe_simple_encoder(const char *ffmpeg_bin,
+                                const char *encoder_name)
+{
+    char cmd[8192];
+    int  rc;
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0' || !encoder_name)
+        return 0;
+    if (!linux_path_is_shell_safe(ffmpeg_bin))
+        return 0;
+
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -v error -hide_banner "
+             "-f lavfi -i color=size=1920x1080:rate=1 "
+             "-frames:v 1 "
+             "-c:v %s -f null - >/dev/null 2>&1",
+             ffmpeg_bin, encoder_name);
+
+    rc = system(cmd);
+    if (rc == -1)
+        return 0;
+
+    return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
+}
+
+/**
+ * probe_vulkan_prores()
+ * Tests prores_ks_vulkan on vk:0 through vk:7.
+ * Scans all devices, records a working_mask bitmask and device_count.
+ * Returns the highest working device index (statistically more likely
+ * to be a discrete GPU), or -1 if no device passes.
+ */
+#define LINUX_VULKAN_MAX_DEVICES 8
+
+static int probe_vulkan_prores(const char *ffmpeg_bin,
+                               int *out_working_mask,
+                               int *out_device_count)
+{
+    int i, mask = 0, count = 0, best = -1;
+
+    if (out_working_mask)  *out_working_mask  = 0;
+    if (out_device_count)  *out_device_count  = 0;
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0') return -1;
+    if (!linux_path_is_shell_safe(ffmpeg_bin)) return -1;
+
+    for (i = 0; i < LINUX_VULKAN_MAX_DEVICES; i++) {
+        char cmd[8192];
+        int  rc;
+
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s\" -v error -hide_banner "
+                 "-init_hw_device vulkan=vk:%d -filter_hw_device vk "
+                 "-f lavfi -i color=size=1920x1080:rate=1 "
+                 "-frames:v 1 "
+                 "-vf format=yuv422p10le,hwupload "
+                 "-c:v prores_ks_vulkan -f null - >/dev/null 2>&1",
+                 ffmpeg_bin, i);
+
+        rc = system(cmd);
+        if (rc == -1)
+            break;  /* system() failure — stop scanning */
+
+        if (WIFEXITED(rc) && WEXITSTATUS(rc) == 0) {
+            mask |= (1 << i);
+            best = i;
+            count++;
+        } else if (count == 0 && i >= 2) {
+            /* No successes after 3 attempts — no Vulkan GPU present */
+            break;
+        }
+    }
+
+    if (out_working_mask)  *out_working_mask  = mask;
+    if (out_device_count)  *out_device_count  = count;
+    return best;
+}
+
 static int probe_vaapi_encoder(const char *ffmpeg_bin,
                                const char *render_node,
                                const char *encoder_name)
@@ -294,6 +396,28 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
                 detected.has_hevc_vaapi = 1;
         }
         closedir(dir);
+    }
+
+    /* NVENC — NVIDIA (no device path required) */
+    detected.has_h264_nvenc = probe_simple_encoder(detected.ffmpeg_bin, "h264_nvenc");
+    detected.has_hevc_nvenc = probe_simple_encoder(detected.ffmpeg_bin, "hevc_nvenc");
+
+    /* AMF — AMD (no device path required) */
+    detected.has_h264_amf = probe_simple_encoder(detected.ffmpeg_bin, "h264_amf");
+    detected.has_hevc_amf = probe_simple_encoder(detected.ffmpeg_bin, "hevc_amf");
+
+    /* QSV — Intel (no device path required) */
+    detected.has_h264_qsv = probe_simple_encoder(detected.ffmpeg_bin, "h264_qsv");
+    detected.has_hevc_qsv = probe_simple_encoder(detected.ffmpeg_bin, "hevc_qsv");
+
+    /* Vulkan — any GPU with Vulkan 1.1+ */
+    {
+        int mask = 0, count = 0;
+        int best = probe_vulkan_prores(detected.ffmpeg_bin, &mask, &count);
+        detected.has_prores_ks_vulkan = (best >= 0) ? 1 : 0;
+        detected.vulkan_working_mask  = mask;
+        detected.vulkan_device_index  = (best >= 0) ? best : 0;
+        detected.vulkan_device_count  = count;
     }
 
     g_cache.support = detected;

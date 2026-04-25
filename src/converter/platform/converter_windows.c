@@ -490,6 +490,24 @@ int platform_detect_gpu_support(void) {
         if (strstr(line, " libfdk_aac"))        caps |= PLAT_CAP_LIBFDK_AAC;
     }
     _pclose(fp);
+
+    /* Also probe decoders for software/HW AV1 decode support. Only flag
+     * av1_qsv as available when QSV is actually working (encoder present). */
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -hide_banner -v error -decoders 2>nul", ffmpeg);
+    fp = _popen(cmd, "r");
+    if (fp) {
+        while (fgets(line, sizeof(line), fp)) {
+            platform_normalize_output_line(line);
+            if ((caps & (PLAT_CAP_QSV_H264 | PLAT_CAP_QSV_HEVC)) &&
+                strstr(line, " av1_qsv"))
+                caps |= PLAT_CAP_AV1_QSV_DEC;
+            if (strstr(line, " libdav1d"))
+                caps |= PLAT_CAP_LIBDAV1D_DEC;
+        }
+        _pclose(fp);
+    }
+
     return caps;
 }
 
@@ -534,13 +552,7 @@ int platform_get_video_info(const char* input_path,
 const char* platform_get_preinput_hw_flags(const char* codec,
                                             const void* opts)
 {
-    (void)opts;
     if (!codec) return NULL;
-
-    /* Intel QSV: enable hardware-accelerated decode for better
-     * performance and to keep frames in GPU memory. */
-    if (strcmp(codec, "h264_qsv") == 0 || strcmp(codec, "hevc_qsv") == 0)
-        return "-hwaccel qsv";
 
     /* prores_ks_vulkan requires a Vulkan device context before -i.
      * Use whichever device index passed the startup probe. */
@@ -552,6 +564,7 @@ const char* platform_get_preinput_hw_flags(const char* codec,
                  "-init_hw_device vulkan=vk:%d -filter_hw_device vk", vk_idx);
         return vk_flag;
     }
+    (void)opts;
     return NULL;
 }
 

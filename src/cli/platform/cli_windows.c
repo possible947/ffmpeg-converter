@@ -252,8 +252,15 @@ const PlatformCodecEntry* platform_get_codec_entries(const CliPlatformHandle* h)
 
 void platform_apply_hw_device(ConvertOptions* opts, const CliPlatformHandle* h) {
     /* NVENC/AMF/QSV do not require a device path in ffmpeg */
+    /* prores_ks_vulkan: device index used via platform_get_preinput_hw_flags() */
     (void)opts;
     (void)h;
+}
+
+int platform_get_default_vulkan_device(const CliPlatformHandle* h) {
+    if (h && h->support.has_prores_ks_vulkan)
+        return h->support.vulkan_device_index;
+    return 1;  /* safe fallback */
 }
 
 /* ---------------------------------------------------------------

@@ -100,7 +100,10 @@ void print_usage(const CliPlatformHandle* h) {
     printf("  -g, --genre <edm|rock|hiphop|classical|podcast>\n");
     printf("      (genre is used only with loudnorm2)\n");
     printf("  --overwrite        overwrite output files\n");
-    printf("      --vk_device <0|1>  Vulkan adapter index for prores_ks_vulkan (default: 1)\n");
+    if (platform_codec_is_available(h, "prores_ks_vulkan"))
+        printf("      --vk_device <N>    Vulkan adapter index for prores_ks_vulkan"
+               " (default: %d)\n",
+               platform_get_default_vulkan_device(h));
     printf("  -o, --output <directory> set output directory\n");
     printf("  -h, --help         show this help\n\n");
     if (platform_mux_is_supported()) {
@@ -596,7 +599,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
     opts->output_dir[0] = '\0';
     opts->output_dir_status = 0;
     opts->video_track_path[0] = '\0';
-    opts->vulkan_device = 1;  /* default: vk:1 (NVIDIA on mixed-GPU systems) */
+    opts->vulkan_device = platform_get_default_vulkan_device(h);
 
     /* M4V defaults */
     if (m4v_opts) {
@@ -756,9 +759,12 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         if (!strcmp(argv[i], "--vk_device")) {
             if (i + 1 >= argc) return 0;
             i++;
-            if (!strcmp(argv[i], "0"))      opts->vulkan_device = 0;
-            else if (!strcmp(argv[i], "1")) opts->vulkan_device = 1;
-            else return 0;
+            {
+                char *endptr;
+                long val = strtol(argv[i], &endptr, 10);
+                if (*endptr != '\0' || val < 0 || val > 7) return 0;
+                opts->vulkan_device = (int)val;
+            }
             continue;
         }
 

@@ -6,9 +6,30 @@ extern "C" {
 #endif
 
 typedef struct {
+    /* VAAPI (Intel/AMD iGPU via DRI render node) */
     int has_h264_vaapi;
     int has_hevc_vaapi;
     char default_render_node[1024];
+
+    /* NVIDIA NVENC */
+    int has_h264_nvenc;
+    int has_hevc_nvenc;
+
+    /* AMD AMF */
+    int has_h264_amf;
+    int has_hevc_amf;
+
+    /* Intel QSV */
+    int has_h264_qsv;
+    int has_hevc_qsv;
+
+    /* Vulkan (GPU-accelerated ProRes via Vulkan) */
+    int has_prores_ks_vulkan;
+    int vulkan_working_mask;   /* bit N = 1 if vk:N passed the probe */
+    int vulkan_device_index;   /* recommended default (highest working index) */
+    int vulkan_device_count;   /* total working Vulkan devices found */
+
+    /* Binary paths */
     char ffmpeg_bin[1024];
     char ffprobe_bin[1024];
     char mkvmerge_bin[1024];

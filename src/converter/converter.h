@@ -82,7 +82,6 @@ typedef struct {
     int output_dir_status;
     char video_track_path[1024];
     char hw_device[1024];
-    int hwaccel_enabled;
     int video_quality;
     int use_aac_for_h265;
     int hevc_vt_bitrate_kbps;  /* calculated at runtime for hevc_videotoolbox */

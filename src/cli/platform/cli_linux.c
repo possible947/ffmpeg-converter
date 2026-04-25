@@ -21,14 +21,19 @@
 #include "cli_platform.h"
 #include "linux/runtime_probe.h"
 #include "mux.h"
+#include "m4v.h"
 
 /* ---------------------------------------------------------------
  *  Private platform handle definition
  * --------------------------------------------------------------- */
 
 /* Maximum codec entries: copy + prores + prores_ks + mux +
- *                        h264_vaapi + hevc_vaapi                 */
-#define LINUX_MAX_CODECS 6
+ *                        h264_vaapi + hevc_vaapi +
+ *                        h264_nvenc + hevc_nvenc +
+ *                        h264_amf   + hevc_amf   +
+ *                        h264_qsv   + hevc_qsv   +
+ *                        prores_ks_vulkan + m4v          */
+#define LINUX_MAX_CODECS 14
 
 struct CliPlatformHandle {
     LinuxCodecSupport   support;
@@ -84,6 +89,62 @@ CliPlatformHandle* cli_platform_init(void) {
         h->codec_count++;
     }
 
+    if (h->support.has_h264_nvenc) {
+        h->entries[h->codec_count].name          = "h264_nvenc";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
+    if (h->support.has_hevc_nvenc) {
+        h->entries[h->codec_count].name          = "hevc_nvenc";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
+    if (h->support.has_h264_amf) {
+        h->entries[h->codec_count].name          = "h264_amf";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
+    if (h->support.has_hevc_amf) {
+        h->entries[h->codec_count].name          = "hevc_amf";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
+    if (h->support.has_h264_qsv) {
+        h->entries[h->codec_count].name          = "h264_qsv";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
+    if (h->support.has_hevc_qsv) {
+        h->entries[h->codec_count].name          = "hevc_qsv";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
+    if (h->support.has_prores_ks_vulkan) {
+        h->entries[h->codec_count].name          = "prores_ks_vulkan";
+        h->entries[h->codec_count].needs_profile = 1;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
+    if (platform_m4v_is_supported()) {
+        h->entries[h->codec_count].name          = "m4v";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
     return h;
 }
 
@@ -105,13 +166,21 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
         !strcmp(codec, "mux"))
         return 1;
 
+    if (!strcmp(codec, "m4v"))
+        return platform_m4v_is_supported();
+
     if (!h)
         return 0;
 
-    if (!strcmp(codec, "h264_vaapi"))
-        return h->support.has_h264_vaapi;
-    if (!strcmp(codec, "hevc_vaapi"))
-        return h->support.has_hevc_vaapi;
+    if (!strcmp(codec, "h264_vaapi"))        return h->support.has_h264_vaapi;
+    if (!strcmp(codec, "hevc_vaapi"))        return h->support.has_hevc_vaapi;
+    if (!strcmp(codec, "h264_nvenc"))        return h->support.has_h264_nvenc;
+    if (!strcmp(codec, "hevc_nvenc"))        return h->support.has_hevc_nvenc;
+    if (!strcmp(codec, "h264_amf"))          return h->support.has_h264_amf;
+    if (!strcmp(codec, "hevc_amf"))          return h->support.has_hevc_amf;
+    if (!strcmp(codec, "h264_qsv"))          return h->support.has_h264_qsv;
+    if (!strcmp(codec, "hevc_qsv"))          return h->support.has_hevc_qsv;
+    if (!strcmp(codec, "prores_ks_vulkan"))  return h->support.has_prores_ks_vulkan;
 
     return 0;
 }
@@ -130,7 +199,9 @@ int platform_mux_is_supported(void) {
 }
 
 int platform_m4v_is_supported(void) {
-    return 0;
+    const char* bin = linux_get_preferred_mp4box_bin();
+    /* A bare binary name (no path separator) means the resolver found nothing. */
+    return bin && (strchr(bin, '/') != NULL);
 }
 
 /* ---------------------------------------------------------------
@@ -159,8 +230,16 @@ void platform_apply_hw_device(ConvertOptions* opts, const CliPlatformHandle* h) 
         strncpy(opts->hw_device, h->support.default_render_node,
                 sizeof(opts->hw_device) - 1);
         opts->hw_device[sizeof(opts->hw_device) - 1] = '\0';
-        opts->hwaccel_enabled = 1;
     }
+
+    /* NVENC / AMF / QSV: no device path needed, ffmpeg auto-selects the GPU */
+    /* prores_ks_vulkan: device index used via platform_get_preinput_hw_flags() */
+}
+
+int platform_get_default_vulkan_device(const CliPlatformHandle* h) {
+    if (h && h->support.has_prores_ks_vulkan)
+        return h->support.vulkan_device_index;
+    return 1;  /* safe fallback */
 }
 
 /* ---------------------------------------------------------------

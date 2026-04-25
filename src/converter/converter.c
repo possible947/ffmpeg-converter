@@ -157,6 +157,44 @@ static const char* get_ffprobe_bin(void) {
     return platform_get_ffprobe_bin();
 }
 
+/* Probe the video codec of the first video stream in `input`.
+ * Writes a NUL-terminated codec name (e.g. "av1", "vp9", "h264") into
+ * `codec_out[0..codec_out_sz)`.  Returns 1 on success, 0 on failure. */
+static int probe_input_video_codec(const char* input,
+                                   char* codec_out, size_t codec_out_sz) {
+    if (!input || !codec_out || codec_out_sz == 0) return 0;
+    codec_out[0] = '\0';
+
+    const char* ffprobe_bin = platform_get_ffprobe_bin();
+    if (!ffprobe_bin || ffprobe_bin[0] == '\0') return 0;
+
+    char cmd[4096];
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -v error -select_streams v:0 "
+             "-show_entries stream=codec_name "
+             "-of default=noprint_wrappers=1:nokey=1 "
+             "\"%s\" 2>%s",
+             ffprobe_bin, input, platform_get_null_device());
+
+    FILE* fp = platform_popen(cmd, "r");
+    if (!fp) return 0;
+
+    char line[256];
+    int found = 0;
+    if (fgets(line, sizeof(line), fp)) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r'))
+            line[--len] = '\0';
+        if (len > 0 && len < codec_out_sz) {
+            strncpy(codec_out, line, codec_out_sz - 1);
+            codec_out[codec_out_sz - 1] = '\0';
+            found = 1;
+        }
+    }
+    platform_pclose(fp);
+    return found;
+}
+
 // ------------------------------------------------------------
 //  Create / Destroy
 // ------------------------------------------------------------
@@ -233,13 +271,6 @@ ConverterError converter_set_options(
         }
         if (c->opts.hw_device[0] == '\0')
             return ERR_INVALID_OPTIONS;
-        c->opts.hwaccel_enabled = 1;
-    }
-
-    /* For Vulkan codecs: enable the hwupload filter path.
-     * No explicit device path is needed — Vulkan auto-selects the first GPU. */
-    if (codec_is_vulkan(c->opts.codec)) {
-        c->opts.hwaccel_enabled = 1;
     }
 
     return ERR_OK;
@@ -737,11 +768,41 @@ static void build_ffmpeg_cmd(
     }
 
     /* VAAPI requires a device node before the input */
-    if (opts->hwaccel_enabled && opts->hw_device[0] != '\0') {
+    if (codec_is_vaapi(opts->codec) && opts->hw_device[0] != '\0') {
         strcat(cmd, "-vaapi_device ");
         strcat(cmd, "\"");
         strcat(cmd, opts->hw_device);
         strcat(cmd, "\" ");
+    }
+
+    /* Detect input video codec to select a working decoder.
+     * Some ffmpeg builds (e.g. 8.x with D3D12VA) try hardware AV1 decode
+     * internally even with -hwaccel none, failing when the GPU lacks AV1
+     * support.  We select a software or QSV decoder in that case. */
+    {
+        char input_vcodec[64];
+        int input_is_av1 = (probe_input_video_codec(input, input_vcodec,
+                                                     sizeof(input_vcodec)) &&
+                            strcmp(input_vcodec, "av1") == 0);
+
+        if (input_is_av1) {
+            if (c->platform_caps & PLAT_CAP_AV1_QSV_DEC) {
+                /* Intel QSV AV1 decoder: outputs nv12 software frames,
+                 * compatible with all downstream encoders. */
+                strcat(cmd, "-hwaccel qsv -hwaccel_output_format nv12 "
+                            "-c:v av1_qsv ");
+            } else if (c->platform_caps & PLAT_CAP_LIBDAV1D_DEC) {
+                strcat(cmd, "-c:v libdav1d ");
+            }
+            /* Otherwise: let ffmpeg choose; may fail on some builds. */
+        } else if (!codec_is_vaapi(opts->codec) && !codec_is_vulkan(opts->codec)) {
+            /* Suppress hardware decode for non-AV1 inputs to avoid
+             * unintended HW decode on Windows (D3D12VA/D3D11VA).
+             * Skip for VAAPI/Vulkan outputs: those codecs set up their own
+             * hardware device context (-vaapi_device/-init_hw_device) and
+             * -hwaccel none can conflict with it on Linux. */
+            strcat(cmd, "-hwaccel none ");
+        }
     }
 
     strcat(cmd, "-i ");
@@ -798,8 +859,8 @@ static void build_ffmpeg_cmd(
         strcat(cmd, "-c:v copy ");
     }
 
-    // deblock (not applicable for hardware encoders or hwaccel-enabled codecs)
-    if (platform_vcodec == NULL && !opts->hwaccel_enabled) {
+    // deblock (not applicable for hardware encoders or hw-upload codecs)
+    if (platform_vcodec == NULL && !codec_is_vaapi(opts->codec) && !codec_is_vulkan(opts->codec)) {
         if (opts->deblock == 2) {
             strcat(cmd,
                 "-vf \"deblock=filter=weak:block=4:planes=1\" ");
@@ -810,7 +871,7 @@ static void build_ffmpeg_cmd(
                 "alpha=0.12:beta=0.07:gamma=0.06:delta=0.05:planes=1\" ");
         }
     }
-    else if (opts->hwaccel_enabled) {
+    else if (codec_is_vaapi(opts->codec) || codec_is_vulkan(opts->codec)) {
         /* Pixel format conversion and GPU upload for hw-accelerated codecs.
          * The filter string is provided by the platform; defaults to VAAPI. */
         const char* hw_vf = platform_get_hw_vfilter(opts->codec, opts);

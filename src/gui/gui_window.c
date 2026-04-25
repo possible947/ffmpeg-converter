@@ -761,7 +761,6 @@ void collect_options_from_gui(AppWidgets *w,
         g_strlcpy(opts->hw_device,
                   w->linux_codec_support.default_render_node,
                   sizeof(opts->hw_device));
-        opts->hwaccel_enabled = 1;
     }
 
     /* ----- file list ----- */

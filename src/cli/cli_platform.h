@@ -87,6 +87,16 @@ int platform_mux_is_supported(void);
  */
 int platform_m4v_is_supported(void);
 
+/**
+ * platform_get_default_vulkan_device() — Returns the recommended Vulkan
+ * device index for prores_ks_vulkan based on the startup probe result.
+ * Returns the highest-indexed device that passed the probe test
+ * (statistically more likely to be a discrete GPU than vk:0).
+ * Returns 1 as a safe fallback if no probe data is available.
+ * Returns 0 on platforms that do not support Vulkan (macOS).
+ */
+int platform_get_default_vulkan_device(const CliPlatformHandle* h);
+
 /* ---------------------------------------------------------------
  *  Interactive menu codec list
  * --------------------------------------------------------------- */
@@ -108,8 +118,7 @@ const PlatformCodecEntry* platform_get_codec_entries(const CliPlatformHandle* h)
  * --------------------------------------------------------------- */
 
 /**
- * platform_apply_hw_device() — Sets opts->hw_device and
- * opts->hwaccel_enabled based on the selected codec.
+ * platform_apply_hw_device() — Sets opts->hw_device based on the selected codec.
  * No-op on platforms without hardware acceleration.
  */
 void platform_apply_hw_device(ConvertOptions* opts,
