@@ -813,7 +813,7 @@ static void build_ffmpeg_cmd(
     else if (opts->hwaccel_enabled) {
         /* Pixel format conversion and GPU upload for hw-accelerated codecs.
          * The filter string is provided by the platform; defaults to VAAPI. */
-        const char* hw_vf = platform_get_hw_vfilter(opts->codec);
+        const char* hw_vf = platform_get_hw_vfilter(opts->codec, opts);
         strcat(cmd, "-vf \"format=");
         strcat(cmd, (hw_vf && hw_vf[0] != '\0') ? hw_vf : "nv12,hwupload");
         strcat(cmd, "\" ");

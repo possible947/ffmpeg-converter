@@ -408,8 +408,8 @@ const char* platform_get_preinput_hw_flags(const char* codec, const void* opts) 
     return NULL;
 }
 
-const char* platform_get_hw_vfilter(const char* codec) {
-    (void)codec;
+const char* platform_get_hw_vfilter(const char* codec, const void* opts) {
+    (void)codec; (void)opts;
     /* VideoToolbox accepts CPU-decoded frames directly — no hwupload filter */
     return NULL;
 }

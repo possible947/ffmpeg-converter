@@ -284,7 +284,8 @@ const char* platform_get_preinput_hw_flags(const char* codec, const void* opts) 
     return NULL;
 }
 
-const char* platform_get_hw_vfilter(const char* codec) {
+const char* platform_get_hw_vfilter(const char* codec, const void* opts) {
+    (void)opts;
     if (codec &&
         (strcmp(codec, "h264_vaapi") == 0 || strcmp(codec, "hevc_vaapi") == 0))
         return "nv12,hwupload";

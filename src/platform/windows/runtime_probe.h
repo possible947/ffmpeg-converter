@@ -30,6 +30,7 @@ typedef struct {
 
     /* Vulkan (GPU-accelerated ProRes via Vulkan) */
     int has_prores_ks_vulkan;
+    int vulkan_device_index;  /* 0 or 1 — which vk:N index passed the probe */
 } WindowsCodecSupport;
 
 /* Windows-specific public API */

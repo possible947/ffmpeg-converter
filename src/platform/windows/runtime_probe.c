@@ -308,29 +308,33 @@ static int windows_probe_encoder(const char *ffmpeg_bin,
  * windows_probe_vulkan_prores()
  * Specialized probe for prores_ks_vulkan, which requires Vulkan device
  * initialisation and a yuv422p10le hwupload filter chain.
- * Returns 1 if the encoder is available, 0 otherwise.
+ * Tries vk:0 first, then vk:1 (covers systems where NVIDIA is not the
+ * first Vulkan adapter).
+ * Returns the device index that works (0 or 1), or -1 if unavailable.
  */
 static int windows_probe_vulkan_prores(const char *ffmpeg_bin)
 {
-    char cmd[8192];
-    int  rc;
+    int i;
 
     if (!ffmpeg_bin || ffmpeg_bin[0] == '\0')
-        return 0;
+        return -1;
     if (!windows_path_is_cmd_safe(ffmpeg_bin))
-        return 0;
+        return -1;
 
-    snprintf(cmd, sizeof(cmd),
-             "\"%s\" -v error -hide_banner "
-             "-init_hw_device vulkan=vk:0 -filter_hw_device vk "
-             "-f lavfi -i color=size=1920x1080:rate=1 "
-             "-frames:v 1 "
-             "-vf format=yuv422p10le,hwupload "
-             "-c:v prores_ks_vulkan -f null - 2>nul",
-             ffmpeg_bin);
-
-    rc = system(cmd);
-    return rc == 0;
+    for (i = 0; i <= 1; i++) {
+        char cmd[8192];
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s\" -v error -hide_banner "
+                 "-init_hw_device vulkan=vk:%d "
+                 "-f lavfi -i color=size=1920x1080:rate=1 "
+                 "-frames:v 1 "
+                 "-vf format=yuv422p10le,hwupload "
+                 "-c:v prores_ks_vulkan -f null - 2>nul",
+                 ffmpeg_bin, i);
+        if (system(cmd) == 0)
+            return i;
+    }
+    return -1;
 }
 
 /* ---- Main Probe Function ----------------------------------------------- */
@@ -374,8 +378,11 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_qsv");
 
     /* Probe Vulkan ProRes encoder (requires full Vulkan device init pipeline) */
-    g_cache.support.has_prores_ks_vulkan =
-        windows_probe_vulkan_prores(g_cache.support.bins.ffmpeg_bin);
+    {
+        int vk_idx = windows_probe_vulkan_prores(g_cache.support.bins.ffmpeg_bin);
+        g_cache.support.has_prores_ks_vulkan  = (vk_idx >= 0) ? 1 : 0;
+        g_cache.support.vulkan_device_index   = (vk_idx >= 0) ? vk_idx : 0;
+    }
 
     /* Resolve remaining tool binaries */
     resolve_preferred_binary("FFPROBE", "FFPROBE_BIN", "ffprobe",

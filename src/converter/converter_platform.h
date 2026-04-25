@@ -273,7 +273,7 @@ const char* platform_get_preinput_hw_flags(const char* codec,
  * Returns NULL to fall back to the default ("format=nv12,hwupload").
  * The returned pointer is valid until the next call from the same thread.
  */
-const char* platform_get_hw_vfilter(const char* codec);
+const char* platform_get_hw_vfilter(const char* codec, const void* opts);
 
 #ifdef __cplusplus
 }

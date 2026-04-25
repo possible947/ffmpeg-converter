@@ -6,6 +6,7 @@
 
 #include "../converter_platform.h"
 #include "../converter.h"
+#include "runtime_probe.h"  /* WindowsCodecSupport, windows_probe_codec_support */
 #include <windows.h>
 #include <shlwapi.h>    /* PathFindOnPathA, PathFileExistsA */
 #include <direct.h>     /* _mkdir */
@@ -412,11 +413,11 @@ const char* platform_get_video_codec_flags(const char* codec,
     if (strcmp(codec, "hevc_amf") == 0)
         return "-c:v hevc_amf ";
     if (strcmp(codec, "h264_qsv") == 0)
-        return "-c:v h264_qsv -preset slow -scenario archive -profile high "
-               "-min_qp_i 16 -max_qp_i 24 -min_qp_p 18 -max_qp_p 26 -min_qp_b 20 -max_qp_b 28 ";
+        return "-c:v h264_qsv -global_quality 22 -preset slower "
+               "-look_ahead 1 -look_ahead_depth 40 -extbrc 1 ";
     if (strcmp(codec, "hevc_qsv") == 0)
-        return "-c:v hevc_qsv -preset slow -scenario archive -profile main "
-               "-min_qp_i 16 -max_qp_i 24 -min_qp_p 18 -max_qp_p 26 -min_qp_b 20 -max_qp_b 28 ";
+        return "-c:v hevc_qsv -global_quality 25 -preset slow "
+               "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ";
 
     if (strcmp(codec, "prores_ks_vulkan") == 0) {
         const char* profile_name = "hq"; /* default: HQ */
@@ -532,19 +533,35 @@ const char* platform_get_preinput_hw_flags(const char* codec,
                                             const void* opts)
 {
     (void)opts;
-    /* prores_ks_vulkan requires a Vulkan device context and a filter device
-     * handle to be set up before the input file is opened. */
-    if (codec && strcmp(codec, "prores_ks_vulkan") == 0)
-        return "-init_hw_device vulkan=vk:0 -filter_hw_device vk";
+    if (!codec) return NULL;
+
+    /* Intel QSV: enable hardware-accelerated decode for better
+     * performance and to keep frames in GPU memory. */
+    if (strcmp(codec, "h264_qsv") == 0 || strcmp(codec, "hevc_qsv") == 0)
+        return "-hwaccel qsv";
+
+    /* prores_ks_vulkan requires a Vulkan device context before -i.
+     * Use whichever device index passed the startup probe. */
+    if (strcmp(codec, "prores_ks_vulkan") == 0) {
+        static char vk_flag[48];
+        WindowsCodecSupport sup;
+        windows_probe_codec_support(&sup);
+        snprintf(vk_flag, sizeof(vk_flag),
+                 "-init_hw_device vulkan=vk:%d", sup.vulkan_device_index);
+        return vk_flag;
+    }
     return NULL;
 }
 
-const char* platform_get_hw_vfilter(const char* codec)
+const char* platform_get_hw_vfilter(const char* codec, const void* opts)
 {
-    /* Upload frames to Vulkan device memory in yuv422p10le (ProRes native
-     * format) before handing them to the prores_ks_vulkan encoder. */
-    if (codec && strcmp(codec, "prores_ks_vulkan") == 0)
+    if (codec && strcmp(codec, "prores_ks_vulkan") == 0) {
+        const ConvertOptions* copt = (const ConvertOptions*)opts;
+        /* ProRes 4444 uses yuv444p10le; all other profiles use yuv422p10le */
+        if (copt && copt->profile == 4)
+            return "yuv444p10le,hwupload";
         return "yuv422p10le,hwupload";
+    }
     return NULL;
 }
 
