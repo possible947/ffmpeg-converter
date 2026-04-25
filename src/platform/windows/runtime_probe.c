@@ -305,33 +305,100 @@ static int windows_probe_encoder(const char *ffmpeg_bin,
 }
 
 /**
+ * windows_find_nvidia_vulkan_index()
+ * Scans Vulkan device indices 0..3 and returns the index of the first
+ * device whose verbose init output contains an NVIDIA vendor string.
+ * Returns -1 if no NVIDIA Vulkan device is found.
+ *
+ * Background: ffmpeg prints the selected Vulkan device name in verbose
+ * mode. On systems with both Intel Arc and NVIDIA, Intel is typically
+ * vk:0 and produces broken prores_ks_vulkan output even though it exits
+ * with code 0. Identifying the NVIDIA device by name lets us skip Intel.
+ */
+static int windows_find_nvidia_vulkan_index(const char *ffmpeg_bin)
+{
+    int i;
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0') return -1;
+    if (!windows_path_is_cmd_safe(ffmpeg_bin)) return -1;
+
+    for (i = 0; i <= 3; i++) {
+        char cmd[8192];
+        char line[1024];
+        int  is_nvidia = 0;
+
+        /* Run a minimal Vulkan init with verbose output redirected to stdout
+         * via 2>&1 so we can read it through popen. */
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s\" -v verbose -hide_banner "
+                 "-init_hw_device vulkan=vk:%d "
+                 "-f lavfi -i color=s=64x64:r=1 -frames:v 1 -f null - 2>&1",
+                 ffmpeg_bin, i);
+
+        FILE *fp = _popen(cmd, "r");
+        if (!fp) continue;
+
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "NVIDIA") || strstr(line, "GeForce") ||
+                strstr(line, "Quadro") || strstr(line, "Tesla") ||
+                strstr(line, "10de:") || strstr(line, "0x10de")) {
+                is_nvidia = 1;
+                break;
+            }
+        }
+        _pclose(fp);
+
+        if (is_nvidia) return i;
+    }
+    return -1;
+}
+
+/**
+ * windows_probe_vulkan_prores_at()
+ * Test prores_ks_vulkan at a specific Vulkan device index.
+ * Returns 1 if the encode exits 0, 0 otherwise.
+ */
+static int windows_probe_vulkan_prores_at(const char *ffmpeg_bin, int vk_idx)
+{
+    char cmd[8192];
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -v error -hide_banner "
+             "-init_hw_device vulkan=vk:%d -filter_hw_device vk "
+             "-f lavfi -i color=size=1920x1080:rate=1 "
+             "-frames:v 1 "
+             "-vf format=yuv422p10le,hwupload "
+             "-c:v prores_ks_vulkan -f null - 2>nul",
+             ffmpeg_bin, vk_idx);
+    return system(cmd) == 0;
+}
+
+/**
  * windows_probe_vulkan_prores()
- * Specialized probe for prores_ks_vulkan, which requires Vulkan device
- * initialisation and a yuv422p10le hwupload filter chain.
- * Tries vk:0 first, then vk:1 (covers systems where NVIDIA is not the
- * first Vulkan adapter).
- * Returns the device index that works (0 or 1), or -1 if unavailable.
+ * Find the best Vulkan device index for prores_ks_vulkan:
+ *  1. Prefer the NVIDIA device (identified by vendor string in verbose output)
+ *     if it passes the encode test.
+ *  2. Fall back to scanning vk:0..3 and returning the first that exits 0.
+ *     (vk:0 may be Intel Arc which produces broken output, so NVIDIA
+ *      preference is important on mixed-GPU systems.)
+ * Returns the working device index, or -1 if unavailable.
  */
 static int windows_probe_vulkan_prores(const char *ffmpeg_bin)
 {
     int i;
 
-    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0')
-        return -1;
-    if (!windows_path_is_cmd_safe(ffmpeg_bin))
-        return -1;
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0') return -1;
+    if (!windows_path_is_cmd_safe(ffmpeg_bin)) return -1;
 
-    for (i = 0; i <= 1; i++) {
-        char cmd[8192];
-        snprintf(cmd, sizeof(cmd),
-                 "\"%s\" -v error -hide_banner "
-                 "-init_hw_device vulkan=vk:%d -filter_hw_device vk "
-                 "-f lavfi -i color=size=1920x1080:rate=1 "
-                 "-frames:v 1 "
-                 "-vf format=yuv422p10le,hwupload "
-                 "-c:v prores_ks_vulkan -f null - 2>nul",
-                 ffmpeg_bin, i);
-        if (system(cmd) == 0)
+    /* Step 1: find NVIDIA adapter and verify it works */
+    int nvidia_idx = windows_find_nvidia_vulkan_index(ffmpeg_bin);
+    if (nvidia_idx >= 0 && windows_probe_vulkan_prores_at(ffmpeg_bin, nvidia_idx))
+        return nvidia_idx;
+
+    /* Step 2: fallback — first adapter that exits 0, skipping NVIDIA
+     * (already tried above) */
+    for (i = 0; i <= 3; i++) {
+        if (i == nvidia_idx) continue;
+        if (windows_probe_vulkan_prores_at(ffmpeg_bin, i))
             return i;
     }
     return -1;
