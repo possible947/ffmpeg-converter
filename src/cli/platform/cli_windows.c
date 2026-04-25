@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <windows.h>
+#include <shellapi.h>   /* CommandLineToArgvW */
 
 /* Use Windows CRT stat/access/mkdir compatible with MSVC */
 #ifdef _WIN32
@@ -70,6 +71,11 @@ struct CliPlatformHandle {
 
 CliPlatformHandle* cli_platform_init(void) {
     CliPlatformHandle* h;
+
+    /* Use UTF-8 for console I/O so drag-and-drop paths with Unicode
+     * characters (Cyrillic, CJK, special symbols) are read correctly. */
+    SetConsoleCP(65001);
+    SetConsoleOutputCP(65001);
 
     h = calloc(1, sizeof(*h));
     if (!h)
@@ -326,4 +332,56 @@ ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
     (void)cb;
     (void)input_file;
     return ERR_INVALID_OPTIONS;
+}
+
+/* ---------------------------------------------------------------
+ *  Unicode argv
+ * --------------------------------------------------------------- */
+
+char** platform_utf8_argv(int argc, char** argv, int* needs_free)
+{
+    int      i, wargc;
+    wchar_t** wargv;
+    char**   result;
+
+    *needs_free = 0;
+
+    /* GetCommandLineW/CommandLineToArgvW give us the true Unicode
+     * command-line, bypassing the ANSI code-page conversion that the
+     * C runtime applies to argv[] when using a plain main() entry point. */
+    wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+    if (!wargv)
+        return argv;
+
+    /* If the argument count doesn't match, something unusual happened. */
+    if (wargc != argc) {
+        LocalFree(wargv);
+        return argv;
+    }
+
+    result = (char**)malloc(sizeof(char*) * (size_t)(argc + 1));
+    if (!result) {
+        LocalFree(wargv);
+        return argv;
+    }
+
+    for (i = 0; i < argc; i++) {
+        int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1,
+                                           NULL, 0, NULL, NULL);
+        result[i] = (char*)malloc((size_t)utf8_len);
+        if (!result[i]) {
+            int j;
+            for (j = 0; j < i; j++) free(result[j]);
+            free(result);
+            LocalFree(wargv);
+            return argv;
+        }
+        WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1,
+                            result[i], utf8_len, NULL, NULL);
+    }
+    result[argc] = NULL;
+
+    LocalFree(wargv);
+    *needs_free = 1;
+    return result;
 }

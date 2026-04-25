@@ -586,36 +586,61 @@ int platform_stat_is_directory(const char *path)
 
 FILE *platform_popen(const char *cmd, const char *mode)
 {
-    FILE* fp;
-    char* wrapped;
-    size_t cmd_len;
+    FILE*    fp;
+    wchar_t* wcmd  = NULL;
+    wchar_t* wmode = NULL;
+    int      wlen;
 
     windows_diag_log("popen mode=%s cmd=%s", mode ? mode : "(null)", cmd ? cmd : "(null)");
 
     if (!cmd || !mode)
         return NULL;
 
-    /* cmd.exe requires the entire command line to be wrapped in an outer
-     * quoted group when the first token is itself a quoted path.
-     * Allocate dynamically so we never silently truncate a long command. */
-    cmd_len = strlen(cmd);
-    wrapped = (char*)malloc(cmd_len + 3); /* '"' + cmd + '"' + '\0' */
-    if (!wrapped) {
-        windows_diag_log("popen: malloc failed for wrapped command");
-        return NULL;
-    }
-    wrapped[0] = '"';
-    memcpy(wrapped + 1, cmd, cmd_len);
-    wrapped[cmd_len + 1] = '"';
-    wrapped[cmd_len + 2] = '\0';
+    /* Convert the UTF-8 command and mode strings to wide strings so that
+     * _wpopen passes them to cmd.exe as Unicode.  This allows file paths
+     * that contain characters outside the current ANSI code page (e.g.
+     * Cyrillic, CJK, special symbols) to be handled correctly. */
+    wlen = MultiByteToWideChar(CP_UTF8, 0, cmd, -1, NULL, 0);
+    if (wlen <= 0) goto fallback;
+    wcmd = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
+    if (!wcmd) goto fallback;
+    MultiByteToWideChar(CP_UTF8, 0, cmd, -1, wcmd, wlen);
 
-    fp = _popen(wrapped, mode);
-    if (!fp) {
-        windows_diag_log("popen wrapped command failed, retrying raw command");
-        fp = _popen(cmd, mode);
+    wlen = MultiByteToWideChar(CP_UTF8, 0, mode, -1, NULL, 0);
+    if (wlen <= 0) goto fallback;
+    wmode = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
+    if (!wmode) goto fallback;
+    MultiByteToWideChar(CP_UTF8, 0, mode, -1, wmode, wlen);
+
+    /* cmd.exe requires the entire command line to be wrapped in an outer
+     * quoted group when the first token is itself a quoted path. */
+    if (wcmd[0] == L'"') {
+        size_t cmd_wlen = wcslen(wcmd);
+        wchar_t* wrapped = (wchar_t*)malloc((cmd_wlen + 3) * sizeof(wchar_t));
+        if (!wrapped) goto fallback;
+        wrapped[0] = L'"';
+        wmemcpy(wrapped + 1, wcmd, cmd_wlen);
+        wrapped[cmd_wlen + 1] = L'"';
+        wrapped[cmd_wlen + 2] = L'\0';
+        fp = _wpopen(wrapped, wmode);
+        free(wrapped);
+    } else {
+        fp = _wpopen(wcmd, wmode);
     }
-    free(wrapped);
+
+    free(wcmd);
+    free(wmode);
+
+    if (!fp)
+        windows_diag_log("_wpopen failed");
+
     return fp;
+
+fallback:
+    free(wcmd);
+    free(wmode);
+    windows_diag_log("popen: wide conversion failed, falling back to _popen");
+    return _popen(cmd, mode);
 }
 
 int platform_pclose(FILE *fp)

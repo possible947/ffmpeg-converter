@@ -161,6 +161,7 @@ if (WIN32)
         PRIVATE converter
         PRIVATE platform
         PRIVATE jansson
+        PRIVATE Shell32
     )
 
     add_custom_command(TARGET windows_cli POST_BUILD

@@ -159,6 +159,19 @@ ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
                                             const ConverterCallbacks* cb,
                                             const char* input_file);
 
+/**
+ * platform_utf8_argv() — Returns an argv array where every string is
+ * UTF-8 encoded.  On Windows this uses GetCommandLineW / CommandLineToArgvW
+ * to bypass the ANSI code-page conversion applied by the C runtime, so file
+ * paths with non-ANSI characters (Cyrillic, CJK, special symbols) arrive
+ * intact.  On Linux / macOS the process already receives UTF-8 argv, so the
+ * function is a no-op that returns the original argv unchanged.
+ *
+ * If *needs_free is set to 1 on return, the caller must free each
+ * result[i] and then result itself when argv is no longer needed.
+ */
+char** platform_utf8_argv(int argc, char** argv, int* needs_free);
+
 #ifdef __cplusplus
 }
 #endif

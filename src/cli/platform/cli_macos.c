@@ -204,3 +204,10 @@ ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
     (void)input_file;
     return ERR_INVALID_OPTIONS;
 }
+
+char** platform_utf8_argv(int argc, char** argv, int* needs_free)
+{
+    (void)argc;
+    *needs_free = 0;
+    return argv;
+}

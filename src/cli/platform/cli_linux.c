@@ -264,3 +264,10 @@ ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
 
     return mux_run_postprocess(&mux_opts, opts, cb);
 }
+
+char** platform_utf8_argv(int argc, char** argv, int* needs_free)
+{
+    (void)argc;
+    *needs_free = 0;
+    return argv;
+}

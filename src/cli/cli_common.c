@@ -342,6 +342,69 @@ int read_input_list(char*** out_files, int max_cnt, int* count) {
             return -1;
         }
 
+        /* Detect drag-and-drop of multiple files: the shell quotes each path
+         * and separates them with spaces — e.g. "path1" "path2" "path3".
+         * Count how many quoted tokens are present on this line. */
+        {
+            const char* p = line;
+            int token_count = 0;
+            while (*p) {
+                while (*p == ' ' || *p == '\t') p++;
+                if (*p == '"') {
+                    const char* end = strchr(p + 1, '"');
+                    if (!end) break;
+                    token_count++;
+                    p = end + 1;
+                } else if (*p != '\0') {
+                    token_count++;
+                    break; /* unquoted — single token */
+                }
+            }
+
+            if (token_count > 1) {
+                /* Multi-path line: extract each quoted segment */
+                p = line;
+                while (*p && idx < max_cnt) {
+                    char single_path[1024];
+                    const char* end;
+                    size_t path_len;
+
+                    while (*p == ' ' || *p == '\t') p++;
+                    if (*p != '"') break;
+
+                    end = strchr(p + 1, '"');
+                    if (!end) break;
+
+                    path_len = (size_t)(end - (p + 1));
+                    if (path_len >= sizeof(single_path))
+                        path_len = sizeof(single_path) - 1;
+                    strncpy(single_path, p + 1, path_len);
+                    single_path[path_len] = '\0';
+                    p = end + 1;
+
+                    if (single_path[0] == '\0') continue;
+
+                    if (!platform_file_is_regular_readable(single_path)) {
+                        printf("File not found or not readable: %s\n", single_path);
+                        continue;
+                    }
+                    {
+                        char* fname = strdup(single_path);
+                        if (!fname) {
+                            int k;
+                            for (k = 0; k < idx; k++) free(files[k]);
+                            free(files);
+                            return -1;
+                        }
+                        files[idx++] = fname;
+                    }
+                    printf("Added: %s\n", single_path);
+                }
+                continue; /* prompt for next file */
+            }
+        }
+
+        /* Single path: strip shell quoting via process_input_path */
         if (!process_input_path(line, processed_path, sizeof(processed_path))) {
             printf("Error processing path\n");
             continue;
@@ -434,23 +497,28 @@ int read_single_file_path(const char* prompt,
  * --------------------------------------------------------------- */
 
 int verify_all_files(const char** files, int file_count) {
-    int i, valid_files = 0;
+    int  i, j, valid_files = 0;
+    int* ok;
 
     printf("\nVerifying files...\n");
 
+    ok = (int*)malloc(sizeof(int) * (size_t)file_count);
+    if (!ok) {
+        fprintf(stderr, "Out of memory\n");
+        return 0;
+    }
+
     for (i = 0; i < file_count; i++) {
-        if (platform_file_is_regular_readable(files[i])) {
-            printf("  OK: %s\n", files[i]);
-            valid_files++;
-        } else {
-            printf("  FAIL: %s\n", files[i]);
-        }
+        ok[i] = platform_file_is_regular_readable(files[i]);
+        printf("  %s: %s\n", ok[i] ? "OK" : "FAIL", files[i]);
+        if (ok[i]) valid_files++;
     }
 
     printf("\nFound %d valid file(s) out of %d\n", valid_files, file_count);
 
     if (valid_files == 0) {
         printf("No valid files to process.\n");
+        free(ok);
         return 0;
     }
 
@@ -460,10 +528,19 @@ int verify_all_files(const char** files, int file_count) {
         ch = getchar();
         while (getchar() != '\n')
             ;
-        if (ch != 'y' && ch != 'Y')
+        if (ch != 'y' && ch != 'Y') {
+            free(ok);
             return 0;
+        }
+        /* Compact: move valid entries to the front of the array */
+        j = 0;
+        for (i = 0; i < file_count; i++) {
+            if (ok[i])
+                files[j++] = files[i];
+        }
     }
 
+    free(ok);
     return valid_files;
 }
 
