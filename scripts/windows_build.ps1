@@ -1,176 +1,265 @@
 <#
 .SYNOPSIS
-    Build ffmpeg-converter Windows CLI using MSBuild + CMake.
+    Build ffmpeg-converter Windows CLI using CMake + MSBuild.
 
 .DESCRIPTION
-    Locates Visual Studio / MSBuild via vswhere.exe, optionally configures
-    the CMake build directory, then builds the specified target.
+    Locates Visual Studio / MSBuild via vswhere.exe, optionally runs CMake
+    configuration, then builds the specified target with MSBuild.
+
+    Compatible with PowerShell 5.1 and later.
 
 .PARAMETER Config
-    Build configuration: Release (default) or Debug.
+    Build configuration.  Release (default) or Debug.
 
 .PARAMETER Clean
-    Delete the entire build directory and reconfigure before building.
-    Implies a full reconfiguration + rebuild.
+    Delete the build directory and reconfigure from scratch before building.
 
 .PARAMETER Rebuild
     Force a full recompile of all sources (MSBuild /t:Rebuild).
-    Does not reconfigure CMake.
+    Does NOT reconfigure CMake — combine with -Clean if you need that too.
 
 .PARAMETER NoConfigure
-    Skip the CMake configure step even if the build directory is missing.
-    Useful for manual workflows where CMake was run separately.
+    Skip the CMake configure step even when the build directory is absent.
+    Useful when you have run CMake manually and just want to recompile.
 
 .PARAMETER Target
-    MSBuild project to build. Default: windows_cli (ffmpeg_converter.exe).
-    Other useful values: ALL_BUILD, INSTALL.
+    MSBuild sub-project to build.
+    Default : windows_cli  -> produces build-msvc\src\cli\Release\ffmpeg_converter.exe
+    Other   : ALL_BUILD    -> builds everything
+              INSTALL      -> installs to CMAKE_INSTALL_PREFIX
+
+.PARAMETER Help
+    Show this help message and exit.
 
 .EXAMPLE
-    # Normal incremental build
+    # Normal incremental build (most common)
     .\scripts\windows_build.ps1
 
 .EXAMPLE
-    # Clean rebuild in Debug
+    # Show help
+    .\scripts\windows_build.ps1 -Help
+
+.EXAMPLE
+    # Clean build in Release (wipes build-msvc and reconfigures)
+    .\scripts\windows_build.ps1 -Clean
+
+.EXAMPLE
+    # Clean Debug build
     .\scripts\windows_build.ps1 -Clean -Config Debug
 
 .EXAMPLE
-    # Force recompile without reconfiguring
+    # Force full recompile without touching CMake configuration
     .\scripts\windows_build.ps1 -Rebuild
 
 .EXAMPLE
-    # Build everything
+    # Build everything (all targets)
     .\scripts\windows_build.ps1 -Target ALL_BUILD
 #>
 
-[CmdletBinding()]
 param(
-    [ValidateSet('Release', 'Debug')]
-    [string] $Config       = 'Release',
+    [ValidateSet('Release','Debug')]
+    [string] $Config      = 'Release',
 
     [switch] $Clean,
     [switch] $Rebuild,
     [switch] $NoConfigure,
+    [switch] $Help,
 
-    [string] $Target       = 'windows_cli'
+    [string] $Target      = 'windows_cli'
 )
 
-Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # -----------------------------------------------------------------------
-#  Resolve repository root (one level above this script)
+#  -Help
+# -----------------------------------------------------------------------
+if ($Help) {
+    Get-Help $MyInvocation.MyCommand.Definition
+    exit 0
+}
+
+# -----------------------------------------------------------------------
+#  Banner
+# -----------------------------------------------------------------------
+Write-Host ""
+Write-Host "=== ffmpeg-converter Windows Build ===" -ForegroundColor White
+Write-Host "  Config  : $Config"
+Write-Host "  Target  : $Target"
+if ($Clean)       { Write-Host "  Clean   : yes (build directory will be wiped)" -ForegroundColor Yellow }
+if ($Rebuild)     { Write-Host "  Rebuild : yes (full recompile forced)" -ForegroundColor Yellow }
+if ($NoConfigure) { Write-Host "  NoConfigure : yes (CMake step skipped)" }
+Write-Host ""
+
+# -----------------------------------------------------------------------
+#  Paths
 # -----------------------------------------------------------------------
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $RepoRoot  = Split-Path -Parent $ScriptDir
 $BuildDir  = Join-Path $RepoRoot 'build-msvc'
 
 # -----------------------------------------------------------------------
-#  Locate vswhere → MSBuild
+#  Locate vswhere.exe
 # -----------------------------------------------------------------------
-$VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-if (-not (Test-Path $VsWhere)) {
-    $VsWhere = "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe"
+$VsWhereCandidates = @(
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe",
+    "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe"
+)
+$VsWhere = $null
+foreach ($c in $VsWhereCandidates) {
+    if (Test-Path $c) { $VsWhere = $c; break }
 }
-if (-not (Test-Path $VsWhere)) {
-    Write-Error "vswhere.exe not found. Please install Visual Studio 2019 or later."
+if (-not $VsWhere) {
+    Write-Host "ERROR: vswhere.exe not found. Install Visual Studio 2019 or later." -ForegroundColor Red
     exit 1
 }
 
-$VsInstallPath = & $VsWhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+# -----------------------------------------------------------------------
+#  Locate MSBuild via vswhere
+# -----------------------------------------------------------------------
+$VsInstallPath = (& $VsWhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath 2>$null)
 if (-not $VsInstallPath) {
-    Write-Error "No Visual Studio installation with MSBuild found."
+    Write-Host "ERROR: No Visual Studio with MSBuild found." -ForegroundColor Red
     exit 1
 }
+$VsInstallPath = $VsInstallPath.Trim()
 
 $MSBuild = Join-Path $VsInstallPath 'MSBuild\Current\Bin\MSBuild.exe'
 if (-not (Test-Path $MSBuild)) {
-    Write-Error "MSBuild.exe not found at: $MSBuild"
+    Write-Host "ERROR: MSBuild.exe not found at: $MSBuild" -ForegroundColor Red
     exit 1
 }
-
 Write-Host "MSBuild : $MSBuild" -ForegroundColor Cyan
 
 # -----------------------------------------------------------------------
-#  Locate cmake
+#  Determine CMake generator from VS version
+#  vswhere catalog_productMajorVersion -> 17 = VS2022, 18 = VS2025 ...
+#  vswhere catalog_productLineVersion  -> "2022", "2025" ...
 # -----------------------------------------------------------------------
-$CMake = (Get-Command cmake -ErrorAction SilentlyContinue)?.Source
-if (-not $CMake) {
-    # Try the CMake bundled with VS
+$Generator = $null
+
+$VsMajorRaw = (& $VsWhere -latest -products * -property catalog_productMajorVersion 2>$null)
+$VsYearRaw  = (& $VsWhere -latest -products * -property catalog_productLineVersion  2>$null)
+
+if ($VsMajorRaw -and $VsYearRaw) {
+    $Generator = "Visual Studio $($VsMajorRaw.Trim()) $($VsYearRaw.Trim())"
+}
+
+if (-not $Generator) {
+    # Fallback: read generator from existing CMakeCache.txt
+    $CacheFile = Join-Path $BuildDir 'CMakeCache.txt'
+    if (Test-Path $CacheFile) {
+        $GenLine = Select-String -Path $CacheFile -Pattern '^CMAKE_GENERATOR:INTERNAL=' | Select-Object -First 1
+        if ($GenLine) {
+            $Generator = $GenLine.Line.Split('=',2)[1].Trim()
+        }
+    }
+}
+
+if (-not $Generator) {
+    $Generator = 'Visual Studio 17 2022'   # safe default
+}
+
+Write-Host "Generator : $Generator" -ForegroundColor Cyan
+
+# -----------------------------------------------------------------------
+#  Locate cmake.exe
+# -----------------------------------------------------------------------
+$CMakeCmd = Get-Command cmake -ErrorAction SilentlyContinue
+if ($CMakeCmd) {
+    $CMake = $CMakeCmd.Source
+} else {
+    # Try cmake bundled with VS
     $CMake = Join-Path $VsInstallPath 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
     if (-not (Test-Path $CMake)) {
-        Write-Error "cmake not found on PATH and not bundled with Visual Studio."
+        Write-Host "ERROR: cmake not found on PATH and not bundled with VS." -ForegroundColor Red
+        Write-Host "       Install cmake from https://cmake.org or add it to PATH." -ForegroundColor Red
         exit 1
     }
 }
 Write-Host "CMake   : $CMake" -ForegroundColor Cyan
+Write-Host ""
 
 # -----------------------------------------------------------------------
-#  -Clean: wipe build directory
+#  -Clean: remove build directory
 # -----------------------------------------------------------------------
 if ($Clean -and (Test-Path $BuildDir)) {
-    Write-Host "`nCleaning build directory: $BuildDir" -ForegroundColor Yellow
+    Write-Host "Cleaning: $BuildDir" -ForegroundColor Yellow
     Remove-Item -Recurse -Force $BuildDir
+    Write-Host ""
 }
 
 # -----------------------------------------------------------------------
-#  CMake configure
+#  CMake configure (only when needed)
 # -----------------------------------------------------------------------
-$NeedsConfigure = (-not (Test-Path (Join-Path $BuildDir 'CMakeCache.txt')))
+$NeedsConfigure = -not (Test-Path (Join-Path $BuildDir 'CMakeCache.txt'))
 
 if ($NeedsConfigure -and $NoConfigure) {
-    Write-Error "Build directory '$BuildDir' is not configured and -NoConfigure was set. Run without -NoConfigure first."
+    Write-Host "ERROR: Build directory not configured and -NoConfigure was given." -ForegroundColor Red
+    Write-Host "       Run without -NoConfigure to let CMake configure it first." -ForegroundColor Red
     exit 1
 }
 
 if ($NeedsConfigure) {
-    Write-Host "`nConfiguring CMake..." -ForegroundColor Cyan
-    New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
+    Write-Host "Configuring CMake with generator: $Generator" -ForegroundColor Cyan
+    if (-not (Test-Path $BuildDir)) {
+        New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
+    }
     Push-Location $BuildDir
     try {
-        & $CMake .. -G "Visual Studio 17 2022" -A x64
-        if ($LASTEXITCODE -ne 0) { throw "CMake configure failed (exit $LASTEXITCODE)" }
+        & $CMake .. -G $Generator -A x64
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: CMake configure failed (exit $LASTEXITCODE)." -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
     } finally {
         Pop-Location
     }
+    Write-Host ""
 } else {
-    Write-Host "`nBuild directory already configured. Skipping CMake." -ForegroundColor DarkGray
-    Write-Host "  Use -Clean to force reconfiguration." -ForegroundColor DarkGray
+    Write-Host "Build directory already configured -- skipping CMake." -ForegroundColor DarkGray
+    Write-Host "  Use -Clean to force full reconfiguration." -ForegroundColor DarkGray
+    Write-Host ""
+}
+
+# -----------------------------------------------------------------------
+#  Resolve project / solution file
+# -----------------------------------------------------------------------
+$ProjectFile = Join-Path $BuildDir "src\cli\${Target}.vcxproj"
+if (-not (Test-Path $ProjectFile)) {
+    # Targets like ALL_BUILD live in the solution
+    $ProjectFile = Join-Path $BuildDir 'ffmpeg_converter.sln'
+    Write-Host "  .vcxproj not found for '$Target'; building via solution." -ForegroundColor DarkGray
+}
+
+if (-not (Test-Path $ProjectFile)) {
+    Write-Host "ERROR: Neither $Target.vcxproj nor ffmpeg_converter.sln found in $BuildDir" -ForegroundColor Red
+    exit 1
 }
 
 # -----------------------------------------------------------------------
 #  MSBuild
 # -----------------------------------------------------------------------
-$ProjectFile = Join-Path $BuildDir "src\cli\${Target}.vcxproj"
-if (-not (Test-Path $ProjectFile)) {
-    # Fall back to solution for targets like ALL_BUILD
-    $ProjectFile = Join-Path $BuildDir 'ffmpeg_converter.sln'
-    Write-Host "Project file not found; building via solution: $ProjectFile" -ForegroundColor Yellow
-}
-
 $MSBuildTarget = if ($Rebuild) { 'Rebuild' } else { 'Build' }
 
-Write-Host "`nBuilding target '$Target' ($Config / $MSBuildTarget)..." -ForegroundColor Cyan
-Write-Host "  Project : $ProjectFile"
+Write-Host "Building: $Target  [$Config / $MSBuildTarget]" -ForegroundColor Cyan
+Write-Host "  $ProjectFile"
 Write-Host ""
 
-$MSBuildArgs = @(
-    $ProjectFile,
-    "/t:$MSBuildTarget",
-    "/p:Configuration=$Config",
-    "/p:Platform=x64",
-    "/v:minimal",
-    "/nologo"
-)
+& $MSBuild $ProjectFile `
+    /t:$MSBuildTarget `
+    /p:Configuration=$Config `
+    /p:Platform=x64 `
+    /v:minimal `
+    /nologo
 
-& $MSBuild @MSBuildArgs
 $ExitCode = $LASTEXITCODE
-
 Write-Host ""
+
 if ($ExitCode -eq 0) {
-    $OutExe = Join-Path $BuildDir "src\cli\$Config\ffmpeg_converter.exe"
     Write-Host "Build succeeded." -ForegroundColor Green
+    $OutExe = Join-Path $BuildDir "src\cli\$Config\ffmpeg_converter.exe"
     if (Test-Path $OutExe) {
-        Write-Host "Output : $OutExe" -ForegroundColor Green
+        Write-Host "Output  : $OutExe" -ForegroundColor Green
     }
 } else {
     Write-Host "Build FAILED (exit $ExitCode)." -ForegroundColor Red
