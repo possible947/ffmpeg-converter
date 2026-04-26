@@ -163,7 +163,7 @@ function Invoke-FPCBuild {
         $OutExe = Join-Path $FPCOut 'ffmpeg_converter_windows.exe'
         if (Test-Path $OutExe) {
             Write-Host "Output  : $OutExe" -ForegroundColor Green
-            { Copy-Item $OutExe $RepoRoot } | Out-Null 2>&1
+            Copy-Item $OutExe $RepoRoot -ErrorAction SilentlyContinue | Out-Null
         }
     } else {
         Write-Host "FPC build FAILED (exit $FPCExit)." -ForegroundColor Red

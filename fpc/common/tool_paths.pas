@@ -102,12 +102,19 @@ begin
 end;
 
 function SetEnvValue(const Name, Value: string): Boolean;
+{$IFDEF Windows}
+var
+  NameA: AnsiString;
+  ValueA: AnsiString;
+{$ENDIF}
 begin
   Result := False;
   if (Name = '') or (Value = '') then
     Exit;
 {$IFDEF Windows}
-  Result := SetEnvironmentVariableA(PAnsiChar(AnsiString(Name)), PAnsiChar(AnsiString(Value)));
+  NameA := AnsiString(Name);
+  ValueA := AnsiString(Value);
+  Result := SetEnvironmentVariableA(PAnsiChar(NameA), PAnsiChar(ValueA));
 {$ELSE}
   Result := libc_setenv(PChar(Name), PChar(Value), 1) = 0;
 {$ENDIF}
