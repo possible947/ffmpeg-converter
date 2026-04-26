@@ -7,6 +7,7 @@
     configuration, then builds the specified target with MSBuild.
 
     Phase 4A: Also supports building the Pascal Windows CLI using FPC.
+    Phase 4B: Also supports building the Pascal Windows GUI using Lazarus (lazbuild).
 
     Compatible with PowerShell 5.1 and later.
 
@@ -36,6 +37,14 @@
 
 .PARAMETER FPCOnly
     Build only the Pascal Windows CLI (ffmpeg_converter_windows.exe) using FPC.
+    Skips CMake/MSBuild entirely.
+
+.PARAMETER BuildGUI
+    Also build the Pascal Windows GUI (ffmpeg_converter_gui.exe) using Lazarus.
+    Requires lazbuild.exe to be available on PATH.
+
+.PARAMETER GUIOnly
+    Build only the Pascal Windows GUI (ffmpeg_converter_gui.exe) using Lazarus.
     Skips CMake/MSBuild entirely.
 
 .PARAMETER Help
@@ -72,6 +81,14 @@
 .EXAMPLE
     # Build Pascal Windows CLI only (Phase 4A)
     .\scripts\windows_build.ps1 -FPCOnly
+
+.EXAMPLE
+    # Build Pascal Windows GUI only (Phase 4B)
+    .\scripts\windows_build.ps1 -GUIOnly
+
+.EXAMPLE
+    # Build C CLI + Pascal Windows CLI + GUI
+    .\scripts\windows_build.ps1 -BuildFPC -BuildGUI
 #>
 
 param(
@@ -84,6 +101,8 @@ param(
     [switch] $Help,
     [switch] $BuildFPC,
     [switch] $FPCOnly,
+    [switch] $BuildGUI,
+    [switch] $GUIOnly,
 
     [string] $Target      = 'windows_cli'
 )
@@ -106,7 +125,9 @@ Write-Host "=== ffmpeg-converter Windows Build ===" -ForegroundColor White
 Write-Host "  Config  : $Config"
 Write-Host "  Target  : $Target"
 if ($FPCOnly) { Write-Host "  Mode    : FPC only (Pascal Windows CLI)" -ForegroundColor Cyan }
+if ($GUIOnly) { Write-Host "  Mode    : GUI only (Pascal Windows GUI)" -ForegroundColor Cyan }
 if ($BuildFPC) { Write-Host "  BuildFPC: yes (will also build Pascal Windows CLI)" -ForegroundColor Cyan }
+if ($BuildGUI) { Write-Host "  BuildGUI: yes (will also build Pascal Windows GUI via Lazarus)" -ForegroundColor Cyan }
 if ($Clean)       { Write-Host "  Clean   : yes (build directory will be wiped)" -ForegroundColor Yellow }
 if ($Rebuild)     { Write-Host "  Rebuild : yes (full recompile forced)" -ForegroundColor Yellow }
 if ($NoConfigure) { Write-Host "  NoConfigure : yes (CMake step skipped)" }
@@ -170,6 +191,62 @@ function Invoke-FPCBuild {
     }
 
     return ($FPCExit -eq 0)
+}
+
+# -----------------------------------------------------------------------
+#  Phase 4B: Lazarus GUI build helper
+# -----------------------------------------------------------------------
+function Invoke-GUIBuild {
+    Write-Host ""
+    Write-Host "=== Phase 4B: Building Pascal Windows GUI ===" -ForegroundColor Cyan
+
+    $LazBuild = Get-Command lazbuild -ErrorAction SilentlyContinue
+    if (-not $LazBuild) {
+        Write-Host "ERROR: lazbuild.exe not found on PATH." -ForegroundColor Red
+        Write-Host "       Install Lazarus IDE from https://www.lazarus-ide.org/" -ForegroundColor Red
+        return $false
+    }
+
+    Write-Host "lazbuild: $($LazBuild.Source)" -ForegroundColor Cyan
+
+    $GUIDir  = Join-Path $RepoRoot 'fpc\gui'
+    $LPIFile = Join-Path $GUIDir 'form.lpi'
+
+    if (-not (Test-Path $LPIFile)) {
+        Write-Host "ERROR: form.lpi not found at: $LPIFile" -ForegroundColor Red
+        return $false
+    }
+
+    Write-Host "Compiling form.lpi (Lazarus GUI) ..." -ForegroundColor Cyan
+    Push-Location $GUIDir
+    try {
+        & lazbuild --build-mode=default $LPIFile
+        $LazExit = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+    Write-Host ""
+
+    if ($LazExit -eq 0) {
+        Write-Host "Lazarus GUI build succeeded." -ForegroundColor Green
+        $OutExe = Join-Path $GUIDir 'ffmpeg_converter_gui.exe'
+        if (Test-Path $OutExe) {
+            Write-Host "Output  : $OutExe" -ForegroundColor Green
+            Copy-Item $OutExe $RepoRoot -ErrorAction SilentlyContinue | Out-Null
+        }
+    } else {
+        Write-Host "Lazarus GUI build FAILED (exit $LazExit)." -ForegroundColor Red
+    }
+
+    return ($LazExit -eq 0)
+}
+
+# -----------------------------------------------------------------------
+#  GUI-only mode: skip CMake/MSBuild
+# -----------------------------------------------------------------------
+if ($GUIOnly) {
+    $ok = Invoke-GUIBuild
+    exit $(if ($ok) { 0 } else { 1 })
 }
 
 # -----------------------------------------------------------------------
@@ -358,4 +435,15 @@ if ($BuildFPC -and ($ExitCode -eq 0)) {
     }
 }
 
+# -----------------------------------------------------------------------
+#  Phase 4B: Optionally build Pascal Windows GUI with Lazarus
+# -----------------------------------------------------------------------
+if ($BuildGUI -and ($ExitCode -eq 0)) {
+    $guiOk = Invoke-GUIBuild
+    if (-not $guiOk) {
+        $ExitCode = 1
+    }
+}
+
 exit $ExitCode
+
