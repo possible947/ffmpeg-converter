@@ -31,6 +31,7 @@ fpc/*/lib/
 # Built GUI/CLI binaries (not the .app bundles)
 fpc/gui/ffmpeg_converter_gui
 fpc/cli/ffmpeg_converter
+fpc/cli/ffmpeg_converter_windows
 
 # Pascal compiled test binaries
 fpc/test/test_*
