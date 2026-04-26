@@ -19,6 +19,7 @@ function IsAMFAvailable: Boolean;
 function IsQSVAvailable: Boolean;
 function IsVulkanAvailable: Boolean;
 function ProbeEncoder(const FfmpegBin, EncoderName: string): Boolean;
+function ProbeVulkanEncoder(const FfmpegBin: string): Boolean;
 
 implementation
 

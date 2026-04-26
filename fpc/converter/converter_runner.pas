@@ -211,7 +211,7 @@ begin
     P.Parameters.Add('-c');
 {$ENDIF}
     P.Parameters.Add(EffectiveCmd);
-    P.Options := [poUsePipes, poStderrToOutput];
+    P.Options := [poUsePipes, poStderrToOutput, poNoConsole];
     P.Execute;
 
     while P.Running or (P.Output.NumBytesAvailable > 0) do

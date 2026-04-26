@@ -8,6 +8,7 @@ This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-convert
 - CLI with argument parsing and interactive multi-step menu
 - Lazarus/LCL GUI with threaded conversion and progress display
 - GUI parity updates: audio output selector, mux video-track workflow, platform-aware codec list and widget gating
+- Windows GUI polish: no console popups for subprocesses (`poNoConsole`), Vulkan encoder/device probing, and Vulkan device selector in the action row
 - Apple M4V creator with multi-step mux pipeline (video copy + AAC + AC3 + MP4Box)
 - 2-pass peak and loudnorm (EBU R128) audio analysis
 - Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`)
@@ -116,7 +117,9 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
 
 ## macOS Notes
 
-- Pascal CLI/GUI targets Linux. Windows support is planned (Phase 4). macOS users should use the native C GUI (`cli_macos.c` / the macOS app bundle).
+- Pascal CLI/GUI supports Linux and Windows. macOS users should primarily use the native C GUI (`cli_macos.c` / the macOS app bundle).
 - Pascal runtime resolves tools for GUI/CLI launches using a unified resolver (`ffmpeg`, `ffprobe`, `MP4Box`, `mkvmerge`), including `.app` bundled tools in `Contents/Resources/bin`.
 - `converter_set_options` now validates platform capabilities for hardware codecs (VAAPI rejected on non-Linux, Linux probes encoder availability).
+- Windows GUI runtime-probes NVENC/AMF/QSV/Vulkan and conditionally exposes matching codecs in the codec combobox.
+- `prores_ks_vulkan` now uses dedicated Vulkan probe logic and supports explicit or auto device index selection.
 - CLI `-o/--output` creates missing output directories before conversion and fails early on invalid/unwritable targets.

@@ -7,22 +7,191 @@ interface
 uses converter_types;
 
 function RunPeakTwoPass(const InputFile, FallbackLogDir: string;
-  out ErrorLogPath, ErrorLogNotice: string; out Gain: Double): TConverterError;
+  out ErrorLogPath, ErrorLogNotice: string; out Gain: Double;
+  OnProgress: TOnProgressAnalysis = nil): TConverterError;
 function RunLoudnormTwoPass(const InputFile, FallbackLogDir: string;
-  out ErrorLogPath, ErrorLogNotice: string; var Opts: TConvertOptions): TConverterError;
+  out ErrorLogPath, ErrorLogNotice: string; var Opts: TConvertOptions;
+  OnProgress: TOnProgressAnalysis = nil): TConverterError;
 function ExtractNumberAfterToken(const Text, Token: string; out V: Double): Boolean;
 function ExtractLoudnormJson(const OutputText: string; out JsonText: string): Boolean;
 
 implementation
 
 uses
+  Classes,
   SysUtils,
   Math,
   StrUtils,
+  Process,
   process_utils,
   path_utils,
   tool_paths,
   loudnorm_json;
+
+function InvariantFmt: TFormatSettings;
+begin
+  Result := DefaultFormatSettings;
+  Result.DecimalSeparator := '.';
+end;
+
+function ProbeAnalysisDuration(const InputFile: string): Double;
+var
+  Tools: TToolPaths;
+  Cmd: string;
+  R: TRunResult;
+  Fmt: TFormatSettings;
+begin
+  Tools := ResolveToolPaths;
+  Cmd :=
+    QuoteForShell(Tools.FfprobeBin) +
+    ' -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ' +
+    QuoteForShell(InputFile) +
+{$IFDEF Windows}
+    ' 2>NUL';
+{$ELSE}
+    ' 2>/dev/null';
+{$ENDIF}
+
+  R := RunCommandCapture(Cmd);
+  if R.ExitCode <> 0 then
+    Exit(0.0);
+
+  Fmt := InvariantFmt;
+  if not TryStrToFloat(Trim(R.OutputText), Result, Fmt) then
+    Result := 0.0;
+end;
+
+procedure ParseAnalysisProgressChunk(
+  const Chunk: string;
+  var Pending: string;
+  var OutTimeMs: Double
+);
+var
+  P: SizeInt;
+  Line: string;
+  Fmt: TFormatSettings;
+begin
+  Pending += Chunk;
+  repeat
+    P := Pos(#10, Pending);
+    if P <= 0 then
+      Break;
+
+    Line := Copy(Pending, 1, P - 1);
+    if (Length(Line) > 0) and (Line[Length(Line)] = #13) then
+      Delete(Line, Length(Line), 1);
+
+    Delete(Pending, 1, P);
+
+    if Pos('out_time_ms=', Line) = 1 then
+    begin
+      Fmt := InvariantFmt;
+      OutTimeMs := StrToFloatDef(
+        Trim(Copy(Line, Length('out_time_ms=') + 1, MaxInt)),
+        OutTimeMs,
+        Fmt
+      );
+    end;
+  until False;
+end;
+
+function RunAnalysisWithProgress(const CommandLine, InputFile: string;
+  OnProgress: TOnProgressAnalysis): TRunResult;
+var
+  P: TProcess;
+  EffectiveCmd: string;
+  ReadBuf: array[0..4095] of Byte;
+  ReadCount: LongInt;
+  Chunk: string;
+  Pending: string;
+  DurationSec: Double;
+  OutTimeMs: Double;
+  StartTickMs: QWord;
+  LastEmitTickMs: QWord;
+  NowTickMs: QWord;
+  Percent: Double;
+  CurSec: Double;
+  ElapsedSec: Double;
+  EtaSec: Double;
+begin
+  Result.ExitCode := -1;
+  Result.OutputText := '';
+
+  DurationSec := ProbeAnalysisDuration(InputFile);
+  OutTimeMs := 0.0;
+  Pending := '';
+  StartTickMs := GetTickCount64;
+  LastEmitTickMs := 0;
+
+  P := TProcess.Create(nil);
+  try
+{$IFDEF Windows}
+    EffectiveCmd := Trim(CommandLine);
+    if (EffectiveCmd <> '') and (EffectiveCmd[1] = '"') then
+      EffectiveCmd := '"' + EffectiveCmd + '"';
+
+    P.Executable := 'cmd.exe';
+    P.Parameters.Add('/c');
+{$ELSE}
+    EffectiveCmd := CommandLine;
+    P.Executable := '/bin/sh';
+    P.Parameters.Add('-c');
+{$ENDIF}
+    P.Parameters.Add(EffectiveCmd);
+    P.Options := [poUsePipes, poStderrToOutput, poNoConsole];
+    P.Execute;
+
+    while P.Running or (P.Output.NumBytesAvailable > 0) do
+    begin
+      if P.Output.NumBytesAvailable > 0 then
+      begin
+        ReadCount := P.Output.Read(ReadBuf{%H-}, SizeOf(ReadBuf));
+        if ReadCount > 0 then
+        begin
+          SetString(Chunk, PAnsiChar(@ReadBuf[0]), ReadCount);
+          Result.OutputText += Chunk;
+          ParseAnalysisProgressChunk(Chunk, Pending, OutTimeMs);
+        end;
+      end
+      else
+        Sleep(20);
+
+      if Assigned(OnProgress) and (DurationSec > 0.0) and (OutTimeMs > 0.0) then
+      begin
+        NowTickMs := GetTickCount64;
+        if (LastEmitTickMs = 0) or ((NowTickMs - LastEmitTickMs) >= 500) then
+        begin
+          CurSec := OutTimeMs / 1000000.0;
+          Percent := (CurSec / DurationSec) * 100.0;
+          if Percent < 0.0 then
+            Percent := 0.0
+          else if Percent > 100.0 then
+            Percent := 100.0;
+
+          ElapsedSec := (NowTickMs - StartTickMs) / 1000.0;
+          if Percent > 0.0 then
+            EtaSec := ElapsedSec * (100.0 - Percent) / Percent
+          else
+            EtaSec := 0.0;
+
+          OnProgress(Percent, EtaSec);
+          LastEmitTickMs := NowTickMs;
+        end;
+      end;
+    end;
+
+    if Pending <> '' then
+      Result.OutputText += Pending;
+
+    P.WaitOnExit;
+    Result.ExitCode := P.ExitStatus;
+  finally
+    P.Free;
+  end;
+
+  if Assigned(OnProgress) then
+    OnProgress(100.0, 0.0);
+end;
 
 function ParseFloatInvariant(const S: string; out V: Double): Boolean;
 var
@@ -73,20 +242,41 @@ begin
 end;
 
 function RunPeakTwoPass(const InputFile, FallbackLogDir: string;
-  out ErrorLogPath, ErrorLogNotice: string; out Gain: Double): TConverterError;
+  out ErrorLogPath, ErrorLogNotice: string; out Gain: Double;
+  OnProgress: TOnProgressAnalysis = nil): TConverterError;
 var
   Tools: TToolPaths;
   Cmd: string;
   R: TRunResult;
   LogInfo: TCommandErrorLog;
   V: Double;
+  NullOutput: string;
 begin
   ErrorLogPath := '';
   ErrorLogNotice := '';
   Gain := 0.0;
   Tools := ResolveToolPaths;
-  Cmd := QuoteForShell(Tools.FfmpegBin) + ' -nostdin -vn -i ' + QuoteForShell(InputFile) + ' -af volumedetect -f null - 2>&1';
-  R := RunCommandCapture(Cmd);
+{$IFDEF Windows}
+  NullOutput := 'nul';
+{$ELSE}
+  NullOutput := '-';
+{$ENDIF}
+
+  if Assigned(OnProgress) then
+    Cmd :=
+      QuoteForShell(Tools.FfmpegBin) +
+      ' -nostdin -progress pipe:2 -nostats -vn -i ' + QuoteForShell(InputFile) +
+      ' -af volumedetect -f null ' + NullOutput
+  else
+    Cmd :=
+      QuoteForShell(Tools.FfmpegBin) +
+      ' -nostdin -vn -i ' + QuoteForShell(InputFile) +
+      ' -af volumedetect -f null ' + NullOutput + ' 2>&1';
+
+  if Assigned(OnProgress) then
+    R := RunAnalysisWithProgress(Cmd, InputFile, OnProgress)
+  else
+    R := RunCommandCapture(Cmd);
 
   if R.ExitCode <> 0 then
   begin
@@ -190,15 +380,18 @@ begin
 end;
 
 function RunLoudnormTwoPass(const InputFile, FallbackLogDir: string;
-  out ErrorLogPath, ErrorLogNotice: string; var Opts: TConvertOptions): TConverterError;
+  out ErrorLogPath, ErrorLogNotice: string; var Opts: TConvertOptions;
+  OnProgress: TOnProgressAnalysis = nil): TConverterError;
 var
   Fmt: TFormatSettings;
   Tools: TToolPaths;
   Cmd: string;
+  FilterStr: string;
   R: TRunResult;
   LogInfo: TCommandErrorLog;
   Metrics: TLoudnormMetrics;
   JsonText: string;
+  NullOutput: string;
 begin
   ErrorLogPath := '';
   ErrorLogNotice := '';
@@ -207,9 +400,30 @@ begin
   Fmt.DecimalSeparator := '.';
   Tools := ResolveToolPaths;
 
-  Cmd := Format('%s -nostdin -vn -i %s -af "loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:print_format=json" -f null - 2>&1',
-    [QuoteForShell(Tools.FfmpegBin), QuoteForShell(InputFile), Opts.I_target, Opts.TP_target, Opts.LRA_target], Fmt);
-  R := RunCommandCapture(Cmd);
+{$IFDEF Windows}
+  NullOutput := 'nul';
+  FilterStr := Format('loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:print_format=json', [Opts.I_target, Opts.TP_target, Opts.LRA_target], Fmt);
+  if Assigned(OnProgress) then
+    Cmd := Format('%s -nostdin -progress pipe:2 -nostats -vn -i %s -af "%s" -f null %s',
+      [QuoteForShell(Tools.FfmpegBin), QuoteForShell(InputFile), FilterStr, NullOutput])
+  else
+    Cmd := Format('%s -nostdin -vn -i %s -af "%s" -f null %s 2>&1',
+      [QuoteForShell(Tools.FfmpegBin), QuoteForShell(InputFile), FilterStr, NullOutput]);
+{$ELSE}
+  NullOutput := '-';
+  FilterStr := Format('loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:print_format=json', [Opts.I_target, Opts.TP_target, Opts.LRA_target], Fmt);
+  if Assigned(OnProgress) then
+    Cmd := Format('%s -nostdin -progress pipe:2 -nostats -vn -i %s -af "%s" -f null %s',
+      [QuoteForShell(Tools.FfmpegBin), QuoteForShell(InputFile), FilterStr, NullOutput])
+  else
+    Cmd := Format('%s -nostdin -vn -i %s -af "%s" -f null %s 2>&1',
+      [QuoteForShell(Tools.FfmpegBin), QuoteForShell(InputFile), FilterStr, NullOutput]);
+{$ENDIF}
+
+  if Assigned(OnProgress) then
+    R := RunAnalysisWithProgress(Cmd, InputFile, OnProgress)
+  else
+    R := RunCommandCapture(Cmd);
 
   if R.ExitCode <> 0 then
   begin

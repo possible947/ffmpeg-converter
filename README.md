@@ -8,7 +8,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 
 - **C/CMake** (`src/`) — original engine, Linux GTK4 GUI, native macOS Cocoa GUI.
 - **Free Pascal** (`fpc/`) — full FPC port with CLI, shared library, and
-  Lazarus/LCL GUI for macOS (self-contained `.app` bundle, icon aligned with C macOS app).
+  Lazarus/LCL GUI for Linux/Windows (plus macOS parity packaging scripts).
 
 ## macOS v2.2 Highlights
 
@@ -165,7 +165,7 @@ Output folder:
 - `build-msvc/src/cli/Release/`
 - Contains `ffmpeg_converter.exe` plus copied bundled `ffmpeg.exe`, `ffprobe.exe`, and DLL dependencies.
 
-### Free Pascal — macOS
+### Free Pascal
 
 ```bash
 # CLI

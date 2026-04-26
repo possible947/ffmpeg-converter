@@ -53,7 +53,11 @@ begin
       Result := QuoteForShell(FfmpegBin) + ' -y '
     else
       Result := QuoteForShell(FfmpegBin) + ' -n ';
-    Result += '-init_hw_device vulkan=vk:' + IntToStr(Opts.vulkan_device) + ' -filter_hw_device vk ';
+    { Device index -1 means "auto" (first available); clamp to 0 for ffmpeg }
+    if Opts.vulkan_device < 0 then
+      Result += '-init_hw_device vulkan=vk:0 -filter_hw_device vk '
+    else
+      Result += '-init_hw_device vulkan=vk:' + IntToStr(Opts.vulkan_device) + ' -filter_hw_device vk ';
     Result += '-i ' + QuoteForShell(InputFile) + ' ';
   end
   else if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then

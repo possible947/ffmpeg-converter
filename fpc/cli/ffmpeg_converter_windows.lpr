@@ -79,14 +79,12 @@ end;
 function BuildM4VOutputName(const InputFile, OutputDir: string): string;
 var
   BaseName: string;
-  DirToUse: string;
 begin
   BaseName := ChangeFileExt(ExtractFileName(InputFile), '');
   if Trim(OutputDir) = '' then
-    DirToUse := DefaultOutputDir
+    Result := BaseName + '.m4v'
   else
-    DirToUse := OutputDir;
-  Result := IncludeTrailingPathDelimiter(DirToUse) + BaseName + '.m4v';
+    Result := IncludeTrailingPathDelimiter(OutputDir) + BaseName + '.m4v';
 end;
 
 var

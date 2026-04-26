@@ -152,7 +152,6 @@ uses
   converter_api_c,
   fs_utils,
   path_utils,
-  process_utils,
   tool_paths,
   mux_postprocess;
 
@@ -269,7 +268,6 @@ var
   Cb: TConverterCallbacks;
   TmpFiles: array of PAnsiChar;
   CodecName: string;
-  CmdRes: TRunResult;
   MainOutputDir: string;
   Tools: TToolPaths;
   ResolvedOutDir: string;
@@ -385,8 +383,7 @@ begin
     begin
       if FConvertOpts.overwrite <> 0 then
       begin
-        CmdRes := RunCommandCapture('/bin/rm -f ' + QuoteForShell(M4VOut));
-        if CmdRes.ExitCode <> 0 then
+        if not SysUtils.DeleteFile(M4VOut) then
         begin
           IncFail('Cannot overwrite existing file: ' + M4VOut);
           Continue;
@@ -412,8 +409,7 @@ begin
     if FUseEditFlow then
     begin
       ConvertedFile := SourceFile;
-      CmdRes := RunCommandCapture('/bin/rm -f ' + QuoteForShell(ConvertedFile));
-      if CmdRes.ExitCode <> 0 then
+      if not SysUtils.DeleteFile(ConvertedFile) then
         QueueLog('Apple m4v creator warning: failed to delete temp converted file: ' + ConvertedFile);
     end;
   end;
@@ -809,9 +805,9 @@ begin
   lblVulkanDevice.Parent   := Self;
   lblVulkanDevice.Caption  := 'Vulkan dev:';
   lblVulkanDevice.Left     := 476;
-  lblVulkanDevice.Top      := 48;
-  lblVulkanDevice.Width    := 72;
-  lblVulkanDevice.Height   := 35;
+  lblVulkanDevice.Top      := 392;
+  lblVulkanDevice.Width    := 80;
+  lblVulkanDevice.Height   := 36;
   lblVulkanDevice.AutoSize := False;
   lblVulkanDevice.Layout   := tlCenter;
   lblVulkanDevice.Visible  := False;
@@ -819,10 +815,11 @@ begin
   cmbVulkanDevice := TComboBox.Create(Self);
   cmbVulkanDevice.Parent    := Self;
   cmbVulkanDevice.Style     := csDropDownList;
+  cmbVulkanDevice.AutoSize  := False;
   cmbVulkanDevice.Left      := 560;
-  cmbVulkanDevice.Top       := 48;
+  cmbVulkanDevice.Top       := 392;
   cmbVulkanDevice.Width     := 220;
-  cmbVulkanDevice.Height    := 35;
+  cmbVulkanDevice.Height    := 36;
   cmbVulkanDevice.Visible   := False;
   cmbVulkanDevice.OnChange  := @VulkanDeviceChanged;
   {$ENDIF}

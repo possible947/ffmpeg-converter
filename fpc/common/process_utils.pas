@@ -161,6 +161,12 @@ var
   P: TProcess;
   S: TStringStream;
   EffectiveCmd: string;
+  DataAvailable: Boolean;
+  ReadCount: LongInt;
+  ReadBuf: array[0..4095] of Byte;
+  Chunk: AnsiString;
+  MaxWaitAttempts: Integer;
+  WaitAttempts: Integer;
 begin
   Result.ExitCode := -1;
   Result.OutputText := '';
@@ -181,11 +187,63 @@ begin
     P.Parameters.Add('-c');
     P.Parameters.Add(CommandLine);
 {$ENDIF}
-    P.Options := [poUsePipes, poStderrToOutput, poWaitOnExit];
+    { Use poUsePipes but NOT poWaitOnExit to avoid deadlock }
+    P.Options := [poUsePipes, poStderrToOutput, poNoConsole];
 
     P.Execute;
-    S.CopyFrom(P.Output, 0);
 
+    { Read output in a loop without waiting for process to exit first }
+    MaxWaitAttempts := 1000;  { 10 second timeout at 10ms per iteration }
+    WaitAttempts := 0;
+    repeat
+      DataAvailable := False;
+      try
+        while P.Output.NumBytesAvailable > 0 do
+        begin
+          ReadCount := P.Output.Read(ReadBuf, SizeOf(ReadBuf));
+          if ReadCount > 0 then
+          begin
+            SetString(Chunk, PAnsiChar(@ReadBuf[0]), ReadCount);
+            S.WriteString(Chunk);
+            DataAvailable := True;
+            WaitAttempts := 0;  { Reset counter when we get data }
+          end;
+        end;
+      except
+        { If reading fails, break out }
+        break;
+      end;
+
+      { Check if process has finished }
+      if not P.Running then
+        break;
+
+      { If no data available, wait a bit and try again }
+      if not DataAvailable then
+      begin
+        Sleep(10);
+        Inc(WaitAttempts);
+        if WaitAttempts > MaxWaitAttempts then
+          break;  { Timeout }
+      end;
+    until False;
+
+    { Make sure we read any remaining data after process exits }
+    try
+      while P.Output.NumBytesAvailable > 0 do
+      begin
+        ReadCount := P.Output.Read(ReadBuf, SizeOf(ReadBuf));
+        if ReadCount > 0 then
+        begin
+          SetString(Chunk, PAnsiChar(@ReadBuf[0]), ReadCount);
+          S.WriteString(Chunk);
+        end;
+      end;
+    except
+    end;
+
+    { Wait for process to finish and get exit code }
+    P.WaitOnExit;
     Result.ExitCode := P.ExitStatus;
     Result.OutputText := S.DataString;
   finally

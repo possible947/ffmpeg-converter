@@ -401,7 +401,14 @@ begin
     begin
       EmitStage(Ctx, 'peak analysis');
 
-      Err := RunPeakTwoPass(InputFile, EffectiveOutDir, ErrorLogPath, ErrorLogNotice, Gain);
+      Err := RunPeakTwoPass(
+        InputFile,
+        EffectiveOutDir,
+        ErrorLogPath,
+        ErrorLogNotice,
+        Gain,
+        Ctx^.Cb.on_progress_analysis
+      );
       if Err <> ERR_OK then
       begin
         if ErrorLogPath <> '' then
@@ -427,7 +434,14 @@ begin
       EmitStage(Ctx, 'loudnorm analysis');
 
       ApplyGenreTargets(FileOpts);
-      Err := RunLoudnormTwoPass(InputFile, EffectiveOutDir, ErrorLogPath, ErrorLogNotice, FileOpts);
+      Err := RunLoudnormTwoPass(
+        InputFile,
+        EffectiveOutDir,
+        ErrorLogPath,
+        ErrorLogNotice,
+        FileOpts,
+        Ctx^.Cb.on_progress_analysis
+      );
       if Err <> ERR_OK then
       begin
         if ErrorLogPath <> '' then

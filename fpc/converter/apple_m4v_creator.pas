@@ -119,7 +119,12 @@ var
 begin
   Cmd := QuoteForShell(FfprobeBin) +
     ' -v error -select_streams v:0 -show_entries stream=avg_frame_rate ' +
-    '-of default=noprint_wrappers=1:nokey=1 ' + QuoteForShell(InputFile) + ' 2>/dev/null';
+    '-of default=noprint_wrappers=1:nokey=1 ' + QuoteForShell(InputFile) +
+{$IFDEF Windows}
+    ' 2>NUL';
+{$ELSE}
+    ' 2>/dev/null';
+{$ENDIF}
   R := RunCommandCapture(Cmd);
   if R.ExitCode <> 0 then
     LogFailedCommand(Cmd, R, '', FfprobeBin, InputFile, '', FallbackLogDir, 'ffprobe avg_frame_rate failed');
@@ -129,7 +134,12 @@ begin
   begin
     Cmd := QuoteForShell(FfprobeBin) +
       ' -v error -select_streams v:0 -show_entries stream=r_frame_rate ' +
-      '-of default=noprint_wrappers=1:nokey=1 ' + QuoteForShell(InputFile) + ' 2>/dev/null';
+      '-of default=noprint_wrappers=1:nokey=1 ' + QuoteForShell(InputFile) +
+{$IFDEF Windows}
+      ' 2>NUL';
+{$ELSE}
+      ' 2>/dev/null';
+{$ENDIF}
     R := RunCommandCapture(Cmd);
     if R.ExitCode <> 0 then
       LogFailedCommand(Cmd, R, '', FfprobeBin, InputFile, '', FallbackLogDir, 'ffprobe r_frame_rate failed');
@@ -166,7 +176,11 @@ procedure CleanupWorkDir(const WorkDir: string);
 begin
   if WorkDir = '' then
     Exit;
+{$IFDEF Windows}
+  RunCommandCapture('rmdir /s /q ' + QuoteForShell(WorkDir));
+{$ELSE}
   RunCommandCapture('/bin/rm -rf ' + QuoteForShell(WorkDir));
+{$ENDIF}
 end;
 
 function RunStep(const Cmd, ErrorPrefix, FfmpegBin, FfprobeBin, InputFile, OutputFile, FallbackLogDir: string;

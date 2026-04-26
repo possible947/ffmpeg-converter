@@ -17,12 +17,78 @@ uses
   {$IFNDEF Windows}
   BaseUnix,
   {$ENDIF}
+  {$IFDEF Windows}
+  Windows,
+  {$ENDIF}
   SysUtils;
+
+{$IFDEF Windows}
+{ Convert UTF-8 string to UTF-16 (WideString) }
+function UTF8ToUTF16(const UTF8Str: string): WideString;
+var
+  Len: LongInt;
+  UCS2Str: PWideChar;
+begin
+  Result := '';
+  if UTF8Str = '' then
+    Exit;
+
+  Len := MultiByteToWideChar(CP_UTF8, 0, @UTF8Str[1], Length(UTF8Str), nil, 0);
+  if Len = 0 then
+    Exit;
+
+  GetMem(UCS2Str, (Len + 1) * SizeOf(WideChar));
+  try
+    MultiByteToWideChar(CP_UTF8, 0, @UTF8Str[1], Length(UTF8Str), UCS2Str, Len);
+    UCS2Str[Len] := #0;
+    Result := UCS2Str;
+  finally
+    FreeMem(UCS2Str);
+  end;
+end;
+
+{ Check if UTF-8 file exists using Windows Unicode API }
+function FileExistsUTF8(const Path: string): Boolean;
+var
+  WidePath: WideString;
+  Attr: DWORD;
+begin
+  Result := False;
+  if Path = '' then
+    Exit;
+
+  WidePath := UTF8ToUTF16(Path);
+  if WidePath = '' then
+    Exit;
+
+  Attr := GetFileAttributesW(PWideChar(WidePath));
+  Result := Attr <> INVALID_FILE_ATTRIBUTES;
+end;
+
+{ Get file attributes for UTF-8 filename using Windows Unicode API }
+function FileGetAttrUTF8(const Path: string): LongInt;
+var
+  WidePath: WideString;
+  Attr: DWORD;
+begin
+  Result := -1;
+  if Path = '' then
+    Exit;
+
+  WidePath := UTF8ToUTF16(Path);
+  if WidePath = '' then
+    Exit;
+
+  Attr := GetFileAttributesW(PWideChar(WidePath));
+  if Attr <> INVALID_FILE_ATTRIBUTES then
+    Result := LongInt(Attr);
+end;
+{$ENDIF}
 
 function FileReadable(const Path: string): Boolean;
 begin
 {$IFDEF Windows}
-  Result := (Path <> '') and FileExists(Path);
+  Result := (Path <> '') and FileExistsUTF8(Path);
 {$ELSE}
   Result := (fpAccess(PChar(Path), R_OK) = 0);
 {$ENDIF}
@@ -34,13 +100,13 @@ var
   Info: Stat;
 {$ELSE}
 var
-  Attr: Integer;
+  Attr: LongInt;
 {$ENDIF}
 begin
 {$IFDEF Windows}
   if Path = '' then
     Exit(False);
-  Attr := FileGetAttr(Path);
+  Attr := FileGetAttrUTF8(Path);
   Result := (Attr <> -1) and ((Attr and faDirectory) = 0);
 {$ELSE}
   if fpStat(PChar(Path), Info) <> 0 then

@@ -213,6 +213,7 @@ var
   Codec: string;
   ResolvedDir: string;
   DirError: string;
+  OutputDirExplicitlySet: Boolean;
   M4VVideoTrackIdx: Integer;
   M4VAudioTrackIdx: Integer;
   M4VAacQuality: Integer;
@@ -229,6 +230,7 @@ begin
   M4VAc3Bitrate := 640;
   M4VLang := 'rus';
   M4VAddChapters := True;
+  OutputDirExplicitlySet := False;
 
   for I := 0 to High(Files) do
     Files[I] := nil;
@@ -472,6 +474,7 @@ begin
         Exit(False);
       Inc(I);
       S := Args[I];
+      OutputDirExplicitlySet := True;
       if not EnsureOutputDirWritable(S, ResolvedDir, DirError) then
       begin
         Opts.output_dir_status := 0;
@@ -503,16 +506,20 @@ begin
     Exit(False);
   end;
 
-  if not EnsureOutputDirWritable(ArrToStr(Opts.output_dir), ResolvedDir, DirError) then
+  if OutputDirExplicitlySet then
   begin
-    Opts.output_dir_status := 0;
-    WriteLn(StdErr, 'Warning: ', DirError);
-    WriteLn(StdErr, 'Will use default output directory');
-  end
-  else
-  begin
-    SetAnsiField(Opts.output_dir, ResolvedDir);
-    Opts.output_dir_status := 1;
+    if not EnsureOutputDirWritable(ArrToStr(Opts.output_dir), ResolvedDir, DirError) then
+    begin
+      Opts.output_dir_status := 0;
+      WriteLn(StdErr, 'Warning: ', DirError);
+      WriteLn(StdErr, 'Will use default output directory');
+      Opts.output_dir[0] := #0;
+    end
+    else
+    begin
+      SetAnsiField(Opts.output_dir, ResolvedDir);
+      Opts.output_dir_status := 1;
+    end;
   end;
 
   Codec := ArrToStr(Opts.codec);

@@ -7,6 +7,27 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Windows GUI runtime probing for Vulkan ProRes (`prores_ks_vulkan`) with
+  per-device discovery (`vulkan:0..7`) and codec list exposure only when the
+  encoder is actually usable.
+
+### Changed
+- Windows GUI layout: Vulkan device selector was moved to the action row (near
+  `m4v edit`) and aligned with neighboring controls to avoid overlap with audio
+  output widgets.
+
+### Fixed
+- Windows GUI subprocesses no longer flash console windows. All critical
+  `TProcess` call sites now use `poNoConsole`.
+- Vulkan capability detection in GUI: replaced generic encoder probe with
+  Vulkan-aware probe path (`-init_hw_device vulkan=... -filter_hw_device vk ...
+  -c:v prores_ks_vulkan`) to prevent false negatives.
+- Vulkan auto-device behavior: `vk:-1` command generation is now normalized to
+  `vk:0` for ffmpeg compatibility.
+- Apple M4V Windows cleanup path: replaced `/bin/rm` assumptions with
+  Windows-safe cleanup calls and platform-conditional stderr redirection.
+
 ### Fixed
 - **Critical: loudness normalization 2-pass producing wrong gain (~10–14 LUFS error).**
   FFmpeg `loudnorm` filter always outputs measurement values as JSON strings

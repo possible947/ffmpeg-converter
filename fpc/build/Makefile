@@ -70,6 +70,7 @@ TEST_PROGRAMS := \
 	test_unified_tool_resolver \
 	run_apple_m4v_test
 
+TEST_SOURCES := $(wildcard $(ROOT)/fpc/test/*.pas)
 TEST_BINS := $(addprefix $(ROOT)/fpc/test/,$(addsuffix $(EXEEXT),$(TEST_PROGRAMS)))
 
 TEST_SHARED_DEPS := \
@@ -102,7 +103,12 @@ cli: $(CLI_BIN)
 
 lib: $(LIB_OUT)
 
+ifeq ($(strip $(TEST_SOURCES)),)
+tests:
+	@echo "No Pascal tests found under $(ROOT)/fpc/test; skipping tests target."
+else
 tests: $(TEST_BINS)
+endif
 
 apple-test: $(ROOT)/fpc/test/run_apple_m4v_test$(EXEEXT)
 

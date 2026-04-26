@@ -268,6 +268,11 @@ begin
 end;
 
 function ResolveMp4BoxBin: string;
+{$IFDEF Windows}
+var
+  Candidates: array of string;
+  I: Integer;
+{$ENDIF}
 begin
   Result := ResolveFromEnv('MP4BOX');
   if Result = '' then Result := ResolveFromEnv('MP4BOX_BIN');
@@ -275,6 +280,26 @@ begin
   if Result = '' then Result := ResolveFromRepoWindowsBin('MP4Box');
   if Result <> '' then
     Exit;
+
+{$IFDEF Windows}
+  { Search in common Windows installation paths }
+  Candidates := [
+    'C:\Program Files\GPAC\mp4box.exe',
+    'C:\Program Files (x86)\GPAC\mp4box.exe',
+    'C:\Program Files\Hybrid\64bit\MP4Box.exe',
+    'C:\Program Files (x86)\Hybrid\MP4Box.exe'
+  ];
+  
+  for I := Low(Candidates) to High(Candidates) do
+  begin
+    if IsExecutableFile(Candidates[I]) then
+    begin
+      Result := Candidates[I];
+      Exit;
+    end;
+  end;
+{$ENDIF}
+
   Result := ResolveBinary('MP4Box',
     ['/opt/local/bin/MP4Box', '/opt/homebrew/bin/MP4Box', '/usr/local/bin/MP4Box']);
 end;

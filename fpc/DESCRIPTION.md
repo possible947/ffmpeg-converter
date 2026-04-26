@@ -5,8 +5,8 @@ This directory contains the Free Pascal implementation of the ffmpeg-converter p
 ## Platform Support
 
 - **Linux**: Pascal CLI and GUI — full support, including VAAPI hardware codecs (`h264_vaapi`, `hevc_vaapi`).
-- **macOS**: Native C GUI (`cli_macos.c` / macOS app bundle) — VideoToolbox codecs (`prores_videotoolbox`, `hevc_videotoolbox`). Pascal CLI/GUI does not support macOS.
-- **Windows**: Coming in Phase 4. A platform detection function (`IsWindows()`) is present as a structural placeholder for future Windows-specific codec and path handling.
+- **Windows**: Pascal CLI and Lazarus GUI are supported. Windows-specific hardware codecs are runtime-probed (`h264_nvenc`, `hevc_nvenc`, `h264_amf`, `hevc_amf`, `h264_qsv`, `hevc_qsv`, `prores_ks_vulkan`) and shown only when available.
+- **macOS**: Native C GUI (`cli_macos.c` / macOS app bundle) remains the primary macOS path. Pascal tooling and packaging scripts are also present for parity workflows.
 
 ## API Compatibility Scope
 
@@ -50,4 +50,7 @@ fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli ./fpc/test/tes
 # Integration tests (require ffmpeg in PATH)
 bash fpc/test/test_cli_args_matrix.sh
 bash fpc/test/check_gui_cli_issues.sh
+
+# Windows build (CLI + GUI staging to fpc/bin)
+powershell -ExecutionPolicy Bypass -File scripts/windows_build_fpc.ps1
 ```

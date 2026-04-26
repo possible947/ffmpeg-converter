@@ -61,9 +61,10 @@ begin
 {$IFDEF Windows}
   for I := 0 to 7 do
   begin
-    Cmd := '"' + FfmpegBin + '" -init_hw_device vulkan=vk:' + IntToStr(I) +
-           ' -f lavfi -i color=c=black:s=64x64:d=1 -vframes 1' +
-           ' -vf hwupload -vcodec prores_ks -f null NUL 2>nul';
+    Cmd := '"' + FfmpegBin + '" -v error -hide_banner' +
+           ' -init_hw_device vulkan=vk:' + IntToStr(I) + ' -filter_hw_device vk' +
+           ' -f lavfi -i color=size=1920x1080:rate=1 -frames:v 1' +
+           ' -vf format=yuv422p10le,hwupload -c:v prores_ks_vulkan -f null NUL 2>nul';
     R := RunCommandCapture(Cmd);
     if R.ExitCode = 0 then
       Inc(Result)
@@ -90,7 +91,7 @@ begin
   Result.HasNVENC  := ProbeEncoder(Bin, 'h264_nvenc');
   Result.HasAMF    := ProbeEncoder(Bin, 'h264_amf');
   Result.HasQSV    := ProbeEncoder(Bin, 'h264_qsv');
-  Result.HasVulkan := ProbeEncoder(Bin, 'prores_ks_vulkan');
+  Result.HasVulkan := ProbeVulkanEncoder(Bin);
   if Result.HasVulkan then
     Result.VulkanDeviceCount := ProbeVulkanDeviceCount(Bin)
   else
