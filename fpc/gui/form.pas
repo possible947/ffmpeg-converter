@@ -676,11 +676,7 @@ begin
     Err := converter_process_files(FConverter, @TmpFiles[0], Length(TmpFiles));
     if Err <> ERR_OK then
       QueueLog('Processing finished with errors.');
-{$IFDEF Linux}
-    if (Err = ERR_OK) and (StrPas(@FOptions.codec[0]) = 'mux') then
-      Err := RunMuxPostprocess(FOptions, string(FFiles[0]));
-{$ENDIF}
-{$IFDEF Windows}
+{$IF defined(Linux) or defined(Windows)}
     if (Err = ERR_OK) and (StrPas(@FOptions.codec[0]) = 'mux') then
       Err := RunMuxPostprocess(FOptions, string(FFiles[0]));
 {$ENDIF}
@@ -931,7 +927,7 @@ begin
   if CodecIsVulkanProres(cmbCodec.Text) then
     Opts.vulkan_device := FVulkanDeviceIndex
   else
-    Opts.vulkan_device := 0;
+    Opts.vulkan_device := 0;  { 0 = first/default device; only used by Vulkan codec }
   {$ENDIF}
 
   if EnsureOutputDirWritable(FOutputDir, ResolvedDir, DirError) then
