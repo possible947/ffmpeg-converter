@@ -50,6 +50,7 @@ typedef struct {
     int  video_quality;
     int  use_aac_for_h265;
     int  hevc_vt_bitrate_kbps;
+    int  vulkan_device;
 } ConvertOptions;
 
 typedef struct {

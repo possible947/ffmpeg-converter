@@ -49,6 +49,7 @@ type
     video_quality: LongInt;
     use_aac_for_h265: LongInt;
     hevc_vt_bitrate_kbps: LongInt;
+    vulkan_device: LongInt;
   end;
   PConvertOptions = ^TConvertOptions;
 
@@ -105,6 +106,7 @@ begin
   Opts.video_quality := 0;
   Opts.use_aac_for_h265 := 0;
   Opts.hevc_vt_bitrate_kbps := 0;
+  Opts.vulkan_device := 0;
 end;
 
 end.
