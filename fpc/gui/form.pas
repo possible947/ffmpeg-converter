@@ -747,10 +747,6 @@ begin
   cmbCodec.Items.Add('h264_vaapi');
   cmbCodec.Items.Add('hevc_vaapi');
 {$ENDIF}
-{$IFDEF Darwin}
-  cmbCodec.Items.Add('prores_videotoolbox');
-  cmbCodec.Items.Add('hevc_videotoolbox');
-{$ENDIF}
   cmbCodec.ItemIndex := 0;
 
   cmbProfile.Items.Clear;

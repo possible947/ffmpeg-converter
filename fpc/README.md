@@ -10,7 +10,7 @@ This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-convert
 - GUI parity updates: audio output selector, mux video-track workflow, platform-aware codec list and widget gating
 - Apple M4V creator with multi-step mux pipeline (video copy + AAC + AC3 + MP4Box)
 - 2-pass peak and loudnorm (EBU R128) audio analysis
-- Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`) and macOS (`prores_videotoolbox`, `hevc_videotoolbox`)
+- Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`)
 - Audio output modes: `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`
 - Mux mode parity: `-c mux --video-track <file>` with mkvmerge post-process pipeline
 
@@ -116,8 +116,7 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
 
 ## macOS Notes
 
+- Pascal CLI/GUI targets Linux. Windows support is planned (Phase 4). macOS users should use the native C GUI (`cli_macos.c` / the macOS app bundle).
 - Pascal runtime resolves tools for GUI/CLI launches using a unified resolver (`ffmpeg`, `ffprobe`, `MP4Box`, `mkvmerge`), including `.app` bundled tools in `Contents/Resources/bin`.
 - `converter_set_options` now validates platform capabilities for hardware codecs (VAAPI rejected on non-Linux, Linux probes encoder availability).
-- Recommended Pascal GUI build flow on macOS is `make -C fpc/build gui-app`.
 - CLI `-o/--output` creates missing output directories before conversion and fails early on invalid/unwritable targets.
-- Packaged Pascal macOS app includes `icon.icns` (imported from C macOS GUI resources).

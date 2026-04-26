@@ -20,16 +20,11 @@ uses
 
 function IsCodecAllowedOnCurrentPlatform(const Codec: string): Boolean;
 begin
-{$IFDEF Darwin}
-  Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or
-            (Codec = 'mux') or (Codec = 'prores_videotoolbox') or (Codec = 'hevc_videotoolbox');
-{$ELSE}
-  {$IFDEF Linux}
+{$IFDEF Linux}
   Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or
             (Codec = 'mux') or (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi');
-  {$ELSE}
+{$ELSE}
   Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or (Codec = 'mux');
-  {$ENDIF}
 {$ENDIF}
 end;
 
@@ -90,14 +85,10 @@ begin
   WriteLn('Usage: ffmpeg_converter [options] file1 file2 ...');
   WriteLn;
   WriteLn('Options:');
-{$IFDEF Darwin}
-  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|prores_videotoolbox|hevc_videotoolbox>');
-{$ELSE}
-  {$IFDEF Linux}
+{$IFDEF Linux}
   WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_vaapi|hevc_vaapi>');
-  {$ELSE}
+{$ELSE}
   WriteLn('  -c, --codec <copy|prores|prores_ks|mux>');
-  {$ENDIF}
 {$ENDIF}
   WriteLn('  -p, --profile <lt|standard|hq|4444>');
   WriteLn('  -d, --deblock <none|weak|strong>');
