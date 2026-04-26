@@ -6,7 +6,12 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ComCtrls,
-  converter_types, apple_m4v_creator;
+  converter_types, apple_m4v_creator
+  {$IFDEF Windows}
+  , form_windows
+  , vulkan_device_selector
+  {$ENDIF}
+  ;
 
 type
   TMainForm = class;
@@ -88,6 +93,12 @@ type
     FVideoTrackPath: string;
     FWorker: TConverterThread;
     FAppleWorker: TAppleM4VThread;
+    {$IFDEF Windows}
+    FWindowsHW: TWindowsHWInfo;
+    FVulkanDeviceIndex: Integer;
+    lblVulkanDevice: TLabel;
+    cmbVulkanDevice: TComboBox;
+    {$ENDIF}
 
     procedure SetupControls;
     procedure UpdateDependentWidgets;
@@ -96,6 +107,10 @@ type
 
     procedure CodecChanged(Sender: TObject);
     procedure AudioNormChanged(Sender: TObject);
+    {$IFDEF Windows}
+    procedure PopulateWindowsCodecs;
+    procedure VulkanDeviceChanged(Sender: TObject);
+    {$ENDIF}
     procedure AddFilesClicked(Sender: TObject);
     procedure AddTrackClicked(Sender: TObject);
     procedure ChooseOutputDirClicked(Sender: TObject);
@@ -661,7 +676,7 @@ begin
     Err := converter_process_files(FConverter, @TmpFiles[0], Length(TmpFiles));
     if Err <> ERR_OK then
       QueueLog('Processing finished with errors.');
-{$IFDEF Linux}
+{$IF defined(Linux) or defined(Windows)}
     if (Err = ERR_OK) and (StrPas(@FOptions.codec[0]) = 'mux') then
       Err := RunMuxPostprocess(FOptions, string(FFiles[0]));
 {$ENDIF}
@@ -717,9 +732,27 @@ begin
   Result := (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi');
 end;
 
+function CodecIsWindowsHW(const Codec: string): Boolean;
+begin
+  Result := (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
+            (Codec = 'h264_amf')   or (Codec = 'hevc_amf')   or
+            (Codec = 'h264_qsv')   or (Codec = 'hevc_qsv')   or
+            (Codec = 'prores_ks_vulkan');
+end;
+
+function CodecIsVulkanProres(const Codec: string): Boolean;
+begin
+  Result := Codec = 'prores_ks_vulkan';
+end;
+
 procedure TMainForm.FormCreate(Sender: TObject);
 var
   Tools: TToolPaths;
+  {$IFDEF Windows}
+  HWLines: array[0..7] of string;
+  HWLineCount: Integer;
+  I: Integer;
+  {$ENDIF}
 begin
   GMainForm := Self;
   ApplyBundledToolEnvironment;
@@ -727,12 +760,28 @@ begin
   FVideoTrackPath := '';
   FWorker := nil;
   FAppleWorker := nil;
+  {$IFDEF Windows}
+  FVulkanDeviceIndex := -1;  { Auto / no preference }
+  {$ENDIF}
   SetupControls;
   UpdateDependentWidgets;
   Tools := ResolveToolPaths;
   UiLog('Startup ffmpeg=' + Tools.FfmpegBin);
   UiLog('Startup ffprobe=' + Tools.FfprobeBin);
   UiLog('Startup PATH=' + Tools.PathValue);
+  {$IFDEF Windows}
+  UiLog('HW detection: probing encoders (may take a moment)...');
+  FWindowsHW := DetectWindowsHardware(Tools.FfmpegBin);
+  GetWindowsHardwareLogLines(FWindowsHW, HWLines, HWLineCount);
+  for I := 0 to HWLineCount - 1 do
+    UiLog(HWLines[I]);
+  { Repopulate codec menu now that hardware info is available }
+  PopulateWindowsCodecs;
+  UpdateDependentWidgets;
+  { Warn if mkvmerge is not found (needed for mux mode) }
+  if not FWindowsHW.HasMkvmerge then
+    UiLog('WARNING: mkvmerge not found. Mux mode will not be available.');
+  {$ENDIF}
 end;
 
 procedure TMainForm.SetupControls;
@@ -753,6 +802,30 @@ begin
   cmbCodec.Items.Add('hevc_vaapi');
 {$ENDIF}
   cmbCodec.ItemIndex := 0;
+
+  {$IFDEF Windows}
+  { Create Vulkan device selector controls (dynamically, not in .lfm) }
+  lblVulkanDevice := TLabel.Create(Self);
+  lblVulkanDevice.Parent   := Self;
+  lblVulkanDevice.Caption  := 'Vulkan dev:';
+  lblVulkanDevice.Left     := 476;
+  lblVulkanDevice.Top      := 48;
+  lblVulkanDevice.Width    := 72;
+  lblVulkanDevice.Height   := 35;
+  lblVulkanDevice.AutoSize := False;
+  lblVulkanDevice.Layout   := tlCenter;
+  lblVulkanDevice.Visible  := False;
+
+  cmbVulkanDevice := TComboBox.Create(Self);
+  cmbVulkanDevice.Parent    := Self;
+  cmbVulkanDevice.Style     := csDropDownList;
+  cmbVulkanDevice.Left      := 560;
+  cmbVulkanDevice.Top       := 48;
+  cmbVulkanDevice.Width     := 220;
+  cmbVulkanDevice.Height    := 35;
+  cmbVulkanDevice.Visible   := False;
+  cmbVulkanDevice.OnChange  := @VulkanDeviceChanged;
+  {$ENDIF}
 
   cmbProfile.Items.Clear;
   cmbProfile.Items.Add('lt');
@@ -850,6 +923,13 @@ begin
   Opts.genre := cmbGenre.ItemIndex + 1;
   Opts.overwrite := Ord(chkOverwrite.Checked);
 
+  {$IFDEF Windows}
+  if CodecIsVulkanProres(cmbCodec.Text) then
+    Opts.vulkan_device := FVulkanDeviceIndex
+  else
+    Opts.vulkan_device := 0;  { 0 = first/default device; only used by Vulkan codec }
+  {$ENDIF}
+
   if EnsureOutputDirWritable(FOutputDir, ResolvedDir, DirError) then
   begin
     SetAnsiField(Opts.output_dir, ResolvedDir);
@@ -883,6 +963,14 @@ begin
     FVideoTrackPath := '';
     lblVideoTrackValue.Caption := '(not set)';
   end;
+
+  {$IFDEF Windows}
+  if Assigned(lblVulkanDevice) and Assigned(cmbVulkanDevice) then
+  begin
+    lblVulkanDevice.Visible := CodecIsVulkanProres(CodecText);
+    cmbVulkanDevice.Visible := CodecIsVulkanProres(CodecText);
+  end;
+  {$ENDIF}
 end;
 
 procedure TMainForm.CollectOptions(out Opts: TConvertOptions; out Files: array of string; out Count: Integer);
@@ -905,6 +993,78 @@ procedure TMainForm.AudioNormChanged(Sender: TObject);
 begin
   UpdateDependentWidgets;
 end;
+
+{$IFDEF Windows}
+procedure TMainForm.PopulateWindowsCodecs;
+var
+  PreviousCodec: string;
+  I: Integer;
+begin
+  PreviousCodec := cmbCodec.Text;
+
+  { Remove any previously added Windows HW codecs (keep copy/prores/prores_ks) }
+  I := cmbCodec.Items.Count - 1;
+  while I >= 0 do
+  begin
+    if CodecIsWindowsHW(cmbCodec.Items[I]) then
+      cmbCodec.Items.Delete(I);
+    Dec(I);
+  end;
+
+  { Also add 'mux' if mkvmerge is available (needed for mux mode) }
+  if cmbCodec.Items.IndexOf('mux') < 0 then
+    cmbCodec.Items.Add('mux');
+
+  { Add hardware encoder entries based on detection results }
+  if FWindowsHW.HasNVENC then
+  begin
+    cmbCodec.Items.Add('h264_nvenc');
+    cmbCodec.Items.Add('hevc_nvenc');
+  end;
+  if FWindowsHW.HasAMF then
+  begin
+    cmbCodec.Items.Add('h264_amf');
+    cmbCodec.Items.Add('hevc_amf');
+  end;
+  if FWindowsHW.HasQSV then
+  begin
+    cmbCodec.Items.Add('h264_qsv');
+    cmbCodec.Items.Add('hevc_qsv');
+  end;
+  if FWindowsHW.HasVulkan then
+    cmbCodec.Items.Add('prores_ks_vulkan');
+
+  { Populate Vulkan device combobox }
+  if Assigned(cmbVulkanDevice) then
+  begin
+    cmbVulkanDevice.Items.Clear;
+    cmbVulkanDevice.Items.Add(VulkanDeviceDisplayName(-1));
+    if FWindowsHW.VulkanDeviceCount > 0 then
+      for I := 0 to FWindowsHW.VulkanDeviceCount - 1 do
+        cmbVulkanDevice.Items.Add(VulkanDeviceDisplayName(I));
+    cmbVulkanDevice.ItemIndex := 0;
+    FVulkanDeviceIndex := -1;
+  end;
+
+  { Restore previous codec selection if still available }
+  I := cmbCodec.Items.IndexOf(PreviousCodec);
+  if I >= 0 then
+    cmbCodec.ItemIndex := I
+  else if cmbCodec.Items.Count > 0 then
+    cmbCodec.ItemIndex := 0;
+end;
+
+procedure TMainForm.VulkanDeviceChanged(Sender: TObject);
+begin
+  if Assigned(cmbVulkanDevice) then
+  begin
+    if cmbVulkanDevice.ItemIndex <= 0 then
+      FVulkanDeviceIndex := -1
+    else
+      FVulkanDeviceIndex := cmbVulkanDevice.ItemIndex - 1;
+  end;
+end;
+{$ENDIF}
 
 procedure TMainForm.AddFilesClicked(Sender: TObject);
 var
@@ -993,6 +1153,15 @@ begin
       MessageDlg('Mux mode requires a readable video-track file.', mtWarning, [mbOK], 0);
       Exit;
     end;
+    {$IFDEF Windows}
+    if not FWindowsHW.HasMkvmerge then
+    begin
+      MessageDlg('Mux mode requires mkvmerge, which was not found.' + LineEnding +
+                 'Please install MKVToolNix and ensure mkvmerge.exe is in PATH.',
+                 mtError, [mbOK], 0);
+      Exit;
+    end;
+    {$ENDIF}
   end;
 
   if lstFiles.Items.Count = 0 then
@@ -1284,6 +1453,11 @@ begin
   btnRemoveSelected.Enabled := not Running;
   btnClearList.Enabled := not Running;
   lstFiles.Enabled := not Running;
+
+  {$IFDEF Windows}
+  if Assigned(cmbVulkanDevice) then
+    cmbVulkanDevice.Enabled := not Running;
+  {$ENDIF}
 
   if Running then
   begin

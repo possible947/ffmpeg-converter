@@ -29,5 +29,21 @@ if(WIN32)
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Building Windows CLI (ffmpeg_converter_windows.exe)"
   )
+
+  # --- Windows GUI build (Lazarus / lazbuild) ---
+  find_program(LAZBUILD_EXE lazbuild)
+  if(LAZBUILD_EXE)
+    add_custom_target(fpc_gui_windows
+      COMMAND ${LAZBUILD_EXE}
+        --build-mode=default
+        ${CMAKE_CURRENT_SOURCE_DIR}/fpc/gui/form.lpi
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/fpc/gui
+      COMMENT "Building Windows GUI (ffmpeg_converter_gui.exe) via Lazarus"
+    )
+  else()
+    message(STATUS
+      "lazbuild not found -- fpc_gui_windows target skipped. "
+      "Install Lazarus IDE to enable the GUI build.")
+  endif()
 endif()
 
