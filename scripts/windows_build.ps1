@@ -1,10 +1,12 @@
 <#
 .SYNOPSIS
-    Build ffmpeg-converter Windows CLI using CMake + MSBuild.
+    Build ffmpeg-converter Windows CLI using CMake + MSBuild and optionally FPC.
 
 .DESCRIPTION
     Locates Visual Studio / MSBuild via vswhere.exe, optionally runs CMake
     configuration, then builds the specified target with MSBuild.
+
+    Phase 4A: Also supports building the Pascal Windows CLI using FPC.
 
     Compatible with PowerShell 5.1 and later.
 
@@ -27,6 +29,14 @@
     Default : windows_cli  -> produces build-msvc\src\cli\Release\ffmpeg_converter.exe
     Other   : ALL_BUILD    -> builds everything
               INSTALL      -> installs to CMAKE_INSTALL_PREFIX
+
+.PARAMETER BuildFPC
+    Also build the Pascal Windows CLI (ffmpeg_converter_windows.exe) using FPC.
+    Requires fpc.exe to be available on PATH.
+
+.PARAMETER FPCOnly
+    Build only the Pascal Windows CLI (ffmpeg_converter_windows.exe) using FPC.
+    Skips CMake/MSBuild entirely.
 
 .PARAMETER Help
     Show this help message and exit.
@@ -54,6 +64,14 @@
 .EXAMPLE
     # Build everything (all targets)
     .\scripts\windows_build.ps1 -Target ALL_BUILD
+
+.EXAMPLE
+    # Build C CLI + Pascal Windows CLI
+    .\scripts\windows_build.ps1 -BuildFPC
+
+.EXAMPLE
+    # Build Pascal Windows CLI only (Phase 4A)
+    .\scripts\windows_build.ps1 -FPCOnly
 #>
 
 param(
@@ -64,6 +82,8 @@ param(
     [switch] $Rebuild,
     [switch] $NoConfigure,
     [switch] $Help,
+    [switch] $BuildFPC,
+    [switch] $FPCOnly,
 
     [string] $Target      = 'windows_cli'
 )
@@ -85,6 +105,8 @@ Write-Host ""
 Write-Host "=== ffmpeg-converter Windows Build ===" -ForegroundColor White
 Write-Host "  Config  : $Config"
 Write-Host "  Target  : $Target"
+if ($FPCOnly) { Write-Host "  Mode    : FPC only (Pascal Windows CLI)" -ForegroundColor Cyan }
+if ($BuildFPC) { Write-Host "  BuildFPC: yes (will also build Pascal Windows CLI)" -ForegroundColor Cyan }
 if ($Clean)       { Write-Host "  Clean   : yes (build directory will be wiped)" -ForegroundColor Yellow }
 if ($Rebuild)     { Write-Host "  Rebuild : yes (full recompile forced)" -ForegroundColor Yellow }
 if ($NoConfigure) { Write-Host "  NoConfigure : yes (CMake step skipped)" }
@@ -96,6 +118,67 @@ Write-Host ""
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $RepoRoot  = Split-Path -Parent $ScriptDir
 $BuildDir  = Join-Path $RepoRoot 'build-msvc'
+
+# -----------------------------------------------------------------------
+#  Phase 4A: FPC build helper
+# -----------------------------------------------------------------------
+function Invoke-FPCBuild {
+    Write-Host ""
+    Write-Host "=== Phase 4A: Building Pascal Windows CLI ===" -ForegroundColor Cyan
+
+    $FPC = Get-Command fpc -ErrorAction SilentlyContinue
+    if (-not $FPC) {
+        Write-Host "ERROR: fpc.exe not found on PATH." -ForegroundColor Red
+        Write-Host "       Install Free Pascal from https://www.freepascal.org/" -ForegroundColor Red
+        return $false
+    }
+
+    Write-Host "FPC     : $($FPC.Source)" -ForegroundColor Cyan
+
+    $FPCOut = Join-Path $BuildDir 'fpc'
+    if (-not (Test-Path $FPCOut)) {
+        New-Item -ItemType Directory -Force -Path $FPCOut | Out-Null
+    }
+
+    $FPCArgs = @(
+        "-Fu$RepoRoot\fpc\converter",
+        "-Fu$RepoRoot\fpc\common",
+        "-Fu$RepoRoot\fpc\json",
+        "-Fu$RepoRoot\fpc\platform",
+        "-Fu$RepoRoot\fpc\cli",
+        "-FU$FPCOut",
+        "-Ww",
+        "-Werror",
+        "$RepoRoot\fpc\cli\ffmpeg_converter_windows.lpr",
+        "-o$FPCOut\ffmpeg_converter_windows.exe"
+    )
+
+    Write-Host "Compiling ffmpeg_converter_windows.lpr ..." -ForegroundColor Cyan
+    & fpc @FPCArgs
+    $FPCExit = $LASTEXITCODE
+    Write-Host ""
+
+    if ($FPCExit -eq 0) {
+        Write-Host "FPC build succeeded." -ForegroundColor Green
+        $OutExe = Join-Path $FPCOut 'ffmpeg_converter_windows.exe'
+        if (Test-Path $OutExe) {
+            Write-Host "Output  : $OutExe" -ForegroundColor Green
+            { Copy-Item $OutExe $RepoRoot } | Out-Null 2>&1
+        }
+    } else {
+        Write-Host "FPC build FAILED (exit $FPCExit)." -ForegroundColor Red
+    }
+
+    return ($FPCExit -eq 0)
+}
+
+# -----------------------------------------------------------------------
+#  FPC-only mode: skip CMake/MSBuild
+# -----------------------------------------------------------------------
+if ($FPCOnly) {
+    $ok = Invoke-FPCBuild
+    exit $(if ($ok) { 0 } else { 1 })
+}
 
 # -----------------------------------------------------------------------
 #  Locate vswhere.exe
@@ -263,6 +346,16 @@ if ($ExitCode -eq 0) {
     }
 } else {
     Write-Host "Build FAILED (exit $ExitCode)." -ForegroundColor Red
+}
+
+# -----------------------------------------------------------------------
+#  Phase 4A: Optionally build Pascal Windows CLI with FPC
+# -----------------------------------------------------------------------
+if ($BuildFPC -and ($ExitCode -eq 0)) {
+    $fpcOk = Invoke-FPCBuild
+    if (-not $fpcOk) {
+        $ExitCode = 1
+    }
 }
 
 exit $ExitCode

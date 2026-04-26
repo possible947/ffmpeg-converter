@@ -23,17 +23,27 @@ function ApplyBundledToolEnvironment: Boolean;
 implementation
 
 uses
+  {$IFDEF Windows}
+  Windows,
+  {$ELSE}
   BaseUnix,
   ctypes,
+  {$ENDIF}
   SysUtils,
   process_utils,
   path_utils;
 
+{$IFNDEF Windows}
 function libc_setenv(name, value: PChar; overwrite: cint): cint; cdecl; external 'c' name 'setenv';
+{$ENDIF}
 
 function IsExecutableFile(const FilePath: string): Boolean;
 begin
+{$IFDEF Windows}
+  Result := (FilePath <> '') and FileExists(FilePath);
+{$ELSE}
   Result := (FilePath <> '') and FileExists(FilePath) and (fpAccess(PChar(FilePath), X_OK) = 0);
+{$ENDIF}
 end;
 
 function ResolveBundledMacTool(const PrimaryName: string): string;
@@ -96,7 +106,11 @@ begin
   Result := False;
   if (Name = '') or (Value = '') then
     Exit;
+{$IFDEF Windows}
+  Result := SetEnvironmentVariableA(PAnsiChar(AnsiString(Name)), PAnsiChar(AnsiString(Value)));
+{$ELSE}
   Result := libc_setenv(PChar(Name), PChar(Value), 1) = 0;
+{$ENDIF}
 end;
 
 function ResolveFromEnv(const EnvVarName: string): string;
@@ -121,11 +135,23 @@ begin
   if Name = '' then
     Exit;
 
+{$IFDEF Windows}
+  R := RunCommandCapture('where ' + Name + ' 2>nul');
+{$ELSE}
   R := RunCommandCapture('command -v ' + QuoteForShell(Name) + ' 2>/dev/null');
+{$ENDIF}
   if R.ExitCode <> 0 then
     Exit;
 
   P := Trim(R.OutputText);
+{$IFDEF Windows}
+  { 'where' may return multiple lines; take the first one }
+  if Pos(#13, P) > 0 then
+    P := Copy(P, 1, Pos(#13, P) - 1);
+  if Pos(#10, P) > 0 then
+    P := Copy(P, 1, Pos(#10, P) - 1);
+  P := Trim(P);
+{$ENDIF}
   if IsExecutableFile(P) then
     Result := P;
 end;
@@ -181,6 +207,11 @@ begin
   Result := '';
   ExeDir := ExtractFilePath(ExpandFileName(ParamStr(0)));
   if ExeDir = '' then Exit;
+{$IFDEF Windows}
+  Candidate := IncludeTrailingPathDelimiter(ExeDir) + Name + '.exe';
+  if IsExecutableFile(Candidate) then
+    Exit(Candidate);
+{$ENDIF}
   Candidate := IncludeTrailingPathDelimiter(ExeDir) + Name;
   if IsExecutableFile(Candidate) then
     Result := Candidate;

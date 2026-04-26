@@ -11,7 +11,9 @@ function RunMenu(var Opts: TConvertOptions; out Files: array of PAnsiChar; out F
 implementation
 
 uses
+  {$IFNDEF Windows}
   BaseUnix,
+  {$ENDIF}
   fs_utils,
   SysUtils;
 
@@ -26,7 +28,6 @@ end;
 
 function IsWindows: Boolean;
 begin
-  { Placeholder for Phase 4 Windows support }
 {$IFDEF Windows}
   Result := True;
 {$ELSE}
@@ -184,7 +185,9 @@ function ReadInputList(var OutFiles: array of PAnsiChar; out Count: LongInt): Bo
 var
   Line: string;
   ProcessedPath: string;
+{$IFNDEF Windows}
   Info: Stat;
+{$ENDIF}
   Idx: LongInt;
 begin
   Count := 0;
@@ -215,6 +218,19 @@ begin
       Continue;
     end;
 
+{$IFDEF Windows}
+    if not FileExists(ProcessedPath) then
+    begin
+      WriteLn('File not found: ''', ProcessedPath, '''');
+      Continue;
+    end;
+
+    if not FileRegular(ProcessedPath) then
+    begin
+      WriteLn('Not a regular file: ', ProcessedPath);
+      Continue;
+    end;
+{$ELSE}
     if fpStat(PChar(ProcessedPath), Info) <> 0 then
     begin
       WriteLn('File not found: ''', ProcessedPath, ''' (error: ', SysErrorMessage(fpgeterrno), ')');
@@ -226,6 +242,7 @@ begin
       WriteLn('Not a regular file: ', ProcessedPath);
       Continue;
     end;
+{$ENDIF}
 
     OutFiles[Idx] := StrNew(PAnsiChar(AnsiString(ProcessedPath)));
     if OutFiles[Idx] = nil then
@@ -297,6 +314,15 @@ begin
             WriteLn('  5. h264_vaapi');
             WriteLn('  6. hevc_vaapi');
           end;
+          if IsWindows then
+          begin
+            WriteLn('  5. h264_nvenc (if available)');
+            WriteLn('  6. hevc_nvenc (if available)');
+            WriteLn('  7. h264_amf   (if available)');
+            WriteLn('  8. hevc_amf   (if available)');
+            WriteLn('  9. h264_qsv   (if available)');
+            WriteLn('  0. hevc_qsv   (if available)');
+          end;
           WriteLn('----------------------');
           Write('select: number->choice,Enter->(default),c->cancel,b->back');
           WriteLn;
@@ -332,6 +358,36 @@ begin
           else if (Ch = '6') and IsLinux then
           begin
             Codec := 6;
+            Step := 4;
+          end
+          else if (Ch = '5') and IsWindows then
+          begin
+            Codec := 7;
+            Step := 4;
+          end
+          else if (Ch = '6') and IsWindows then
+          begin
+            Codec := 8;
+            Step := 4;
+          end
+          else if (Ch = '7') and IsWindows then
+          begin
+            Codec := 9;
+            Step := 4;
+          end
+          else if (Ch = '8') and IsWindows then
+          begin
+            Codec := 10;
+            Step := 4;
+          end
+          else if (Ch = '9') and IsWindows then
+          begin
+            Codec := 11;
+            Step := 4;
+          end
+          else if (Ch = '0') and IsWindows then
+          begin
+            Codec := 12;
             Step := 4;
           end
           else if (Ch = 'c') or (Ch = 'C') then
@@ -712,6 +768,12 @@ begin
                 SetAnsiField(Opts.codec, 'hevc_vaapi')
               else
                 SetAnsiField(Opts.codec, 'copy');
+            7: SetAnsiField(Opts.codec, 'h264_nvenc');
+            8: SetAnsiField(Opts.codec, 'hevc_nvenc');
+            9: SetAnsiField(Opts.codec, 'h264_amf');
+            10: SetAnsiField(Opts.codec, 'hevc_amf');
+            11: SetAnsiField(Opts.codec, 'h264_qsv');
+            12: SetAnsiField(Opts.codec, 'hevc_qsv');
           end;
 
           Opts.profile := Profile;

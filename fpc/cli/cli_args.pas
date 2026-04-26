@@ -14,18 +14,39 @@ function VerifyAndCompactFiles(var Files: array of PAnsiChar; var FileCount: Lon
 implementation
 
 uses
+  {$IFNDEF Windows}
   BaseUnix,
-  fs_utils,
   linux_probe,
+  {$ELSE}
+  windows_probe,
+  {$ENDIF}
+  fs_utils,
   SysUtils;
 
 function IsCodecAllowedOnCurrentPlatform(const Codec: string): Boolean;
 begin
-{$IFDEF Linux}
+{$IFDEF Windows}
+  Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or
+            (Codec = 'mux');
+
+  if IsNVENCAvailable then
+    Result := Result or (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc');
+
+  if IsAMFAvailable then
+    Result := Result or (Codec = 'h264_amf') or (Codec = 'hevc_amf');
+
+  if IsQSVAvailable then
+    Result := Result or (Codec = 'h264_qsv') or (Codec = 'hevc_qsv');
+
+  if IsVulkanAvailable then
+    Result := Result or (Codec = 'prores_ks_vulkan');
+{$ELSE}
+  {$IFDEF Linux}
   Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or
             (Codec = 'mux') or (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi');
-{$ELSE}
+  {$ELSE}
   Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or (Codec = 'mux');
+  {$ENDIF}
 {$ENDIF}
 end;
 
@@ -86,10 +107,14 @@ begin
   WriteLn('Usage: ffmpeg_converter [options] file1 file2 ...');
   WriteLn;
   WriteLn('Options:');
-{$IFDEF Linux}
-  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_vaapi|hevc_vaapi>');
+{$IFDEF Windows}
+  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_nvenc|hevc_nvenc|h264_amf|hevc_amf|h264_qsv|hevc_qsv>');
 {$ELSE}
+  {$IFDEF Linux}
+  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_vaapi|hevc_vaapi>');
+  {$ELSE}
   WriteLn('  -c, --codec <copy|prores|prores_ks|mux>');
+  {$ENDIF}
 {$ENDIF}
   WriteLn('  -p, --profile <lt|standard|hq|4444>');
   WriteLn('  -d, --deblock <none|weak|strong>');
@@ -417,8 +442,11 @@ var
   I: LongInt;
   ValidCount: LongInt;
   Line: string;
+  FilePath: string;
+{$IFNDEF Windows}
   Info: Stat;
   Readable: Boolean;
+{$ENDIF}
 begin
   ValidCount := 0;
   WriteLn;
@@ -426,9 +454,44 @@ begin
 
   for I := 0 to FileCount - 1 do
   begin
-    if fpStat(Files[I], Info) <> 0 then
+    FilePath := string(Files[I]);
+{$IFDEF Windows}
+    if not FileExists(FilePath) then
     begin
-      WriteLn('  X File not found: ', string(Files[I]));
+      WriteLn('  X File not found: ', FilePath);
+      if Files[I] <> nil then
+      begin
+        StrDispose(Files[I]);
+        Files[I] := nil;
+      end;
+      Continue;
+    end;
+
+    if not FileRegular(FilePath) then
+    begin
+      WriteLn('  X Not a regular file: ', FilePath);
+      if Files[I] <> nil then
+      begin
+        StrDispose(Files[I]);
+        Files[I] := nil;
+      end;
+      Continue;
+    end;
+
+    if not FileReadable(FilePath) then
+    begin
+      WriteLn('  X File not readable: ', FilePath);
+      if Files[I] <> nil then
+      begin
+        StrDispose(Files[I]);
+        Files[I] := nil;
+      end;
+      Continue;
+    end;
+{$ELSE}
+    if fpStat(PChar(FilePath), Info) <> 0 then
+    begin
+      WriteLn('  X File not found: ', FilePath);
       WriteLn('      Error: ', SysErrorMessage(fpgeterrno));
       if Files[I] <> nil then
       begin
@@ -440,7 +503,7 @@ begin
 
     if not FPS_ISREG(Info.st_mode) then
     begin
-      WriteLn('  X Not a regular file: ', string(Files[I]));
+      WriteLn('  X Not a regular file: ', FilePath);
       if Files[I] <> nil then
       begin
         StrDispose(Files[I]);
@@ -449,10 +512,10 @@ begin
       Continue;
     end;
 
-    Readable := fpAccess(Files[I], R_OK) = 0;
+    Readable := fpAccess(PChar(FilePath), R_OK) = 0;
     if not Readable then
     begin
-      WriteLn('  X File not readable: ', string(Files[I]));
+      WriteLn('  X File not readable: ', FilePath);
       if Files[I] <> nil then
       begin
         StrDispose(Files[I]);
@@ -460,8 +523,9 @@ begin
       end;
       Continue;
     end;
+{$ENDIF}
 
-    WriteLn('  + OK: ', string(Files[I]));
+    WriteLn('  + OK: ', FilePath);
     if ValidCount <> I then
     begin
       Files[ValidCount] := Files[I];

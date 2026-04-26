@@ -21,7 +21,9 @@ function converter_error_string(err: TConverterError): PAnsiChar; cdecl;
 implementation
 
 uses
+  {$IFNDEF Windows}
   BaseUnix,
+  {$ENDIF}
   SysUtils,
   process_utils,
   path_utils,
@@ -121,9 +123,30 @@ begin
 end;
 
 function CheckInputFile(Ctx: PConverterObj; const InputFile: string): TConverterError;
+{$IFNDEF Windows}
 var
   Info: Stat;
+{$ENDIF}
 begin
+{$IFDEF Windows}
+  if not FileExists(InputFile) then
+  begin
+    EmitError(Ctx, 'input file not found', ERR_INPUT_NOT_FOUND);
+    Exit(ERR_INPUT_NOT_FOUND);
+  end;
+
+  if not FileRegular(InputFile) then
+  begin
+    EmitError(Ctx, 'input file is not a regular file', ERR_INPUT_NOT_REGULAR);
+    Exit(ERR_INPUT_NOT_REGULAR);
+  end;
+
+  if not FileReadable(InputFile) then
+  begin
+    EmitError(Ctx, 'input file not readable', ERR_INPUT_NOT_READABLE);
+    Exit(ERR_INPUT_NOT_READABLE);
+  end;
+{$ELSE}
   if fpStat(PChar(InputFile), Info) <> 0 then
   begin
     EmitError(Ctx, 'input file not found', ERR_INPUT_NOT_FOUND);
@@ -141,15 +164,13 @@ begin
     EmitError(Ctx, 'input file not readable', ERR_INPUT_NOT_READABLE);
     Exit(ERR_INPUT_NOT_READABLE);
   end;
-
+{$ENDIF}
   Result := ERR_OK;
 end;
 
 function CheckOutputExists(Ctx: PConverterObj; const OutputFile: string): TConverterError;
-var
-  Info: Stat;
 begin
-  if fpStat(PChar(OutputFile), Info) = 0 then
+  if FileExists(OutputFile) then
   begin
     if Ctx^.Opts.overwrite = 0 then
     begin
