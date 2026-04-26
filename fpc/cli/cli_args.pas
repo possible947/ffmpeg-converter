@@ -69,7 +69,8 @@ begin
 {$ELSE}
   {$IFDEF Linux}
   Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or
-            (Codec = 'mux') or (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi');
+            (Codec = 'mux') or (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') or
+            (Codec = 'm4v');
   {$ELSE}
   Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or (Codec = 'mux');
   {$ENDIF}
@@ -158,7 +159,7 @@ begin
   WriteLn('  -c, --codec <', CodecList, '>');
 {$ELSE}
   {$IFDEF Linux}
-  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_vaapi|hevc_vaapi>');
+  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_vaapi|hevc_vaapi|m4v>');
   {$ELSE}
   WriteLn('  -c, --codec <copy|prores|prores_ks|mux>');
   {$ENDIF}
@@ -180,22 +181,18 @@ begin
 {$IFDEF Windows}
   if WinCaps.HasVulkan then
     WriteLn('      --vk_device <0..7> Select Vulkan adapter index for prores_ks_vulkan');
-{$ELSE}
+  {$ELSE}
   {$IFDEF Linux}
   WriteLn('      --vk_device <0|1>  Select Vulkan adapter (0=primary, 1=secondary)');
+  WriteLn('      --hw_device <path>  Override VAAPI device path for h264_vaapi/hevc_vaapi');
   {$ENDIF}
 {$ENDIF}
-{$IFDEF Windows}
-  if HasM4V then
-  begin
-    WriteLn('      --m4v-video-track <N>   video stream index for m4v (default: 0)');
-    WriteLn('      --m4v-audio-track <N>   audio stream index for m4v (default: 0)');
-    WriteLn('      --m4v-aac-quality <1-5> AAC quality for m4v (default: 5)');
-    WriteLn('      --m4v-ac3-bitrate <kbps> AC3 bitrate for m4v (default: 640)');
-    WriteLn('      --m4v-lang <tag>        audio language for m4v (default: rus)');
-    WriteLn('      --m4v-chapters / --no-m4v-chapters');
-  end;
-{$ENDIF}
+  WriteLn('      --m4v-video-track <N>   video stream index for m4v (default: 0)');
+  WriteLn('      --m4v-audio-track <N>   audio stream index for m4v (default: 0)');
+  WriteLn('      --m4v-aac-quality <1-5> AAC quality for m4v (default: 5)');
+  WriteLn('      --m4v-ac3-bitrate <kbps> AC3 bitrate for m4v (default: 640)');
+  WriteLn('      --m4v-lang <tag>        audio language for m4v (default: rus)');
+  WriteLn('      --m4v-chapters / --no-m4v-chapters');
   WriteLn('  -h, --help         show this help');
   WriteLn;
   WriteLn('Examples:');
@@ -259,6 +256,14 @@ begin
             WriteLn(StdErr, 'Warning: VAAPI device not found - encoding may fail');
           if ArrToStr(Opts.hw_device) = '' then
             SetAnsiField(Opts.hw_device, GetVaapiRenderNode);
+        end;
+        if S = 'm4v' then
+        begin
+          if ResolveMp4BoxBin = '' then
+          begin
+            WriteLn(StdErr, 'Error: MP4Box not found. Install GPAC for m4v support.');
+            Exit(False);
+          end;
         end;
 {$ENDIF}
       end
@@ -384,7 +389,6 @@ begin
       Continue;
     end;
 
-{$IFDEF Windows}
     if S = '--m4v-video-track' then
     begin
       if I + 1 > High(Args) then
@@ -466,7 +470,6 @@ begin
       Inc(I);
       Continue;
     end;
-{$ENDIF}
 
     if (S = '-o') or (S = '--output') then
     begin
@@ -538,18 +541,16 @@ begin
     end;
   end;
 
-{$IFDEF Windows}
-  if Codec = 'm4v' then
-  begin
-    SetAnsiField(Opts.video_track_path,
-      IntToStr(M4VVideoTrackIdx) + '|' +
-      IntToStr(M4VAudioTrackIdx) + '|' +
-      IntToStr(M4VAacQuality) + '|' +
-      IntToStr(M4VAc3Bitrate) + '|' +
-      M4VLang + '|' +
-      IntToStr(Ord(M4VAddChapters)));
-  end;
-{$ENDIF}
+    if Codec = 'm4v' then
+    begin
+      SetAnsiField(Opts.video_track_path,
+        IntToStr(M4VVideoTrackIdx) + '|' +
+        IntToStr(M4VAudioTrackIdx) + '|' +
+        IntToStr(M4VAacQuality) + '|' +
+        IntToStr(M4VAc3Bitrate) + '|' +
+        M4VLang + '|' +
+        IntToStr(Ord(M4VAddChapters)));
+    end;
 
   Result := True;
 end;

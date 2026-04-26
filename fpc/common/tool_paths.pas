@@ -252,8 +252,9 @@ begin
   if Result = '' then Result := ResolveFromExeDir('ffmpeg');
   if Result = '' then Result := ResolveFromRepoWindowsBin('ffmpeg');
   if Result = '' then
-    Result := ResolveBinary('ffmpeg',
-      ['/opt/local/bin/ffmpeg8', '/opt/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']);
+  Result := ResolveBinary('ffmpeg',
+    ['/opt/local/bin/ffmpeg8', '/opt/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg',
+     '/usr/bin/ffmpeg', '/snap/bin/ffmpeg']);
 end;
 
 function ResolveFfprobeBin: string;
@@ -263,8 +264,9 @@ begin
   if Result = '' then Result := ResolveFromExeDir('ffprobe');
   if Result = '' then Result := ResolveFromRepoWindowsBin('ffprobe');
   if Result = '' then
-    Result := ResolveBinary('ffprobe',
-      ['/opt/local/bin/ffprobe8', '/opt/local/bin/ffprobe', '/opt/homebrew/bin/ffprobe', '/usr/local/bin/ffprobe']);
+  Result := ResolveBinary('ffprobe',
+    ['/opt/local/bin/ffprobe8', '/opt/local/bin/ffprobe', '/opt/homebrew/bin/ffprobe', '/usr/local/bin/ffprobe',
+     '/usr/bin/ffprobe', '/snap/bin/ffprobe']);
 end;
 
 function ResolveMp4BoxBin: string;
@@ -301,7 +303,8 @@ begin
 {$ENDIF}
 
   Result := ResolveBinary('MP4Box',
-    ['/opt/local/bin/MP4Box', '/opt/homebrew/bin/MP4Box', '/usr/local/bin/MP4Box']);
+    ['/opt/local/bin/MP4Box', '/opt/homebrew/bin/MP4Box', '/usr/local/bin/MP4Box',
+     '/usr/bin/MP4Box', '/snap/bin/mp4box']);
 end;
 
 function ResolveMkvmergeBin: string;
@@ -314,8 +317,9 @@ begin
   if Result = '' then
     Result := ResolveFromRepoWindowsBin('mkvmerge');
   if Result = '' then
-    Result := ResolveBinary('mkvmerge',
-      ['/opt/local/bin/mkvmerge', '/opt/homebrew/bin/mkvmerge', '/usr/local/bin/mkvmerge']);
+  Result := ResolveBinary('mkvmerge',
+    ['/opt/local/bin/mkvmerge', '/opt/homebrew/bin/mkvmerge', '/usr/local/bin/mkvmerge',
+     '/usr/bin/mkvmerge']);
   if Result = '' then
     Result := 'mkvmerge';
 end;

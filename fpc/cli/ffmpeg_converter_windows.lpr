@@ -12,6 +12,7 @@ uses
   cli_callbacks,
   apple_m4v_creator,
   mux_postprocess,
+  m4v_postprocess,
   fs_utils,
   windows_utf8,
   windows_file_utils,
@@ -154,43 +155,8 @@ begin
   M4VCodec := ArrToStr(Opts.codec);
   if M4VCodec = 'm4v' then
   begin
-    ParseM4VEncodedOptions(ArrToStr(Opts.video_track_path), M4VOpts);
-    Err := ERR_OK;
-
-    for I := 0 to FileCount - 1 do
-    begin
-      if Assigned(Cb.on_file_begin) then
-        Cb.on_file_begin(Files[I], I + 1, FileCount);
-
-      M4VOut := BuildM4VOutputName(string(Files[I]), ArrToStr(Opts.output_dir));
-      M4VFileErr := not CreateAppleM4V(string(Files[I]), M4VOut, M4VOpts, M4VError);
-      if M4VFileErr then
-      begin
-        if Assigned(Cb.on_error) then
-          Cb.on_error(PAnsiChar(AnsiString(M4VError)), ERR_FFMPEG_FAILED);
-        if Assigned(Cb.on_file_end) then
-          Cb.on_file_end(Files[I], ERR_FFMPEG_FAILED);
-        Err := ERR_FFMPEG_FAILED;
-      end
-      else
-      begin
-        if Assigned(Cb.on_message) then
-          Cb.on_message(PAnsiChar(AnsiString('Apple M4V created: ' + M4VOut)));
-        if Assigned(Cb.on_file_end) then
-          Cb.on_file_end(Files[I], ERR_OK);
-      end;
-    end;
-
-    if (Err = ERR_OK) and Assigned(Cb.on_complete) then
-      Cb.on_complete;
-
-    for I := 0 to FileCount - 1 do
-      if Files[I] <> nil then
-        StrDispose(Files[I]);
-
-    if Err <> ERR_OK then
-      Halt(1);
-    Halt(0);
+    { For Windows, we'll use the new postprocessing approach }
+    { This will be handled after the main conversion loop }
   end;
 
   Ctx := converter_create;
@@ -212,6 +178,12 @@ begin
     WriteLn;
     WriteLn('Starting mux postprocess...');
     Err := RunMuxPostprocess(Opts, string(Files[0]));
+  end
+  else if (Err = ERR_OK) and (ArrToStr(Opts.codec) = 'm4v') and (FileCount > 0) then
+  begin
+    WriteLn;
+    WriteLn('Starting m4v postprocess...');
+    Err := RunM4VPostprocess(Opts, string(Files[0]));
   end;
 {$ENDIF}
 

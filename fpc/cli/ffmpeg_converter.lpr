@@ -9,7 +9,8 @@ uses
   cli_args,
   cli_menu,
   cli_callbacks,
-  mux_postprocess;
+  mux_postprocess,
+  m4v_postprocess;
 
 function ArrToStr(const A: array of AnsiChar): string;
 begin
@@ -84,6 +85,12 @@ begin
     WriteLn;
     WriteLn('Starting mux postprocess...');
     Err := RunMuxPostprocess(Opts, string(Files[0]));
+  end
+  else if (Err = ERR_OK) and (ArrToStr(Opts.codec) = 'm4v') and (FileCount > 0) then
+  begin
+    WriteLn;
+    WriteLn('Starting m4v postprocess...');
+    Err := RunM4VPostprocess(Opts, string(Files[0]));
   end;
 {$ENDIF}
 

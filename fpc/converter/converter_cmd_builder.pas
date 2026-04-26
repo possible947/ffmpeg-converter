@@ -124,6 +124,8 @@ begin
     else
       Result += '-c:v prores_ks_vulkan -profile:v standard ';
   end
+  else if Codec = 'm4v' then
+    Result += '-c:v copy '
   else
     Result += '-c:v copy ';
 

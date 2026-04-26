@@ -31,7 +31,9 @@ uses
   tool_paths,
   converter_cmd_builder,
   converter_analysis,
-  converter_runner;
+  converter_runner,
+  mux_postprocess,
+  m4v_postprocess;
 
 type
   TConverterObj = record
@@ -81,6 +83,11 @@ end;
 function CodecIsMux(const Codec: string): Boolean;
 begin
   Result := Codec = 'mux';
+end;
+
+function CodecIsM4V(const Codec: string): Boolean;
+begin
+  Result := Codec = 'm4v';
 end;
 
 function CodecIsLinuxVaapi(const Codec: string): Boolean;
@@ -338,20 +345,29 @@ begin
   end;
 
   Codec := ArrToStr(Ctx^.Opts.codec);
-  if CodecIsMux(Codec) then
-  begin
-    if file_count <> 1 then
+    if CodecIsMux(Codec) then
     begin
-      EmitError(Ctx, 'mux mode requires exactly one source file', ERR_INVALID_OPTIONS);
-      Exit(ERR_INVALID_OPTIONS);
+      if file_count <> 1 then
+      begin
+        EmitError(Ctx, 'mux mode requires exactly one source file', ERR_INVALID_OPTIONS);
+        Exit(ERR_INVALID_OPTIONS);
+      end;
+
+      if not FileRegular(ArrToStr(Ctx^.Opts.video_track_path)) or not FileReadable(ArrToStr(Ctx^.Opts.video_track_path)) then
+      begin
+        EmitError(Ctx, 'mux mode requires a readable --video-track file', ERR_INVALID_OPTIONS);
+        Exit(ERR_INVALID_OPTIONS);
+      end;
     end;
 
-    if not FileRegular(ArrToStr(Ctx^.Opts.video_track_path)) or not FileReadable(ArrToStr(Ctx^.Opts.video_track_path)) then
+    if CodecIsM4V(Codec) then
     begin
-      EmitError(Ctx, 'mux mode requires a readable --video-track file', ERR_INVALID_OPTIONS);
-      Exit(ERR_INVALID_OPTIONS);
+      if file_count <> 1 then
+      begin
+        EmitError(Ctx, 'm4v mode requires exactly one source file', ERR_INVALID_OPTIONS);
+        Exit(ERR_INVALID_OPTIONS);
+      end;
     end;
-  end;
 
   for I := 0 to file_count - 1 do
   begin
@@ -465,6 +481,13 @@ begin
 
     WorkOpts := FileOpts;
     if CodecIsMux(Codec) then
+    begin
+      SetAnsiField(WorkOpts.codec, 'copy');
+      WorkOpts.profile := 0;
+      WorkOpts.deblock := 0;
+      IntermediateFile := MakeOutputName(InputFile, 'copy', EffectiveOutDir);
+    end
+    else if CodecIsM4V(Codec) then
     begin
       SetAnsiField(WorkOpts.codec, 'copy');
       WorkOpts.profile := 0;
