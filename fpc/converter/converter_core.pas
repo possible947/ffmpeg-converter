@@ -302,12 +302,7 @@ var
   FileOpts: TConvertOptions;
   WorkOpts: TConvertOptions;
   IntermediateFile: string;
-  TempOutputFile: string;
-  MuxCmd: string;
-  MuxRate: string;
-  ProbeCmd: string;
-  ProbeResult: TRunResult;
-  Tools: TToolPaths;
+
 begin
   if (c = nil) or (files = nil) or (file_count <= 0) then
     Exit(ERR_INVALID_OPTIONS);
@@ -470,90 +465,6 @@ begin
 
         if ErrorLogNotice <> '' then
           EmitError(Ctx, ErrorLogNotice, Err);
-      end;
-    end;
-
-    if (Err = ERR_OK) and CodecIsMux(Codec) then
-    begin
-      Tools := ResolveToolPaths;
-      if (Tools.MkvmergeBin = '') or (Tools.MkvmergeBin = 'mkvmerge') then
-      begin
-        ProbeResult := RunCommandCapture('command -v mkvmerge 2>/dev/null');
-        if ProbeResult.ExitCode <> 0 then
-        begin
-          EmitError(Ctx, 'post-mux failed: mkvmerge not found', ERR_INVALID_OPTIONS);
-          Err := ERR_INVALID_OPTIONS;
-        end;
-      end;
-
-      if Err = ERR_OK then
-      begin
-        TempOutputFile := OutputFile + '.postmux.tmp.mkv';
-        RunCommandCapture('rm -f ' + QuoteForShell(TempOutputFile));
-
-        MuxRate := '';
-        if (Pos('.hevc', LowerCase(ArrToStr(Ctx^.Opts.video_track_path))) > 0) or
-           (Pos('.h265', LowerCase(ArrToStr(Ctx^.Opts.video_track_path))) > 0) or
-           (Pos('.264', LowerCase(ArrToStr(Ctx^.Opts.video_track_path))) > 0) or
-           (Pos('.h264', LowerCase(ArrToStr(Ctx^.Opts.video_track_path))) > 0) then
-        begin
-          ProbeCmd := QuoteForShell(Tools.FfprobeBin) +
-            ' -v error -select_streams v:0 -show_entries stream=avg_frame_rate -of default=noprint_wrappers=1:nokey=1 ' +
-            QuoteForShell(IntermediateFile) + ' 2>/dev/null';
-          ProbeResult := RunCommandCapture(ProbeCmd);
-          if ProbeResult.ExitCode = 0 then
-          begin
-            MuxRate := Trim(ProbeResult.OutputText);
-            if (MuxRate = '') or (MuxRate = '0/0') then
-              MuxRate := '';
-          end;
-          if MuxRate = '' then
-          begin
-            EmitError(Ctx, 'post-mux failed: could not probe source FPS', ERR_FFPROBE_FAILED);
-            Err := ERR_FFPROBE_FAILED;
-          end;
-        end;
-
-        if Err = ERR_OK then
-        begin
-          MuxCmd := QuoteForShell(Tools.MkvmergeBin) + ' -o ' + QuoteForShell(TempOutputFile) +
-            ' --no-audio --no-subtitles --no-buttons --no-attachments --no-chapters --no-global-tags --no-track-tags ';
-          if MuxRate <> '' then
-            MuxCmd += '--default-duration 0:' + MuxRate + 'fps ';
-          MuxCmd += QuoteForShell(ArrToStr(Ctx^.Opts.video_track_path)) + ' --no-video ' + QuoteForShell(IntermediateFile) + ' 2>&1';
-
-          EmitStage(Ctx, 'Post-mux (mkvmerge)');
-          EmitMessage(Ctx, MuxCmd);
-          ProbeResult := RunCommandCapture(MuxCmd);
-          if ProbeResult.ExitCode <> 0 then
-          begin
-            EmitError(Ctx, 'post-mux failed: mkvmerge returned error', ERR_FFMPEG_FAILED);
-            Err := ERR_FFMPEG_FAILED;
-          end;
-        end;
-
-        if Err = ERR_OK then
-        begin
-          ProbeCmd := QuoteForShell(Tools.FfprobeBin) +
-            ' -v error -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 ' +
-            QuoteForShell(TempOutputFile) + ' 2>/dev/null';
-          ProbeResult := RunCommandCapture(ProbeCmd);
-          if (ProbeResult.ExitCode <> 0) or (Pos('video', ProbeResult.OutputText) = 0) or (Pos('audio', ProbeResult.OutputText) = 0) then
-          begin
-            EmitError(Ctx, 'post-mux failed: output validation failed', ERR_FFPROBE_FAILED);
-            Err := ERR_FFPROBE_FAILED;
-          end;
-        end;
-
-        if Err = ERR_OK then
-        begin
-          ProbeResult := RunCommandCapture('mv -f ' + QuoteForShell(TempOutputFile) + ' ' + QuoteForShell(OutputFile));
-          if ProbeResult.ExitCode <> 0 then
-          begin
-            EmitError(Ctx, 'post-mux failed: could not move validated output into place', ERR_UNKNOWN);
-            Err := ERR_UNKNOWN;
-          end;
-        end;
       end;
     end;
 

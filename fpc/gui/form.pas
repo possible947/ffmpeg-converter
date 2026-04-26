@@ -138,7 +138,8 @@ uses
   fs_utils,
   path_utils,
   process_utils,
-  tool_paths;
+  tool_paths,
+  mux_postprocess;
 
 type
   PLogData = ^TLogData;
@@ -660,6 +661,10 @@ begin
     Err := converter_process_files(FConverter, @TmpFiles[0], Length(TmpFiles));
     if Err <> ERR_OK then
       QueueLog('Processing finished with errors.');
+{$IFDEF Linux}
+    if (Err = ERR_OK) and (StrPas(@FOptions.codec[0]) = 'mux') then
+      Err := RunMuxPostprocess(FOptions, string(FFiles[0]));
+{$ENDIF}
   end;
 
   converter_destroy(FConverter);

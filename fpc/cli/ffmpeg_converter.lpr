@@ -8,7 +8,13 @@ uses
   converter_api_c,
   cli_args,
   cli_menu,
-  cli_callbacks;
+  cli_callbacks,
+  mux_postprocess;
+
+function ArrToStr(const A: array of AnsiChar): string;
+begin
+  Result := StrPas(@A[0]);
+end;
 
 var
   Opts: TConvertOptions;
@@ -70,6 +76,16 @@ begin
   Err := converter_set_options(Ctx, @Opts);
   if Err = ERR_OK then
     Err := converter_process_files(Ctx, @Files[0], FileCount);
+
+  { Handle mux postprocess on Linux after main conversion }
+{$IFDEF Linux}
+  if (Err = ERR_OK) and (ArrToStr(Opts.codec) = 'mux') and (FileCount > 0) then
+  begin
+    WriteLn;
+    WriteLn('Starting mux postprocess...');
+    Err := RunMuxPostprocess(Opts, string(Files[0]));
+  end;
+{$ENDIF}
 
   converter_destroy(Ctx);
 

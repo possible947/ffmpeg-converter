@@ -78,5 +78,5 @@ src/platform/macos/bin/lib/
 .idea/
 /.cache/
 
-# Coverage
-coverage/
+# Linker response files (generated during FPC compilation)
+*.res
