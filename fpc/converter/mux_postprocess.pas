@@ -15,7 +15,12 @@ uses
   SysUtils,
   process_utils,
   path_utils,
+  {$IFDEF Linux}
   tool_paths,
+  {$ENDIF}
+  {$IFDEF Windows}
+  windows_mkvmerge,
+  {$ENDIF}
   fs_utils;
 
 function ArrToStr(const A: array of AnsiChar): string;
@@ -30,11 +35,16 @@ var
   TempOutputFile: string;
   VideoTrack: string;
   MuxCmd: string;
-  MuxRate: string;
-  ProbeCmd: string;
   CmdRes: TRunResult;
   EffectiveOutputDir: string;
+{$IFDEF Linux}
+  MuxRate: string;
+  ProbeCmd: string;
   Tools: TToolPaths;
+{$ENDIF}
+{$IFDEF Windows}
+  MkvmergePath: string;
+{$ENDIF}
 begin
 {$IFDEF Linux}
   { Resolve effective output directory }
@@ -151,8 +161,77 @@ begin
   WriteLn('Mux successful: ', IntermediateFile);
   Result := ERR_OK;
 {$ELSE}
-  WriteLn(StdErr, 'Error: mux postprocess is only supported on Linux');
+{$IFDEF Windows}
+  { Resolve effective output directory }
+  EffectiveOutputDir := ArrToStr(Opts.output_dir);
+  if EffectiveOutputDir = '' then
+    EffectiveOutputDir := DefaultOutputDir;
+
+  { Intermediate file is the result of the ffmpeg copy step }
+  IntermediateFile := MakeOutputName(InputFile, 'copy', EffectiveOutputDir);
+  if not FileExists(IntermediateFile) then
+  begin
+    WriteLn(StdErr, 'Error: intermediate file not found: ', IntermediateFile);
+    Exit(ERR_INPUT_NOT_FOUND);
+  end;
+
+  { Video track file (provides the replacement video stream) }
+  VideoTrack := ArrToStr(Opts.video_track_path);
+  if not FileExists(VideoTrack) then
+  begin
+    WriteLn(StdErr, 'Error: video track file not found: ', VideoTrack);
+    Exit(ERR_INVALID_OPTIONS);
+  end;
+
+  { Locate mkvmerge on Windows }
+  MkvmergePath := FindMkvmergeBin;
+  if MkvmergePath = '' then
+  begin
+    WriteLn(StdErr, 'Error: mkvmerge not found');
+    Exit(ERR_INVALID_OPTIONS);
+  end;
+
+  TempOutputFile := IntermediateFile + '.postmux.tmp.mkv';
+  RunCommandCapture('del /f "' + TempOutputFile + '" 2>nul');
+
+  { Build mkvmerge command for Windows:
+      video from VideoTrack, audio from IntermediateFile }
+  MuxCmd := '"' + MkvmergePath + '" -o "' + TempOutputFile + '"' +
+            ' --no-audio --no-subtitles --no-buttons --no-attachments' +
+            ' --no-chapters --no-global-tags --no-track-tags' +
+            ' "' + VideoTrack + '"' +
+            ' --no-video "' + IntermediateFile + '"';
+
+  WriteLn('Running mux postprocess...');
+  WriteLn('Command: ', MuxCmd);
+
+  { Execute mkvmerge }
+  CmdRes := RunCommandCapture(MuxCmd);
+  if CmdRes.ExitCode <> 0 then
+  begin
+    RunCommandCapture('del /f "' + TempOutputFile + '" 2>nul');
+    WriteLn(StdErr, 'Error: mkvmerge failed with exit code: ', CmdRes.ExitCode);
+    if CmdRes.OutputText <> '' then
+      WriteLn(StdErr, 'mkvmerge output: ', CmdRes.OutputText);
+    Exit(ERR_FFMPEG_FAILED);
+  end;
+
+  { Replace the intermediate file with the muxed output }
+  if FileExists(IntermediateFile) then
+    DeleteFile(IntermediateFile);
+  if not RenameFile(TempOutputFile, IntermediateFile) then
+  begin
+    RunCommandCapture('del /f "' + TempOutputFile + '" 2>nul');
+    WriteLn(StdErr, 'Error: could not move mux output into place');
+    Exit(ERR_UNKNOWN);
+  end;
+
+  WriteLn('Mux successful: ', IntermediateFile);
+  Result := ERR_OK;
+{$ELSE}
+  WriteLn(StdErr, 'Error: mux postprocess is only supported on Linux and Windows');
   Result := ERR_INVALID_OPTIONS;
+{$ENDIF}
 {$ENDIF}
 end;
 

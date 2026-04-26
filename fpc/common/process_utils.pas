@@ -32,7 +32,9 @@ function WriteCommandErrorLog(const Info: TCommandErrorLog; const PreferredDir, 
 implementation
 
 uses
+  {$IFNDEF Windows}
   BaseUnix,
+  {$ENDIF}
   Classes,
   Process,
   SysUtils;
@@ -97,7 +99,11 @@ end;
 
 function CanWriteDir(const DirPath: string): Boolean;
 begin
+{$IFDEF Windows}
+  Result := (DirPath <> '') and DirectoryExists(DirPath);
+{$ELSE}
   Result := (DirPath <> '') and DirectoryExists(DirPath) and (fpAccess(PChar(DirPath), W_OK) = 0);
+{$ENDIF}
 end;
 
 function WriteCommandErrorLog(const Info: TCommandErrorLog; const PreferredDir, FallbackDir: string;
@@ -161,8 +167,13 @@ begin
   P := TProcess.Create(nil);
   S := TStringStream.Create('');
   try
+{$IFDEF Windows}
+    P.Executable := 'cmd.exe';
+    P.Parameters.Add('/c');
+{$ELSE}
     P.Executable := '/bin/sh';
     P.Parameters.Add('-c');
+{$ENDIF}
     P.Parameters.Add(CommandLine);
     P.Options := [poUsePipes, poStderrToOutput, poWaitOnExit];
 

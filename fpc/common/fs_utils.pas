@@ -14,42 +14,74 @@ function EnsureOutputDirWritable(const RequestedDir: string; out ResolvedDir: st
 implementation
 
 uses
+  {$IFNDEF Windows}
   BaseUnix,
+  {$ENDIF}
   SysUtils;
 
 function FileReadable(const Path: string): Boolean;
 begin
+{$IFDEF Windows}
+  Result := (Path <> '') and FileExists(Path);
+{$ELSE}
   Result := (fpAccess(PChar(Path), R_OK) = 0);
+{$ENDIF}
 end;
 
 function FileRegular(const Path: string): Boolean;
+{$IFNDEF Windows}
 var
   Info: Stat;
+{$ELSE}
+var
+  Attr: Integer;
+{$ENDIF}
 begin
+{$IFDEF Windows}
+  if Path = '' then
+    Exit(False);
+  Attr := FileGetAttr(Path);
+  Result := (Attr <> -1) and ((Attr and faDirectory) = 0);
+{$ELSE}
   if fpStat(PChar(Path), Info) <> 0 then
     Exit(False);
   Result := FPS_ISREG(Info.st_mode);
+{$ENDIF}
 end;
 
 function DirWritable(const Path: string): Boolean;
+{$IFNDEF Windows}
 var
   Info: Stat;
+{$ENDIF}
 begin
+{$IFDEF Windows}
+  Result := (Path <> '') and DirectoryExists(Path);
+{$ELSE}
   if fpStat(PChar(Path), Info) <> 0 then
     Exit(False);
   if not FPS_ISDIR(Info.st_mode) then
     Exit(False);
   Result := fpAccess(PChar(Path), W_OK) = 0;
+{$ENDIF}
 end;
 
 function ResolveUserHomeDir: string;
 var
   AppCfgDir: string;
 begin
+{$IFDEF Windows}
+  Result := Trim(GetEnvironmentVariable('USERPROFILE'));
+  if Result <> '' then
+    Exit;
+  Result := Trim(GetEnvironmentVariable('HOMEDRIVE')) + Trim(GetEnvironmentVariable('HOMEPATH'));
+  if Result <> '' then
+    Exit;
+{$ELSE}
   Result := Trim(GetEnvironmentVariable('HOME'));
   if Result <> '' then
     Exit;
-
+{$ENDIF}
   AppCfgDir := ExcludeTrailingPathDelimiter(GetAppConfigDir(False));
   if AppCfgDir <> '' then
     Result := ExtractFileDir(AppCfgDir);
@@ -68,7 +100,11 @@ end;
 function EnsureOutputDirWritable(const RequestedDir: string; out ResolvedDir: string; out ErrorText: string): Boolean;
 var
   TargetDir: string;
+{$IFNDEF Windows}
   Info: Stat;
+{$ELSE}
+  Attr: Integer;
+{$ENDIF}
 begin
   Result := False;
   ErrorText := '';
@@ -84,6 +120,32 @@ begin
     Exit(False);
   end;
 
+{$IFDEF Windows}
+  Attr := FileGetAttr(TargetDir);
+  if Attr = -1 then
+  begin
+    if not ForceDirectories(TargetDir) then
+    begin
+      ErrorText := 'Failed to create output directory: ' + TargetDir;
+      Exit(False);
+    end;
+    Attr := FileGetAttr(TargetDir);
+    if Attr = -1 then
+    begin
+      ErrorText := 'Output directory is not accessible after creation: ' + TargetDir;
+      Exit(False);
+    end;
+  end;
+
+  if (Attr and faDirectory) = 0 then
+  begin
+    ErrorText := 'Output path is not a directory: ' + TargetDir;
+    Exit(False);
+  end;
+
+  ResolvedDir := TargetDir;
+  Result := True;
+{$ELSE}
   if fpStat(PChar(TargetDir), Info) <> 0 then
   begin
     if fpgeterrno = ESysENOENT then
@@ -121,6 +183,7 @@ begin
 
   ResolvedDir := TargetDir;
   Result := True;
+{$ENDIF}
 end;
 
 end.
