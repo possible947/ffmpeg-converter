@@ -15,18 +15,19 @@ uses
   fs_utils,
   SysUtils;
 
-function IsDarwin: Boolean;
+function IsLinux: Boolean;
 begin
-{$IFDEF Darwin}
+{$IFDEF Linux}
   Result := True;
 {$ELSE}
   Result := False;
 {$ENDIF}
 end;
 
-function IsLinux: Boolean;
+function IsWindows: Boolean;
 begin
-{$IFDEF Linux}
+  { Placeholder for Phase 4 Windows support }
+{$IFDEF Windows}
   Result := True;
 {$ELSE}
   Result := False;
@@ -296,11 +297,6 @@ begin
             WriteLn('  5. h264_vaapi');
             WriteLn('  6. hevc_vaapi');
           end;
-          if IsDarwin then
-          begin
-            WriteLn('  7. prores_videotoolbox');
-            WriteLn('  8. hevc_videotoolbox');
-          end;
           WriteLn('----------------------');
           Write('select: number->choice,Enter->(default),c->cancel,b->back');
           WriteLn;
@@ -336,16 +332,6 @@ begin
           else if (Ch = '6') and IsLinux then
           begin
             Codec := 6;
-            Step := 4;
-          end
-          else if (Ch = '7') and IsDarwin then
-          begin
-            Codec := 7;
-            Step := 4;
-          end
-          else if (Ch = '8') and IsDarwin then
-          begin
-            Codec := 8;
             Step := 4;
           end
           else if (Ch = 'c') or (Ch = 'C') then
@@ -724,16 +710,6 @@ begin
             6:
               if IsLinux then
                 SetAnsiField(Opts.codec, 'hevc_vaapi')
-              else
-                SetAnsiField(Opts.codec, 'copy');
-            7:
-              if IsDarwin then
-                SetAnsiField(Opts.codec, 'prores_videotoolbox')
-              else
-                SetAnsiField(Opts.codec, 'copy');
-            8:
-              if IsDarwin then
-                SetAnsiField(Opts.codec, 'hevc_videotoolbox')
               else
                 SetAnsiField(Opts.codec, 'copy');
           end;

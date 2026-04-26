@@ -2,6 +2,12 @@
 
 This directory contains the Free Pascal implementation of the ffmpeg-converter project, providing a fully functional CLI, shared library with C ABI, and Lazarus/LCL GUI.
 
+## Platform Support
+
+- **Linux**: Pascal CLI and GUI — full support, including VAAPI hardware codecs (`h264_vaapi`, `hevc_vaapi`).
+- **macOS**: Native C GUI (`cli_macos.c` / macOS app bundle) — VideoToolbox codecs (`prores_videotoolbox`, `hevc_videotoolbox`). Pascal CLI/GUI does not support macOS.
+- **Windows**: Coming in Phase 4. A platform detection function (`IsWindows()`) is present as a structural placeholder for future Windows-specific codec and path handling.
+
 ## API Compatibility Scope
 
 Exported API mirrors these C symbols:
