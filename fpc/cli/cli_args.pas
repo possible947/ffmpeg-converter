@@ -16,6 +16,7 @@ implementation
 uses
   BaseUnix,
   fs_utils,
+  linux_probe,
   SysUtils;
 
 function IsCodecAllowedOnCurrentPlatform(const Codec: string): Boolean;
@@ -99,6 +100,9 @@ begin
   WriteLn('      (genre is used only with loudnorm2)');
   WriteLn('  --overwrite        overwrite output files');
   WriteLn('  -o, --output <directory> set output directory');
+{$IFDEF Linux}
+  WriteLn('      --vk_device <0|1>  Select Vulkan adapter (0=primary, 1=secondary)');
+{$ENDIF}
   WriteLn('  -h, --help         show this help');
   WriteLn;
   WriteLn('Examples:');
@@ -138,7 +142,18 @@ begin
       Inc(I);
       S := ParamStr(I);
       if IsCodecAllowedOnCurrentPlatform(S) then
-        SetAnsiField(Opts.codec, S)
+      begin
+        SetAnsiField(Opts.codec, S);
+{$IFDEF Linux}
+        if (S = 'h264_vaapi') or (S = 'hevc_vaapi') then
+        begin
+          if not ValidateVaapiDevice then
+            WriteLn(StdErr, 'Warning: VAAPI device not found - encoding may fail');
+          if ArrToStr(Opts.hw_device) = '' then
+            SetAnsiField(Opts.hw_device, GetVaapiRenderNode);
+        end;
+{$ENDIF}
+      end
       else
       begin
         WriteLn(StdErr, 'Error: codec is not supported on this platform: ', S);
@@ -246,6 +261,22 @@ begin
       Continue;
     end;
 
+    if S = '--vk_device' then
+    begin
+      if I + 1 > ParamCount then
+        Exit(False);
+      Inc(I);
+      S := ParamStr(I);
+      if S = '0' then
+        Opts.vulkan_device := 0
+      else if S = '1' then
+        Opts.vulkan_device := 1
+      else
+        Exit(False);
+      Inc(I);
+      Continue;
+    end;
+
     if (S = '-o') or (S = '--output') then
     begin
       if I + 1 > ParamCount then
@@ -255,12 +286,14 @@ begin
       if not EnsureOutputDirWritable(S, ResolvedDir, DirError) then
       begin
         Opts.output_dir_status := 0;
-        WriteLn(StdErr, 'Error: ', DirError);
-        Exit(False);
+        WriteLn(StdErr, 'Warning: ', DirError);
+        WriteLn(StdErr, 'Will use default output directory');
+      end
+      else
+      begin
+        SetAnsiField(Opts.output_dir, ResolvedDir);
+        Opts.output_dir_status := 1;
       end;
-
-      SetAnsiField(Opts.output_dir, ResolvedDir);
-      Opts.output_dir_status := 1;
 
       Inc(I);
       Continue;
@@ -284,12 +317,14 @@ begin
   if not EnsureOutputDirWritable(ArrToStr(Opts.output_dir), ResolvedDir, DirError) then
   begin
     Opts.output_dir_status := 0;
-    WriteLn(StdErr, 'Error: ', DirError);
-    Exit(False);
+    WriteLn(StdErr, 'Warning: ', DirError);
+    WriteLn(StdErr, 'Will use default output directory');
+  end
+  else
+  begin
+    SetAnsiField(Opts.output_dir, ResolvedDir);
+    Opts.output_dir_status := 1;
   end;
-
-  SetAnsiField(Opts.output_dir, ResolvedDir);
-  Opts.output_dir_status := 1;
 
   Codec := ArrToStr(Opts.codec);
   if Codec = 'mux' then

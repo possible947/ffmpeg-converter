@@ -3,7 +3,7 @@ FPC ?= fpc
 LAZBUILD ?= lazbuild
 
 FPCFLAGS ?= -Mobjfpc -Sh -O2
-COMMON_FU := -Fu$(ROOT)/fpc/converter -Fu$(ROOT)/fpc/common -Fu$(ROOT)/fpc/json -Fu$(ROOT)/fpc/cli
+COMMON_FU := -Fu$(ROOT)/fpc/converter -Fu$(ROOT)/fpc/common -Fu$(ROOT)/fpc/json -Fu$(ROOT)/fpc/cli -Fu$(ROOT)/fpc/platform
 UNIT_BASE := $(ROOT)/fpc/build/.units
 
 ifeq ($(OS),Windows_NT)
@@ -27,7 +27,8 @@ GUI_BIN := $(ROOT)/fpc/gui/ffmpeg_converter_gui$(EXEEXT)
 
 COMMON_UNITS := \
 	$(wildcard $(ROOT)/fpc/common/*.pas) \
-	$(wildcard $(ROOT)/fpc/json/*.pas)
+	$(wildcard $(ROOT)/fpc/json/*.pas) \
+	$(wildcard $(ROOT)/fpc/platform/*.pas)
 
 CONVERTER_UNITS := \
 	$(wildcard $(ROOT)/fpc/converter/*.pas)
