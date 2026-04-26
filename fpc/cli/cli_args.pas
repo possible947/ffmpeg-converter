@@ -6,6 +6,18 @@ interface
 
 uses converter_types, SysUtils;
 
+type
+  TStringArray = array of string;
+  {$IFDEF Windows}
+  TWindowsCodecSupport = record
+    HasNVENC: Boolean;
+    HasAMF: Boolean;
+    HasQSV: Boolean;
+    HasVulkan: Boolean;
+    HasMkvmerge: Boolean;
+  end;
+  {$ENDIF}
+
 procedure PrintUsage;
 function ParseArgs(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt): Boolean;
 function ParseArgsFromArray(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt; const Args: TStringArray): Boolean;
@@ -20,15 +32,18 @@ uses
   linux_probe,
   {$ELSE}
   windows_probe,
-  tool_paths,
   {$ENDIF}
+  tool_paths,
   fs_utils;
 
+  {$IFDEF Windows}
 var
   GWindowsCodecsCached: Boolean = False;
   GWindowsCodecs: TWindowsCodecSupport;
 
 function GetWindowsCodecSupport: TWindowsCodecSupport;
+var
+  Temp: TWindowsCodecSupport;
 begin
   if not GWindowsCodecsCached then
   begin
@@ -37,10 +52,13 @@ begin
   end;
   Result := GWindowsCodecs;
 end;
+  {$ENDIF}
 
 function IsCodecAllowedOnCurrentPlatform(const Codec: string): Boolean;
 var
+  {$IFDEF Windows}
   WinCaps: TWindowsCodecSupport;
+  {$ENDIF}
   HasM4V: Boolean;
 begin
 {$IFDEF Windows}
@@ -131,11 +149,11 @@ end;
 
 procedure PrintUsage;
 var
-{$IFDEF Windows}
+  {$IFDEF Windows}
   WinCaps: TWindowsCodecSupport;
+  {$ENDIF}
   HasM4V: Boolean;
   CodecList: string;
-{$ENDIF}
 begin
   WriteLn('Usage: ffmpeg_converter [options] file1 file2 ...');
   WriteLn;

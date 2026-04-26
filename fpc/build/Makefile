@@ -34,8 +34,9 @@ LIB_OUT := $(ROOT)/fpc/converter/libconverter_pas.$(SHLIB_EXT)
 endif
 endif
 
-CLI_BIN := $(ROOT)/fpc/cli/ffmpeg_converter$(EXEEXT)
-GUI_BIN := $(ROOT)/fpc/gui/ffmpeg_converter_gui$(EXEEXT)
+CLI_BIN := $(ROOT)/fpc/bin/ffmpeg_converter$(EXEEXT)
+GUI_BIN := $(ROOT)/fpc/bin/ffmpeg_converter_gui$(EXEEXT)
+BIN_DIR := $(ROOT)/fpc/bin
 
 COMMON_UNITS := \
 	$(wildcard $(ROOT)/fpc/common/*.pas) \
@@ -97,7 +98,7 @@ GUI_DEPS := \
 
 .PHONY: all cli lib tests apple-test gui gui-app clean
 
-all: cli lib tests
+all: cli lib tests copy-binaries
 
 cli: $(CLI_BIN)
 
@@ -114,6 +115,18 @@ apple-test: $(ROOT)/fpc/test/run_apple_m4v_test$(EXEEXT)
 
 gui: $(GUI_BIN)
 
+copy-binaries:
+	@mkdir -p "$(BIN_DIR)"
+	@if [ "$(CLI_BIN)" != "$(BIN_DIR)/ffmpeg_converter" ]; then \
+		cp -f "$(CLI_BIN)" "$(BIN_DIR)/"; \
+	fi
+	@if [ "$(GUI_BIN)" != "$(BIN_DIR)/ffmpeg_converter_gui" ]; then \
+		cp -f "$(GUI_BIN)" "$(BIN_DIR)/"; \
+	fi
+	@if [ -d "$(ROOT)/src/platform/linux/bin" ]; then \
+		cp -f "$(ROOT)/src/platform/linux/bin/"* "$(BIN_DIR)/"; \
+	fi
+
 gui-app: $(GUI_BIN)
 	@if [ "$(UNAME_S)" = "Darwin" ]; then \
 		"$(ROOT)/fpc/build/package_macos_app.sh" "$(GUI_BIN)"; \
@@ -123,22 +136,22 @@ gui-app: $(GUI_BIN)
 
 $(GUI_BIN): $(GUI_DEPS)
 	@command -v "$(LAZBUILD)" >/dev/null 2>&1 || { echo "ERROR: lazbuild not found in PATH."; exit 1; }
-	@mkdir -p "$(ROOT)/fpc/gui" "$(UNIT_BASE)/gui"
+	@mkdir -p "$(ROOT)/fpc/bin" "$(UNIT_BASE)/gui"
 	cd "$(ROOT)" && "$(LAZBUILD)" $(LAZBUILD_FLAGS) "$(GUI_PROJECT)"
 	@test -f "$@" || { echo "ERROR: lazbuild finished but GUI binary not found at $@"; exit 1; }
 
 $(CLI_BIN): $(CLI_DEPS)
-	@mkdir -p "$(ROOT)/fpc/cli" "$(UNIT_BASE)/cli"
+	@mkdir -p "$(ROOT)/fpc/bin" "$(UNIT_BASE)/cli"
 ifeq ($(OS),Windows_NT)
 	$(FPC) $(FPCFLAGS) $(COMMON_FU) \
 		-FU"$(UNIT_BASEW)\cli" \
-		-FE"$(ROOTW)\fpc\cli" \
-		-o"$(ROOTW)\fpc\cli\ffmpeg_converter$(EXEEXT)" \
+		-FE"$(ROOTW)\fpc\bin" \
+		-o"$(ROOTW)\fpc\bin\ffmpeg_converter$(EXEEXT)" \
 		"$(ROOTW)\fpc\cli\ffmpeg_converter_windows.lpr"
 else
 	$(FPC) $(FPCFLAGS) $(COMMON_FU) \
 		-FU"$(UNIT_BASE)/cli" \
-		-FE"$(ROOT)/fpc/cli" \
+		-FE"$(ROOT)/fpc/bin" \
 		-o"$@" \
 		"$<"
 endif
@@ -179,3 +192,4 @@ clean:
 	rm -rf "$(UNIT_BASE)"
 	rm -f "$(CLI_BIN)" "$(LIB_OUT)" "$(GUI_BIN)" "$(GUI_RES)" $(TEST_BINS)
 	rm -rf "$(ROOT)/fpc/gui/form.app"
+	rm -rf "$(BIN_DIR)"

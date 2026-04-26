@@ -4,6 +4,9 @@ unit linux_probe;
 
 interface
 
+type
+  TStringArray = array of string;
+
 function ValidateVaapiDevice: Boolean;
 function GetVaapiRenderNode: string;
 function ProbeVaapiDevices: TStringArray;

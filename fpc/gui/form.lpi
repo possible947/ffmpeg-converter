@@ -45,7 +45,7 @@
   <CompilerOptions>
     <Version Value="11"/>
     <Target>
-      <Filename Value="ffmpeg_converter_gui"/>
+      <Filename Value="../bin/ffmpeg_converter_gui"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
