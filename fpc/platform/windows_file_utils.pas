@@ -60,6 +60,9 @@ begin
   Attrs := GetFileAttributesW(PWideChar(WidePath));
 
   if Attrs = INVALID_FILE_ATTRIBUTES then
+    Attrs := GetFileAttributesW(PWideChar(WideString(Path)));
+
+  if Attrs = INVALID_FILE_ATTRIBUTES then
     Result := False
   else
     Result := (Attrs and FILE_ATTRIBUTE_DIRECTORY) = 0;
@@ -82,6 +85,14 @@ begin
   { Check if directory exists }
   if GetFileAttributesW(PWideChar(WidePath)) = INVALID_FILE_ATTRIBUTES then
   begin
+    WidePath := WideString(Path);
+
+    if GetFileAttributesW(PWideChar(WidePath)) <> INVALID_FILE_ATTRIBUTES then
+    begin
+      Result := True;
+      Exit;
+    end;
+
     { Try to create it }
     if not CreateDirectoryW(PWideChar(WidePath), nil) then
     begin
@@ -93,6 +104,8 @@ begin
   { Try to write a test file }
   TestFile := Path + '\test_write_' + IntToStr(GetTickCount) + '.tmp';
   WidePath := AnsiToWide(TestFile);
+  if WidePath = '' then
+    WidePath := WideString(TestFile);
   Handle := CreateFileW(PWideChar(WidePath), GENERIC_WRITE, 0, nil,
                         CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY, 0);
 
@@ -120,7 +133,14 @@ begin
   WidePath := AnsiToWide(Path);
 
   if GetFileAttributesW(PWideChar(WidePath)) = INVALID_FILE_ATTRIBUTES then
-    Result := CreateDirectoryW(PWideChar(WidePath), nil)
+  begin
+    WidePath := WideString(Path);
+
+    if GetFileAttributesW(PWideChar(WidePath)) <> INVALID_FILE_ATTRIBUTES then
+      Result := True
+    else
+      Result := CreateDirectoryW(PWideChar(WidePath), nil);
+  end
   else
     Result := True;
 end;

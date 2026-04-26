@@ -125,7 +125,12 @@ begin
   Cmd :=
     QuoteForShell(Tools.FfprobeBin) +
     ' -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ' +
-    QuoteForShell(InputFile) + ' 2>/dev/null';
+    QuoteForShell(InputFile) +
+{$IFDEF Windows}
+    ' 2>NUL';
+{$ELSE}
+    ' 2>/dev/null';
+{$ENDIF}
   R := RunCommandCapture(Cmd);
 
   if R.ExitCode <> 0 then
@@ -156,6 +161,7 @@ function RunEncode(const CommandBase, InputFile, OutputFile, FallbackLogDir: str
 var
   Tools: TToolPaths;
   Cmd: string;
+  EffectiveCmd: string;
   P: TProcess;
   ReadBuf: array[0..4095] of Byte;
   ReadCount: LongInt;
@@ -181,6 +187,13 @@ begin
   DurationSec := ProbeDuration(InputFile, FallbackLogDir, DurationErrLogPath, DurationErrNotice);
 
   Cmd := CommandBase;
+{$IFDEF Windows}
+  EffectiveCmd := Trim(Cmd);
+  if (EffectiveCmd <> '') and (EffectiveCmd[1] = '"') then
+    EffectiveCmd := '"' + EffectiveCmd + '"';
+{$ELSE}
+  EffectiveCmd := Cmd;
+{$ENDIF}
   P := TProcess.Create(nil);
   Pending := '';
   FullOutput := '';
@@ -190,9 +203,14 @@ begin
   TerminatedByStop := False;
 
   try
+{$IFDEF Windows}
+    P.Executable := 'cmd.exe';
+    P.Parameters.Add('/c');
+{$ELSE}
     P.Executable := '/bin/sh';
     P.Parameters.Add('-c');
-    P.Parameters.Add(Cmd);
+{$ENDIF}
+    P.Parameters.Add(EffectiveCmd);
     P.Options := [poUsePipes, poStderrToOutput];
     P.Execute;
 

@@ -160,6 +160,7 @@ function RunCommandCapture(const CommandLine: string): TRunResult;
 var
   P: TProcess;
   S: TStringStream;
+  EffectiveCmd: string;
 begin
   Result.ExitCode := -1;
   Result.OutputText := '';
@@ -168,13 +169,18 @@ begin
   S := TStringStream.Create('');
   try
 {$IFDEF Windows}
+    EffectiveCmd := Trim(CommandLine);
+    if (EffectiveCmd <> '') and (EffectiveCmd[1] = '"') then
+      EffectiveCmd := '"' + EffectiveCmd + '"';
+
     P.Executable := 'cmd.exe';
     P.Parameters.Add('/c');
+    P.Parameters.Add(EffectiveCmd);
 {$ELSE}
     P.Executable := '/bin/sh';
     P.Parameters.Add('-c');
-{$ENDIF}
     P.Parameters.Add(CommandLine);
+{$ENDIF}
     P.Options := [poUsePipes, poStderrToOutput, poWaitOnExit];
 
     P.Execute;

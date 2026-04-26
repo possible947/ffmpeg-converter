@@ -37,6 +37,7 @@ uses
   process_utils
   {$IFDEF Windows}
   , windows_mkvmerge
+  , windows_probe
   {$ENDIF}
   ;
 
@@ -45,22 +46,6 @@ uses
 function YesNo(B: Boolean): string; inline;
 begin
   if B then Result := 'yes' else Result := 'no';
-end;
-
-{ Run a short ffmpeg null-encode test to check whether an encoder is usable.
-  Returns True if ffmpeg exits with code 0. }
-var
-  Cmd: string;
-  R: TRunResult;
-begin
-{$IFDEF Windows}
-  Cmd := '"' + FfmpegBin + '" -f lavfi -i color=c=black:s=64x64:d=1 -vframes 1' +
-         ' -vcodec ' + EncoderName + ' -f null NUL 2>nul';
-  R := RunCommandCapture(Cmd);
-  Result := R.ExitCode = 0;
-{$ELSE}
-  Result := False;
-{$ENDIF}
 end;
 
 { Probe how many Vulkan devices are working by testing vulkan:0 .. vulkan:7. }

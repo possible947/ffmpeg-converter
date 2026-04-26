@@ -3,16 +3,28 @@ FPC ?= fpc
 LAZBUILD ?= lazbuild
 
 FPCFLAGS ?= -Mobjfpc -Sh -O2
-COMMON_FU := -Fu$(ROOT)/fpc/converter -Fu$(ROOT)/fpc/common -Fu$(ROOT)/fpc/json -Fu$(ROOT)/fpc/cli -Fu$(ROOT)/fpc/platform
 UNIT_BASE := $(ROOT)/fpc/build/.units
 
 ifeq ($(OS),Windows_NT)
 EXEEXT := .exe
 SHLIB_EXT := dll
 LIB_OUT := $(ROOT)/fpc/converter/converter_pas.$(SHLIB_EXT)
+# FPC on Windows is a native Win32/Win64 binary.  MSYS2 bash mangles paths
+# when passing arguments to Windows executables:
+#   - Unquoted backslash paths: bash strips '\' before each letter.
+#   - Forward-slash drive paths (E:/...): MSYS2 rewrites them to C:\msys64\...
+# Solution: embed double-quotes inside the Make variable so bash treats each
+# -Fu argument as a double-quoted string.  Inside "...", bash preserves '\'
+# before non-special characters.
+ROOTW := $(shell cygpath -w "$(ROOT)")
+COMMON_FU := "-Fu$(ROOTW)\fpc\converter" "-Fu$(ROOTW)\fpc\common" "-Fu$(ROOTW)\fpc\json" "-Fu$(ROOTW)\fpc\cli" "-Fu$(ROOTW)\fpc\platform"
+UNIT_BASEW := $(ROOTW)\fpc\build\.units
+CLI_LPR := $(ROOT)/fpc/cli/ffmpeg_converter_windows.lpr
 else
 UNAME_S := $(shell uname -s)
 EXEEXT :=
+COMMON_FU := -Fu$(ROOT)/fpc/converter -Fu$(ROOT)/fpc/common -Fu$(ROOT)/fpc/json -Fu$(ROOT)/fpc/cli -Fu$(ROOT)/fpc/platform
+CLI_LPR := $(ROOT)/fpc/cli/ffmpeg_converter.lpr
 ifeq ($(UNAME_S),Darwin)
 SHLIB_EXT := dylib
 LIB_OUT := $(ROOT)/fpc/converter/libconverter_pas.$(SHLIB_EXT)
@@ -37,7 +49,7 @@ CLI_UNITS := \
 	$(wildcard $(ROOT)/fpc/cli/*.pas)
 
 CLI_DEPS := \
-	$(ROOT)/fpc/cli/ffmpeg_converter.lpr \
+	$(CLI_LPR) \
 	$(COMMON_UNITS) \
 	$(CONVERTER_UNITS) \
 	$(CLI_UNITS)
@@ -111,27 +123,51 @@ $(GUI_BIN): $(GUI_DEPS)
 
 $(CLI_BIN): $(CLI_DEPS)
 	@mkdir -p "$(ROOT)/fpc/cli" "$(UNIT_BASE)/cli"
+ifeq ($(OS),Windows_NT)
+	$(FPC) $(FPCFLAGS) $(COMMON_FU) \
+		-FU"$(UNIT_BASEW)\cli" \
+		-FE"$(ROOTW)\fpc\cli" \
+		-o"$(ROOTW)\fpc\cli\ffmpeg_converter$(EXEEXT)" \
+		"$(ROOTW)\fpc\cli\ffmpeg_converter_windows.lpr"
+else
 	$(FPC) $(FPCFLAGS) $(COMMON_FU) \
 		-FU"$(UNIT_BASE)/cli" \
 		-FE"$(ROOT)/fpc/cli" \
 		-o"$@" \
 		"$<"
+endif
 
 $(LIB_OUT): $(LIB_DEPS)
 	@mkdir -p "$(ROOT)/fpc/converter" "$(UNIT_BASE)/lib"
+ifeq ($(OS),Windows_NT)
+	$(FPC) $(FPCFLAGS) $(COMMON_FU) \
+		-FU"$(UNIT_BASEW)\lib" \
+		-FE"$(ROOTW)\fpc\converter" \
+		-o"$(ROOTW)\fpc\converter\converter_pas.$(SHLIB_EXT)" \
+		"$(ROOTW)\fpc\converter\converter_pas.lpr"
+else
 	$(FPC) $(FPCFLAGS) $(COMMON_FU) \
 		-FU"$(UNIT_BASE)/lib" \
 		-FE"$(ROOT)/fpc/converter" \
 		-o"$@" \
 		"$<"
+endif
 
 $(ROOT)/fpc/test/%$(EXEEXT): $(ROOT)/fpc/test/%.pas $(TEST_SHARED_DEPS)
 	@mkdir -p "$(ROOT)/fpc/test" "$(UNIT_BASE)/tests/$*"
+ifeq ($(OS),Windows_NT)
+	$(FPC) $(FPCFLAGS) $(COMMON_FU) \
+		-FU"$(UNIT_BASEW)\tests\$*" \
+		-FE"$(ROOTW)\fpc\test" \
+		-o"$(ROOTW)\fpc\test\$*$(EXEEXT)" \
+		"$(ROOTW)\fpc\test\$*.pas"
+else
 	$(FPC) $(FPCFLAGS) $(COMMON_FU) \
 		-FU"$(UNIT_BASE)/tests/$*" \
 		-FE"$(ROOT)/fpc/test" \
 		-o"$@" \
 		"$<"
+endif
 
 clean:
 	rm -rf "$(UNIT_BASE)"

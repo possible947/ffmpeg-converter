@@ -50,13 +50,24 @@ begin
 end;
 
 function DirWritable(const Path: string): Boolean;
-{$IFNDEF Windows}
 var
+{$IFDEF Windows}
+  TmpFile: string;
+  F: Integer;
+{$ELSE}
   Info: Stat;
 {$ENDIF}
 begin
 {$IFDEF Windows}
-  Result := (Path <> '') and DirectoryExists(Path);
+  if (Path = '') or not DirectoryExists(Path) then
+    Exit(False);
+  TmpFile := IncludeTrailingPathDelimiter(Path) + '.ffc_write_test';
+  F := FileCreate(TmpFile);
+  if F < 0 then
+    Exit(False);
+  FileClose(F);
+  SysUtils.DeleteFile(TmpFile);
+  Result := True;
 {$ELSE}
   if fpStat(PChar(Path), Info) <> 0 then
     Exit(False);

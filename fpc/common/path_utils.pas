@@ -26,8 +26,15 @@ begin
 
   if Codec = 'hevc_videotoolbox' then
     Ext := '.mp4'
+  else if (Codec = 'prores') or (Codec = 'prores_ks') or
+          (Codec = 'prores_videotoolbox') or (Codec = 'prores_ks_vulkan') then
+    Ext := '.mov'
   else if (Codec = 'copy') or (Codec = 'mux') or
-          (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
+           (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
+    Ext := '.mkv'
+  else if (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
+          (Codec = 'h264_amf') or (Codec = 'hevc_amf') or
+          (Codec = 'h264_qsv') or (Codec = 'hevc_qsv') then
     Ext := '.mkv'
   else
     Ext := '.mov';

@@ -39,11 +39,24 @@ begin
   Codec := ArrToStr(Opts.codec);
   AudioNorm := ArrToStr(Opts.audio_norm);
   AudioOut := ArrToStr(Opts.audio_output_mode);
+  if AudioOut = 'fdk_aac_q2' then
+    AudioOut := 'fdk_aac_q5'
+  else if AudioOut = 'fdk_aac_q2_ac3_640' then
+    AudioOut := 'fdk_aac_q5_ac3_640';
   Tools := ResolveToolPaths;
   FfmpegBin := Tools.FfmpegBin;
   Fmt := InvariantFmt;
 
-  if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
+  if Codec = 'prores_ks_vulkan' then
+  begin
+    if Opts.overwrite <> 0 then
+      Result := QuoteForShell(FfmpegBin) + ' -y '
+    else
+      Result := QuoteForShell(FfmpegBin) + ' -n ';
+    Result += '-init_hw_device vulkan=vk:' + IntToStr(Opts.vulkan_device) + ' -filter_hw_device vk ';
+    Result += '-i ' + QuoteForShell(InputFile) + ' ';
+  end
+  else if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
   begin
     DevicePath := ArrToStr(Opts.hw_device);
     if DevicePath = '' then
@@ -84,10 +97,40 @@ begin
     Result += '-c:v h264_vaapi -rc_mode auto '
   else if Codec = 'hevc_vaapi' then
     Result += '-c:v hevc_vaapi -rc_mode auto '
+  else if Codec = 'h264_nvenc' then
+    Result += '-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 '
+  else if Codec = 'hevc_nvenc' then
+    Result += '-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto '
+  else if Codec = 'h264_amf' then
+    Result += '-c:v h264_amf '
+  else if Codec = 'hevc_amf' then
+    Result += '-c:v hevc_amf '
+  else if Codec = 'h264_qsv' then
+    Result += '-c:v h264_qsv -global_quality 22 -preset slower -look_ahead 1 -look_ahead_depth 40 -extbrc 1 '
+  else if Codec = 'hevc_qsv' then
+    Result += '-c:v hevc_qsv -global_quality 25 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 '
+  else if Codec = 'prores_ks_vulkan' then
+  begin
+    if Opts.profile = 1 then
+      Result += '-c:v prores_ks_vulkan -profile:v lt '
+    else if Opts.profile = 4 then
+      Result += '-c:v prores_ks_vulkan -profile:v 4444 '
+    else if Opts.profile = 3 then
+      Result += '-c:v prores_ks_vulkan -profile:v hq '
+    else
+      Result += '-c:v prores_ks_vulkan -profile:v standard ';
+  end
   else
     Result += '-c:v copy ';
 
-  if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
+  if Codec = 'prores_ks_vulkan' then
+  begin
+    if Opts.profile = 4 then
+      Result += '-vf "format=yuv444p10le,hwupload" '
+    else
+      Result += '-vf "format=yuv422p10le,hwupload" ';
+  end
+  else if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
     Result += '-vf "format=nv12,hwupload" '
   else if (Codec <> 'hevc_videotoolbox') and (Codec <> 'prores_videotoolbox') then
   begin
@@ -101,9 +144,17 @@ begin
     Result += '-filter_complex "[0:a:0]aresample=resampler=soxr:precision=28:cheby=1,asplit=2[aout0][aout1]" -map [aout0] -map [aout1] ';
 
   if AudioOut = 'fdk_aac_q5_ac3_640' then
+{$IFDEF Windows}
+    Result += '-c:a:0 libfdk_aac -vbr:a:0 5 -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
+{$ELSE}
     Result += '-c:a:0 aac -q:a:0 2 -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
+{$ENDIF}
   else if AudioOut = 'fdk_aac_q5' then
+{$IFDEF Windows}
+    Result += '-c:a libfdk_aac -vbr 5 -ar 48000 '
+{$ELSE}
     Result += '-c:a aac -q:a 2 -ar 48000 '
+{$ENDIF}
   else if Opts.use_aac_for_h265 <> 0 then
     Result += '-c:a aac -q:a 2 -ar 48000 '
   else

@@ -552,7 +552,12 @@ begin
             Exit(False);
           end
           else if (Ch = 'b') or (Ch = 'B') then
-            Step := 3
+          begin
+            if (Codec = 2) or (Codec = 3) then
+              Step := 3
+            else
+              Step := 1;
+          end
           else
             WriteLn('Invalid choice');
         end;
@@ -656,7 +661,12 @@ begin
             Exit(False);
           end
           else if (Ch = 'b') or (Ch = 'B') then
-            Step := 5
+          begin
+            if AudioNorm = 5 then
+              Step := 5
+            else
+              Step := 4;
+          end
           else
             WriteLn('Invalid choice');
         end;

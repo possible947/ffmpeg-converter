@@ -56,22 +56,25 @@ begin
 
   J := nil;
   try
-    J := GetJSON(Text);
-    if not (J is TJSONObject) then
-      Exit;
+    try
+      J := GetJSON(Text);
+      if not (J is TJSONObject) then
+        Exit;
 
-    O := TJSONObject(J);
-    if not JsonNumToFloat(O, 'input_i', Metrics.InputI) then Exit;
-    if not JsonNumToFloat(O, 'input_tp', Metrics.InputTP) then Exit;
-    if not JsonNumToFloat(O, 'input_lra', Metrics.InputLRA) then Exit;
-    if not JsonNumToFloat(O, 'input_thresh', Metrics.InputThresh) then Exit;
-    if not JsonNumToFloat(O, 'target_offset', Metrics.TargetOffset) then Exit;
+      O := TJSONObject(J);
+      if not JsonNumToFloat(O, 'input_i', Metrics.InputI) then Exit;
+      if not JsonNumToFloat(O, 'input_tp', Metrics.InputTP) then Exit;
+      if not JsonNumToFloat(O, 'input_lra', Metrics.InputLRA) then Exit;
+      if not JsonNumToFloat(O, 'input_thresh', Metrics.InputThresh) then Exit;
+      if not JsonNumToFloat(O, 'target_offset', Metrics.TargetOffset) then Exit;
 
-    Result := True;
-  except
-    Result := False;
+      Result := True;
+    except
+      Result := False;
+    end;
+  finally
+    J.Free;
   end;
-  J.Free;
 end;
 
 end.

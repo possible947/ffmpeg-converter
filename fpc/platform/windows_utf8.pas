@@ -12,6 +12,10 @@ implementation
 
 {$IFDEF Windows}
 uses Windows;
+
+{ CommandLineToArgvW is in shell32.dll and is not declared in FPC's Windows unit }
+function CommandLineToArgvW(lpCmdLine: LPCWSTR; pNumArgs: PLongInt): PPWideChar;
+  stdcall; external 'shell32.dll' name 'CommandLineToArgvW';
 {$ENDIF}
 
 function GetUTF8Arguments: TStringArray;

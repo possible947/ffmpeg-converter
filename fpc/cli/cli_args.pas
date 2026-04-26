@@ -4,10 +4,11 @@ unit cli_args;
 
 interface
 
-uses converter_types;
+uses converter_types, SysUtils;
 
 procedure PrintUsage;
 function ParseArgs(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt): Boolean;
+function ParseArgsFromArray(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt; const Args: TStringArray): Boolean;
 procedure PrintSummary(const Opts: TConvertOptions; const Files: array of PAnsiChar; FileCount: LongInt);
 function VerifyAndCompactFiles(var Files: array of PAnsiChar; var FileCount: LongInt): Boolean;
 
@@ -19,26 +20,51 @@ uses
   linux_probe,
   {$ELSE}
   windows_probe,
+  tool_paths,
   {$ENDIF}
-  fs_utils,
-  SysUtils;
+  fs_utils;
+
+var
+  GWindowsCodecsCached: Boolean = False;
+  GWindowsCodecs: TWindowsCodecSupport;
+
+function GetWindowsCodecSupport: TWindowsCodecSupport;
+begin
+  if not GWindowsCodecsCached then
+  begin
+    GWindowsCodecs := ProbeWindowsCodecSupport;
+    GWindowsCodecsCached := True;
+  end;
+  Result := GWindowsCodecs;
+end;
 
 function IsCodecAllowedOnCurrentPlatform(const Codec: string): Boolean;
+var
+  WinCaps: TWindowsCodecSupport;
+  HasM4V: Boolean;
 begin
 {$IFDEF Windows}
-  Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or
-            (Codec = 'mux');
+  WinCaps := GetWindowsCodecSupport;
+  HasM4V := ResolveMp4BoxBin <> '';
 
-  if IsNVENCAvailable then
+  Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks');
+
+  if HasM4V then
+    Result := Result or (Codec = 'm4v');
+
+  if WinCaps.HasMkvmerge then
+    Result := Result or (Codec = 'mux');
+
+  if WinCaps.HasNVENC then
     Result := Result or (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc');
 
-  if IsAMFAvailable then
+  if WinCaps.HasAMF then
     Result := Result or (Codec = 'h264_amf') or (Codec = 'hevc_amf');
 
-  if IsQSVAvailable then
+  if WinCaps.HasQSV then
     Result := Result or (Codec = 'h264_qsv') or (Codec = 'hevc_qsv');
 
-  if IsVulkanAvailable then
+  if WinCaps.HasVulkan then
     Result := Result or (Codec = 'prores_ks_vulkan');
 {$ELSE}
   {$IFDEF Linux}
@@ -103,12 +129,33 @@ begin
 end;
 
 procedure PrintUsage;
+var
+{$IFDEF Windows}
+  WinCaps: TWindowsCodecSupport;
+  HasM4V: Boolean;
+  CodecList: string;
+{$ENDIF}
 begin
   WriteLn('Usage: ffmpeg_converter [options] file1 file2 ...');
   WriteLn;
   WriteLn('Options:');
 {$IFDEF Windows}
-  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_nvenc|hevc_nvenc|h264_amf|hevc_amf|h264_qsv|hevc_qsv>');
+  WinCaps := GetWindowsCodecSupport;
+  HasM4V := ResolveMp4BoxBin <> '';
+  CodecList := 'copy|prores|prores_ks';
+  if WinCaps.HasNVENC then
+    CodecList += '|h264_nvenc|hevc_nvenc';
+  if WinCaps.HasAMF then
+    CodecList += '|h264_amf|hevc_amf';
+  if WinCaps.HasQSV then
+    CodecList += '|h264_qsv|hevc_qsv';
+  if WinCaps.HasVulkan then
+    CodecList += '|prores_ks_vulkan';
+  if WinCaps.HasMkvmerge then
+    CodecList += '|mux';
+  if HasM4V then
+    CodecList += '|m4v';
+  WriteLn('  -c, --codec <', CodecList, '>');
 {$ELSE}
   {$IFDEF Linux}
   WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_vaapi|hevc_vaapi>');
@@ -120,13 +167,34 @@ begin
   WriteLn('  -d, --deblock <none|weak|strong>');
   WriteLn('  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>');
   WriteLn('      --audio-output <pcm|fdk_aac_q5|fdk_aac_q5_ac3_640>');
+{$IFDEF Windows}
+  if WinCaps.HasMkvmerge then
+    WriteLn('      --video-track <file> replacement video track for mux mode');
+{$ELSE}
   WriteLn('      --video-track <file> replacement video track for mux mode');
+{$ENDIF}
   WriteLn('  -g, --genre <edm|rock|hiphop|classical|podcast>');
   WriteLn('      (genre is used only with loudnorm2)');
   WriteLn('  --overwrite        overwrite output files');
   WriteLn('  -o, --output <directory> set output directory');
-{$IFDEF Linux}
+{$IFDEF Windows}
+  if WinCaps.HasVulkan then
+    WriteLn('      --vk_device <0..7> Select Vulkan adapter index for prores_ks_vulkan');
+{$ELSE}
+  {$IFDEF Linux}
   WriteLn('      --vk_device <0|1>  Select Vulkan adapter (0=primary, 1=secondary)');
+  {$ENDIF}
+{$ENDIF}
+{$IFDEF Windows}
+  if HasM4V then
+  begin
+    WriteLn('      --m4v-video-track <N>   video stream index for m4v (default: 0)');
+    WriteLn('      --m4v-audio-track <N>   audio stream index for m4v (default: 0)');
+    WriteLn('      --m4v-aac-quality <1-5> AAC quality for m4v (default: 5)');
+    WriteLn('      --m4v-ac3-bitrate <kbps> AC3 bitrate for m4v (default: 640)');
+    WriteLn('      --m4v-lang <tag>        audio language for m4v (default: rus)');
+    WriteLn('      --m4v-chapters / --no-m4v-chapters');
+  end;
 {$ENDIF}
   WriteLn('  -h, --help         show this help');
   WriteLn;
@@ -138,34 +206,47 @@ begin
   WriteLn;
 end;
 
-function ParseArgs(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt): Boolean;
+function ParseArgsFromArray(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt; const Args: TStringArray): Boolean;
 var
   I: LongInt;
   S: string;
   Codec: string;
   ResolvedDir: string;
   DirError: string;
+  M4VVideoTrackIdx: Integer;
+  M4VAudioTrackIdx: Integer;
+  M4VAacQuality: Integer;
+  M4VAc3Bitrate: Integer;
+  M4VLang: string;
+  M4VAddChapters: Boolean;
+  ParsedInt: Integer;
 begin
   InitDefaultOptions(Opts);
   FileCount := 0;
+  M4VVideoTrackIdx := 0;
+  M4VAudioTrackIdx := 0;
+  M4VAacQuality := 5;
+  M4VAc3Bitrate := 640;
+  M4VLang := 'rus';
+  M4VAddChapters := True;
 
   for I := 0 to High(Files) do
     Files[I] := nil;
 
   I := 1;
-  while I <= ParamCount do
+  while I <= High(Args) do
   begin
-    S := ParamStr(I);
+    S := Args[I];
 
     if (S = '-h') or (S = '--help') then
       Exit(False);
 
     if (S = '--codec') or (S = '-c') then
     begin
-      if I + 1 > ParamCount then
+      if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
-      S := ParamStr(I);
+      S := Args[I];
       if IsCodecAllowedOnCurrentPlatform(S) then
       begin
         SetAnsiField(Opts.codec, S);
@@ -190,10 +271,10 @@ begin
 
     if (S = '--profile') or (S = '-p') then
     begin
-      if I + 1 > ParamCount then
+      if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
-      S := ParamStr(I);
+      S := Args[I];
       if S = 'lt' then Opts.profile := 1
       else if S = 'standard' then Opts.profile := 2
       else if S = 'hq' then Opts.profile := 3
@@ -205,10 +286,10 @@ begin
 
     if (S = '--deblock') or (S = '-d') then
     begin
-      if I + 1 > ParamCount then
+      if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
-      S := ParamStr(I);
+      S := Args[I];
       if S = 'none' then Opts.deblock := 1
       else if S = 'weak' then Opts.deblock := 2
       else if S = 'strong' then Opts.deblock := 3
@@ -219,10 +300,10 @@ begin
 
     if (S = '--audio-norm') or (S = '-a') then
     begin
-      if I + 1 > ParamCount then
+      if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
-      S := ParamStr(I);
+      S := Args[I];
       if S = 'none' then SetAnsiField(Opts.audio_norm, 'none')
       else if S = 'peak' then SetAnsiField(Opts.audio_norm, 'peak_norm')
       else if S = 'peak2' then SetAnsiField(Opts.audio_norm, 'peak_norm_2pass')
@@ -235,10 +316,10 @@ begin
 
     if S = '--audio-output' then
     begin
-      if I + 1 > ParamCount then
+      if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
-      S := ParamStr(I);
+      S := Args[I];
       if S = 'fdk_aac_q2' then
         S := 'fdk_aac_q5'
       else if S = 'fdk_aac_q2_ac3_640' then
@@ -254,10 +335,10 @@ begin
 
     if S = '--video-track' then
     begin
-      if I + 1 > ParamCount then
+      if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
-      S := ParamStr(I);
+      S := Args[I];
       SetAnsiField(Opts.video_track_path, S);
       Inc(I);
       Continue;
@@ -265,10 +346,10 @@ begin
 
     if (S = '--genre') or (S = '-g') then
     begin
-      if I + 1 > ParamCount then
+      if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
-      S := ParamStr(I);
+      S := Args[I];
       if S = 'edm' then Opts.genre := 1
       else if S = 'rock' then Opts.genre := 2
       else if S = 'hiphop' then Opts.genre := 3
@@ -288,26 +369,109 @@ begin
 
     if S = '--vk_device' then
     begin
-      if I + 1 > ParamCount then
+      if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
-      S := ParamStr(I);
-      if S = '0' then
-        Opts.vulkan_device := 0
-      else if S = '1' then
-        Opts.vulkan_device := 1
-      else
+      S := Args[I];
+      if not TryStrToInt(S, ParsedInt) then
+        Exit(False);
+      if (ParsedInt < 0) or (ParsedInt > 7) then
+        Exit(False);
+      Opts.vulkan_device := ParsedInt;
+      Inc(I);
+      Continue;
+    end;
+
+{$IFDEF Windows}
+    if S = '--m4v-video-track' then
+    begin
+      if I + 1 > High(Args) then
+        Exit(False);
+      Inc(I);
+      if not TryStrToInt(Args[I], ParsedInt) then
+        Exit(False);
+      if ParsedInt < 0 then
+        Exit(False);
+      M4VVideoTrackIdx := ParsedInt;
+      Inc(I);
+      Continue;
+    end;
+
+    if S = '--m4v-audio-track' then
+    begin
+      if I + 1 > High(Args) then
+        Exit(False);
+      Inc(I);
+      if not TryStrToInt(Args[I], ParsedInt) then
+        Exit(False);
+      if ParsedInt < 0 then
+        Exit(False);
+      M4VAudioTrackIdx := ParsedInt;
+      Inc(I);
+      Continue;
+    end;
+
+    if S = '--m4v-aac-quality' then
+    begin
+      if I + 1 > High(Args) then
+        Exit(False);
+      Inc(I);
+      if not TryStrToInt(Args[I], ParsedInt) then
+        Exit(False);
+      if (ParsedInt < 1) or (ParsedInt > 5) then
+        Exit(False);
+      M4VAacQuality := ParsedInt;
+      Inc(I);
+      Continue;
+    end;
+
+    if S = '--m4v-ac3-bitrate' then
+    begin
+      if I + 1 > High(Args) then
+        Exit(False);
+      Inc(I);
+      if not TryStrToInt(Args[I], ParsedInt) then
+        Exit(False);
+      if ParsedInt <= 0 then
+        Exit(False);
+      M4VAc3Bitrate := ParsedInt;
+      Inc(I);
+      Continue;
+    end;
+
+    if S = '--m4v-lang' then
+    begin
+      if I + 1 > High(Args) then
+        Exit(False);
+      Inc(I);
+      M4VLang := Trim(Args[I]);
+      if M4VLang = '' then
         Exit(False);
       Inc(I);
       Continue;
     end;
 
+    if S = '--m4v-chapters' then
+    begin
+      M4VAddChapters := True;
+      Inc(I);
+      Continue;
+    end;
+
+    if S = '--no-m4v-chapters' then
+    begin
+      M4VAddChapters := False;
+      Inc(I);
+      Continue;
+    end;
+{$ENDIF}
+
     if (S = '-o') or (S = '--output') then
     begin
-      if I + 1 > ParamCount then
+      if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
-      S := ParamStr(I);
+      S := Args[I];
       if not EnsureOutputDirWritable(S, ResolvedDir, DirError) then
       begin
         Opts.output_dir_status := 0;
@@ -367,7 +531,31 @@ begin
     end;
   end;
 
+{$IFDEF Windows}
+  if Codec = 'm4v' then
+  begin
+    SetAnsiField(Opts.video_track_path,
+      IntToStr(M4VVideoTrackIdx) + '|' +
+      IntToStr(M4VAudioTrackIdx) + '|' +
+      IntToStr(M4VAacQuality) + '|' +
+      IntToStr(M4VAc3Bitrate) + '|' +
+      M4VLang + '|' +
+      IntToStr(Ord(M4VAddChapters)));
+  end;
+{$ENDIF}
+
   Result := True;
+end;
+
+function ParseArgs(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt): Boolean;
+var
+  A: TStringArray;
+  I: Integer;
+begin
+  SetLength(A, ParamCount + 1);
+  for I := 0 to ParamCount do
+    A[I] := ParamStr(I);
+  Result := ParseArgsFromArray(Opts, Files, FileCount, A);
 end;
 
 procedure PrintSummary(const Opts: TConvertOptions; const Files: array of PAnsiChar; FileCount: LongInt);
