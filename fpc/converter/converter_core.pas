@@ -24,6 +24,9 @@ uses
   {$IFNDEF Windows}
   BaseUnix,
   {$ENDIF}
+  {$IFDEF Linux}
+  linux_probe,
+  {$ENDIF}
   SysUtils,
   process_utils,
   path_utils,
@@ -265,6 +268,7 @@ var
 {$IFDEF Linux}
   Cmd: string;
   Probe: TRunResult;
+  LinuxCaps: TLinuxCodecSupport;
 {$ENDIF}
 begin
   if (c = nil) or (opts = nil) then
@@ -292,8 +296,15 @@ begin
 {$IFDEF Linux}
   if CodecIsLinuxVaapi(Codec) then
   begin
+    { Use the probed render node if no device path was supplied. }
     if ArrToStr(Ctx^.Opts.hw_device) = '' then
-      SetAnsiField(Ctx^.Opts.hw_device, '/dev/dri/renderD128');
+    begin
+      LinuxCaps := ProbeLinuxCodecSupport;
+      if LinuxCaps.VaapiRenderNode <> '' then
+        SetAnsiField(Ctx^.Opts.hw_device, LinuxCaps.VaapiRenderNode)
+      else
+        SetAnsiField(Ctx^.Opts.hw_device, '/dev/dri/renderD128');
+    end;
 
     Cmd := QuoteForShell(ResolveFfmpegBin) + ' -v error -hide_banner -encoders 2>/dev/null';
     Probe := RunCommandCapture(Cmd);
@@ -306,6 +317,19 @@ begin
       Exit(ERR_INVALID_OPTIONS);
 
     Ctx^.Opts.hwaccel_enabled := 1;
+  end;
+
+  { On Linux, libfdk_aac is the only supported AAC encoder.
+    Fail early when an fdk_aac output mode is requested but libfdk_aac is
+    not compiled into the bundled ffmpeg binary. }
+  if (AudioOut = 'fdk_aac_q5') or (AudioOut = 'fdk_aac_q2') or
+     (AudioOut = 'fdk_aac_q5_ac3_640') or (AudioOut = 'fdk_aac_q2_ac3_640') then
+  begin
+    if not ProbeFdkAacEncoder(ResolveFfmpegBin) then
+    begin
+      EmitMessage(Ctx, 'Error: libfdk_aac encoder not available in this ffmpeg build');
+      Exit(ERR_INVALID_OPTIONS);
+    end;
   end;
 {$ENDIF}
 

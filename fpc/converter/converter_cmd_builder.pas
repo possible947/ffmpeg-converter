@@ -12,6 +12,9 @@ implementation
 
 uses
   SysUtils,
+  {$IFDEF Linux}
+  linux_probe,
+  {$ENDIF}
   path_utils,
   tool_paths;
 
@@ -35,6 +38,10 @@ var
   FfmpegBin: string;
   Tools: TToolPaths;
   Fmt: TFormatSettings;
+{$IFDEF Linux}
+  InputCodec: string;
+  AV1Decoder: string;
+{$ENDIF}
 begin
   Codec := ArrToStr(Opts.codec);
   AudioNorm := ArrToStr(Opts.audio_norm);
@@ -47,18 +54,22 @@ begin
   FfmpegBin := Tools.FfmpegBin;
   Fmt := InvariantFmt;
 
+  { --- Overwrite flag --- }
+  if Opts.overwrite <> 0 then
+    Result := QuoteForShell(FfmpegBin) + ' -y '
+  else
+    Result := QuoteForShell(FfmpegBin) + ' -n ';
+
+  { --- Pre-input hardware device setup ---
+    Vulkan and VAAPI need their device context established before -i.
+    NVENC/AMF/QSV auto-select the GPU and need nothing here. }
   if Codec = 'prores_ks_vulkan' then
   begin
-    if Opts.overwrite <> 0 then
-      Result := QuoteForShell(FfmpegBin) + ' -y '
-    else
-      Result := QuoteForShell(FfmpegBin) + ' -n ';
-    { Device index -1 means "auto" (first available); clamp to 0 for ffmpeg }
+    { Device index -1 means "auto" (first available); clamp to 0 for ffmpeg. }
     if Opts.vulkan_device < 0 then
       Result += '-init_hw_device vulkan=vk:0 -filter_hw_device vk '
     else
       Result += '-init_hw_device vulkan=vk:' + IntToStr(Opts.vulkan_device) + ' -filter_hw_device vk ';
-    Result += '-i ' + QuoteForShell(InputFile) + ' ';
   end
   else if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
   begin
@@ -67,18 +78,33 @@ begin
       DevicePath := GetEnvironmentVariable('VAAPI_DEVICE');
     if DevicePath = '' then
       DevicePath := '/dev/dri/renderD128';
-    if Opts.overwrite <> 0 then
-      Result := QuoteForShell(FfmpegBin) + ' -y -vaapi_device ' + QuoteForShell(DevicePath) + ' -i ' + QuoteForShell(InputFile) + ' '
+    Result += '-vaapi_device ' + QuoteForShell(DevicePath) + ' ';
+  end;
+
+  { --- AV1 input decoder selection (Linux) ---
+    The native av1 decoder in ffmpeg builds with --enable-nvdec probes NVDEC
+    pixel formats internally, which causes a fatal crash on systems where the
+    NVIDIA GPU does not support AV1 hardware decode.  We avoid this by
+    preferring av1_qsv (Intel QSV) or libdav1d (pure software) when available.
+    For non-AV1 inputs -hwaccel none is added to keep software decoding. }
+{$IFDEF Linux}
+  InputCodec := ProbeInputVideoCodec(Tools.FfprobeBin, InputFile);
+  if InputCodec = 'av1' then
+  begin
+    AV1Decoder := GetBestAV1Decoder(FfmpegBin);
+    if AV1Decoder = 'av1_qsv' then
+      Result += '-hwaccel qsv -hwaccel_output_format nv12 -c:v av1_qsv '
+    else if AV1Decoder = 'libdav1d' then
+      Result += '-hwaccel none -c:v libdav1d '
     else
-      Result := QuoteForShell(FfmpegBin) + ' -n -vaapi_device ' + QuoteForShell(DevicePath) + ' -i ' + QuoteForShell(InputFile) + ' ';
+      Result += '-hwaccel none ';
   end
   else
-  begin
-    if Opts.overwrite <> 0 then
-      Result := QuoteForShell(FfmpegBin) + ' -y -i ' + QuoteForShell(InputFile) + ' '
-    else
-      Result := QuoteForShell(FfmpegBin) + ' -n -i ' + QuoteForShell(InputFile) + ' ';
-  end;
+    Result += '-hwaccel none ';
+{$ENDIF}
+
+  { --- Input file --- }
+  Result += '-i ' + QuoteForShell(InputFile) + ' ';
 
   Result += '-map 0:v:0 ';
   if AudioOut <> 'fdk_aac_q5_ac3_640' then
@@ -149,17 +175,28 @@ begin
   if (AudioOut = 'fdk_aac_q5_ac3_640') then
     Result += '-filter_complex "[0:a:0]aresample=resampler=soxr:precision=28:cheby=1,asplit=2[aout0][aout1]" -map [aout0] -map [aout1] ';
 
+  { --- Audio codec ---
+    Windows and Linux: require libfdk_aac (validated upstream in converter_set_options).
+    macOS and other Unix-like systems: fall back to native aac encoder. }
   if AudioOut = 'fdk_aac_q5_ac3_640' then
 {$IFDEF Windows}
     Result += '-c:a:0 libfdk_aac -vbr:a:0 5 -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
 {$ELSE}
+  {$IFDEF Linux}
+    Result += '-c:a:0 libfdk_aac -vbr:a:0 5 -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
+  {$ELSE}
     Result += '-c:a:0 aac -q:a:0 2 -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
+  {$ENDIF}
 {$ENDIF}
   else if AudioOut = 'fdk_aac_q5' then
 {$IFDEF Windows}
     Result += '-c:a libfdk_aac -vbr 5 -ar 48000 '
 {$ELSE}
+  {$IFDEF Linux}
+    Result += '-c:a libfdk_aac -vbr 5 -ar 48000 '
+  {$ELSE}
     Result += '-c:a aac -q:a 2 -ar 48000 '
+  {$ENDIF}
 {$ENDIF}
   else if Opts.use_aac_for_h265 <> 0 then
     Result += '-c:a aac -q:a 2 -ar 48000 '

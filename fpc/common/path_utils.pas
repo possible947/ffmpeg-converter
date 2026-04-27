@@ -14,7 +14,17 @@ uses
 
 function QuoteForShell(const S: string): string;
 begin
+{$IFDEF Windows}
   Result := '"' + StringReplace(S, '"', '\"', [rfReplaceAll]) + '"';
+{$ELSE}
+  { POSIX single-quote wrapping: no shell metacharacter ($, `, \, !, etc.) is
+    interpreted inside single quotes.  The only character that needs escaping
+    is a literal single-quote itself, which is handled by ending the quoted
+    string, inserting a backslash-escaped single-quote, and reopening:
+      '  →  '\''
+    Example: "it's a trap" → 'it'\''s a trap' }
+  Result := '''' + StringReplace(S, '''', '''' + '\' + '''' + '''', [rfReplaceAll]) + '''';
+{$ENDIF}
 end;
 
 function MakeOutputName(const InputPath, Codec, OutputDir: string): string;
