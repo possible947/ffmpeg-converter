@@ -58,8 +58,11 @@ function IsCodecAllowedOnCurrentPlatform(const Codec: string): Boolean;
 var
   {$IFDEF Windows}
   WinCaps: TWindowsCodecSupport;
-  {$ENDIF}
   HasM4V: Boolean;
+  {$ENDIF}
+  {$IFDEF Linux}
+  LinuxCaps: TLinuxCodecSupport;
+  {$ENDIF}
 begin
 {$IFDEF Windows}
   WinCaps := GetWindowsCodecSupport;
@@ -86,9 +89,27 @@ begin
     Result := Result or (Codec = 'prores_ks_vulkan');
 {$ELSE}
   {$IFDEF Linux}
+  LinuxCaps := ProbeLinuxCodecSupport;
+
+  { copy, prores, prores_ks, and mux are always available on Linux.
+    mkvmerge is expected to be in PATH; hardware codecs require GPU probe. }
   Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or
-            (Codec = 'mux') or (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') or
-            (Codec = 'm4v');
+            (Codec = 'mux');
+
+  if LinuxCaps.HasVaapiH264 then
+    Result := Result or (Codec = 'h264_vaapi');
+  if LinuxCaps.HasVaapiHEVC then
+    Result := Result or (Codec = 'hevc_vaapi');
+  if LinuxCaps.HasNVENC then
+    Result := Result or (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc');
+  if LinuxCaps.HasAMF then
+    Result := Result or (Codec = 'h264_amf') or (Codec = 'hevc_amf');
+  if LinuxCaps.HasQSV then
+    Result := Result or (Codec = 'h264_qsv') or (Codec = 'hevc_qsv');
+  if LinuxCaps.HasVulkan then
+    Result := Result or (Codec = 'prores_ks_vulkan');
+  if LinuxCaps.HasMp4Box then
+    Result := Result or (Codec = 'm4v');
   {$ELSE}
   Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or (Codec = 'mux');
   {$ENDIF}
@@ -151,8 +172,11 @@ procedure PrintUsage;
 var
   {$IFDEF Windows}
   WinCaps: TWindowsCodecSupport;
-  {$ENDIF}
   HasM4V: Boolean;
+  {$ENDIF}
+  {$IFDEF Linux}
+  LinuxCaps: TLinuxCodecSupport;
+  {$ENDIF}
   CodecList: string;
 begin
   WriteLn('Usage: ffmpeg_converter [options] file1 file2 ...');
@@ -177,7 +201,23 @@ begin
   WriteLn('  -c, --codec <', CodecList, '>');
 {$ELSE}
   {$IFDEF Linux}
-  WriteLn('  -c, --codec <copy|prores|prores_ks|mux|h264_vaapi|hevc_vaapi|m4v>');
+  LinuxCaps := ProbeLinuxCodecSupport;
+  CodecList := 'copy|prores|prores_ks|mux';
+  if LinuxCaps.HasVaapiH264 then
+    CodecList += '|h264_vaapi';
+  if LinuxCaps.HasVaapiHEVC then
+    CodecList += '|hevc_vaapi';
+  if LinuxCaps.HasNVENC then
+    CodecList += '|h264_nvenc|hevc_nvenc';
+  if LinuxCaps.HasAMF then
+    CodecList += '|h264_amf|hevc_amf';
+  if LinuxCaps.HasQSV then
+    CodecList += '|h264_qsv|hevc_qsv';
+  if LinuxCaps.HasVulkan then
+    CodecList += '|prores_ks_vulkan';
+  if LinuxCaps.HasMp4Box then
+    CodecList += '|m4v';
+  WriteLn('  -c, --codec <', CodecList, '>');
   {$ELSE}
   WriteLn('  -c, --codec <copy|prores|prores_ks|mux>');
   {$ENDIF}
@@ -201,8 +241,10 @@ begin
     WriteLn('      --vk_device <0..7> Select Vulkan adapter index for prores_ks_vulkan');
   {$ELSE}
   {$IFDEF Linux}
-  WriteLn('      --vk_device <0|1>  Select Vulkan adapter (0=primary, 1=secondary)');
-  WriteLn('      --hw_device <path>  Override VAAPI device path for h264_vaapi/hevc_vaapi');
+  if LinuxCaps.HasVulkan then
+    WriteLn('      --vk_device <0..7>  Select Vulkan adapter index for prores_ks_vulkan');
+  if LinuxCaps.HasVaapiH264 or LinuxCaps.HasVaapiHEVC then
+    WriteLn('      --hw_device <path>  Override VAAPI device path (default: ', LinuxCaps.VaapiRenderNode, ')');
   {$ENDIF}
 {$ENDIF}
   WriteLn('      --m4v-video-track <N>   video stream index for m4v (default: 0)');
@@ -236,6 +278,9 @@ var
   M4VLang: string;
   M4VAddChapters: Boolean;
   ParsedInt: Integer;
+  {$IFDEF Linux}
+  LinuxCaps: TLinuxCodecSupport;
+  {$ENDIF}
 begin
   InitDefaultOptions(Opts);
   FileCount := 0;
@@ -268,12 +313,18 @@ begin
       begin
         SetAnsiField(Opts.codec, S);
 {$IFDEF Linux}
+        { For VAAPI codecs, populate hw_device from the probe result if not
+          explicitly set by --hw_device.  ProbeLinuxCodecSupport is cached. }
         if (S = 'h264_vaapi') or (S = 'hevc_vaapi') then
         begin
-          if not ValidateVaapiDevice then
-            WriteLn(StdErr, 'Warning: VAAPI device not found - encoding may fail');
           if ArrToStr(Opts.hw_device) = '' then
-            SetAnsiField(Opts.hw_device, GetVaapiRenderNode);
+          begin
+            LinuxCaps := ProbeLinuxCodecSupport;
+            if LinuxCaps.VaapiRenderNode <> '' then
+              SetAnsiField(Opts.hw_device, LinuxCaps.VaapiRenderNode)
+            else
+              WriteLn(StdErr, 'Warning: VAAPI render node not detected - encoding may fail');
+          end;
         end;
         if S = 'm4v' then
         begin
@@ -508,6 +559,17 @@ begin
         Opts.output_dir_status := 1;
       end;
 
+      Inc(I);
+      Continue;
+    end;
+
+    if S = '--hw_device' then
+    begin
+      if I + 1 > High(Args) then
+        Exit(False);
+      Inc(I);
+      S := Args[I];
+      SetAnsiField(Opts.hw_device, S);
       Inc(I);
       Continue;
     end;
