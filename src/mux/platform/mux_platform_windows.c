@@ -3,10 +3,11 @@
  * Windows implementation of the mux platform abstraction.
  *
  * Implements the mux_platform.h interface using:
- *  - GetFileAttributesA() for file existence checks
- *  - _popen() / _pclose() for process execution
+ *  - GetFileAttributesW() for file existence checks
+ *  - _wpopen() / _pclose() for process execution
  *  - Double-quote cmd.exe shell quoting
- *  - _unlink() for file removal
+ *  - _wunlink() for file removal
+ *  - MoveFileExW() for atomic rename
  *  - windows_get_preferred_*() for binary resolution
  */
 
@@ -16,7 +17,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <io.h>     /* _unlink */
+#include <io.h>     /* _wunlink */
+
+/* ---------------------------------------------------------------
+ *  Internal helpers
+ * --------------------------------------------------------------- */
+
+/* Convert a UTF-8 string to a newly allocated wide string.
+ * Returns 1 on success (caller must free *out), 0 on failure. */
+static int mux_utf8_to_wide(const char* s, wchar_t** out) {
+    int wlen;
+    if (!s || !out) return 0;
+    wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    if (wlen <= 0) return 0;
+    *out = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
+    if (!*out) return 0;
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, *out, wlen);
+    return 1;
+}
 
 /* ---------------------------------------------------------------
  *  File system
@@ -24,12 +42,18 @@
 
 int platform_file_is_regular(const char *path)
 {
+    wchar_t* wpath = NULL;
     DWORD attrs;
 
     if (!path || path[0] == '\0')
         return 0;
 
-    attrs = GetFileAttributesA(path);
+    if (!mux_utf8_to_wide(path, &wpath))
+        return 0;
+
+    attrs = GetFileAttributesW(wpath);
+    free(wpath);
+
     if (attrs == INVALID_FILE_ATTRIBUTES)
         return 0;
 
@@ -39,16 +63,31 @@ int platform_file_is_regular(const char *path)
 
 int platform_unlink(const char *path)
 {
-    return _unlink(path);
+    wchar_t* wpath = NULL;
+    int result;
+    if (!path) return -1;
+    if (!mux_utf8_to_wide(path, &wpath)) return _unlink(path);
+    result = _wunlink(wpath);
+    free(wpath);
+    return result;
 }
 
 int platform_rename(const char *src, const char *dst)
 {
-    if (!src || !dst)
-        return -1;
-    /* MoveFileExA with MOVEFILE_REPLACE_EXISTING atomically replaces dst
-     * even if it already exists, unlike the C standard rename() on Windows. */
-    return MoveFileExA(src, dst, MOVEFILE_REPLACE_EXISTING) ? 0 : -1;
+    wchar_t* wsrc = NULL;
+    wchar_t* wdst = NULL;
+    int result;
+
+    if (!src || !dst) return -1;
+    if (!mux_utf8_to_wide(src, &wsrc)) return -1;
+    if (!mux_utf8_to_wide(dst, &wdst)) { free(wsrc); return -1; }
+
+    /* MoveFileExW with MOVEFILE_REPLACE_EXISTING atomically replaces dst
+     * even if it already exists, and handles Unicode paths correctly. */
+    result = MoveFileExW(wsrc, wdst, MOVEFILE_REPLACE_EXISTING) ? 0 : -1;
+    free(wsrc);
+    free(wdst);
+    return result;
 }
 
 /* ---------------------------------------------------------------

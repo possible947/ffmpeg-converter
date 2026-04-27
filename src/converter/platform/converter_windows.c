@@ -7,9 +7,9 @@
 #include "../converter_platform.h"
 #include "../converter.h"
 #include <windows.h>
-#include <shlwapi.h>    /* PathFindOnPathA, PathFileExistsA */
+#include <shlwapi.h>    /* PathFindOnPathW */
 #include <direct.h>     /* _mkdir */
-#include <io.h>         /* _access */
+#include <io.h>         /* _access, _waccess, _wunlink */
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -48,26 +48,53 @@ static void windows_diag_log(const char* fmt, ...) {
     fputc('\n', stderr);
 }
 
+/* Convert a UTF-8 string to a newly allocated wide string.
+ * Returns 1 on success (caller must free *out), 0 on failure. */
+static int utf8_to_wide(const char* s, wchar_t** out) {
+    int wlen;
+    if (!s || !out) return 0;
+    wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    if (wlen <= 0) return 0;
+    *out = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
+    if (!*out) return 0;
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, *out, wlen);
+    return 1;
+}
+
+/* Check whether a UTF-8 path refers to an existing filesystem entry. */
+static int win_file_exists_utf8(const char* path) {
+    wchar_t* wpath = NULL;
+    DWORD attrs;
+    if (!path || path[0] == '\0') return 0;
+    if (!utf8_to_wide(path, &wpath)) return 0;
+    attrs = GetFileAttributesW(wpath);
+    free(wpath);
+    return attrs != INVALID_FILE_ATTRIBUTES;
+}
+
+/* Returns the directory of the running executable as a UTF-8 string.
+ * Uses GetModuleFileNameW to support Unicode paths. */
 static const char* windows_get_exe_dir(void) {
-    static char exe_dir[MAX_PATH] = {0};
+    static char exe_dir[4096] = {0};
     static int initialized = 0;
     if (initialized) return exe_dir;
     initialized = 1;
 
-    char exe_path[MAX_PATH];
-    if (GetModuleFileNameA(NULL, exe_path, MAX_PATH) == 0)
+    wchar_t exe_path[4096];
+    if (GetModuleFileNameW(NULL, exe_path, 4096) == 0)
         return exe_dir;
 
     /* Strip the executable filename to get the directory */
-    char* last_sep = strrchr(exe_path, '\\');
-    if (!last_sep) last_sep = strrchr(exe_path, '/');
-    if (last_sep) {
-        size_t dir_len = (size_t)(last_sep - exe_path);
-        if (dir_len < MAX_PATH) {
-            strncpy(exe_dir, exe_path, dir_len);
-            exe_dir[dir_len] = '\0';
-        }
-    }
+    wchar_t* last_sep = wcsrchr(exe_path, L'\\');
+    wchar_t* slash    = wcsrchr(exe_path, L'/');
+    if (slash && (!last_sep || slash > last_sep))
+        last_sep = slash;
+    if (last_sep)
+        *last_sep = L'\0';
+
+    WideCharToMultiByte(CP_UTF8, 0, exe_path, -1,
+                        exe_dir, (int)(sizeof(exe_dir) - 1), NULL, NULL);
+    exe_dir[sizeof(exe_dir) - 1] = '\0';
     return exe_dir;
 }
 
@@ -89,11 +116,19 @@ void platform_cleanup(void) {
  *  Binary resolution
  * --------------------------------------------------------------- */
 
-static const char* windows_resolve_bin(const char* env_name,
-                                        const char* env_name2,
-                                        const char* bin_filename,
-                                        char* cache,
-                                        int* initialized) {
+/*
+ * windows_resolve_ffbin — resolve ffmpeg or ffprobe.
+ *
+ * Search order: environment variable → binary bundled next to the .exe.
+ * PATH is intentionally NOT searched: only the version shipped with the
+ * program is accepted, matching the behaviour of the macOS implementation.
+ */
+static const char* windows_resolve_ffbin(const char* env_name,
+                                          const char* env_name2,
+                                          const char* bin_filename,
+                                          char* cache,
+                                          size_t cache_sz,
+                                          int* initialized) {
     if (*initialized) return cache;
     *initialized = 1;
 
@@ -101,8 +136,8 @@ static const char* windows_resolve_bin(const char* env_name,
     if (env_name && env_name[0] != '\0') {
         const char* env = getenv(env_name);
         if (env && env[0] != '\0') {
-            strncpy(cache, env, MAX_PATH - 1);
-            cache[MAX_PATH - 1] = '\0';
+            strncpy(cache, env, cache_sz - 1);
+            cache[cache_sz - 1] = '\0';
             windows_diag_log("resolved %s via env %s: %s",
                              bin_filename, env_name, cache);
             return cache;
@@ -111,10 +146,55 @@ static const char* windows_resolve_bin(const char* env_name,
     if (env_name2 && env_name2[0] != '\0') {
         const char* env = getenv(env_name2);
         if (env && env[0] != '\0') {
-            strncpy(cache, env, MAX_PATH - 1);
-            cache[MAX_PATH - 1] = '\0';
+            strncpy(cache, env, cache_sz - 1);
+            cache[cache_sz - 1] = '\0';
             windows_diag_log("resolved %s via env %s: %s",
                              bin_filename, env_name2, cache);
+            return cache;
+        }
+    }
+
+    /* 2. Bundled next to the .exe (Unicode-safe) */
+    const char* exe_dir = windows_get_exe_dir();
+    if (exe_dir[0] != '\0') {
+        char candidate[4096];
+        snprintf(candidate, sizeof(candidate), "%s\\%s", exe_dir, bin_filename);
+        if (win_file_exists_utf8(candidate)) {
+            strncpy(cache, candidate, cache_sz - 1);
+            cache[cache_sz - 1] = '\0';
+            windows_diag_log("resolved %s next to exe: %s", bin_filename, cache);
+            return cache;
+        }
+    }
+
+    cache[0] = '\0';
+    windows_diag_log("failed to resolve %s (not bundled)", bin_filename);
+    return cache;
+}
+
+/*
+ * windows_resolve_tool — resolve an optional tool (mkvmerge, MP4Box).
+ *
+ * Search order: environment variable → bundled next to the .exe → PATH.
+ * These tools are not required to be bundled; system installations are
+ * acceptable.
+ */
+static const char* windows_resolve_tool(const char* env_name,
+                                         const char* bin_filename,
+                                         char* cache,
+                                         size_t cache_sz,
+                                         int* initialized) {
+    if (*initialized) return cache;
+    *initialized = 1;
+
+    /* 1. Environment variable */
+    if (env_name && env_name[0] != '\0') {
+        const char* env = getenv(env_name);
+        if (env && env[0] != '\0') {
+            strncpy(cache, env, cache_sz - 1);
+            cache[cache_sz - 1] = '\0';
+            windows_diag_log("resolved %s via env %s: %s",
+                             bin_filename, env_name, cache);
             return cache;
         }
     }
@@ -122,25 +202,32 @@ static const char* windows_resolve_bin(const char* env_name,
     /* 2. Bundled next to the .exe */
     const char* exe_dir = windows_get_exe_dir();
     if (exe_dir[0] != '\0') {
-        char candidate[MAX_PATH];
+        char candidate[4096];
         snprintf(candidate, sizeof(candidate), "%s\\%s", exe_dir, bin_filename);
-        if (PathFileExistsA(candidate)) {
-            strncpy(cache, candidate, MAX_PATH - 1);
-            cache[MAX_PATH - 1] = '\0';
+        if (win_file_exists_utf8(candidate)) {
+            strncpy(cache, candidate, cache_sz - 1);
+            cache[cache_sz - 1] = '\0';
             windows_diag_log("resolved %s next to exe: %s", bin_filename, cache);
             return cache;
         }
     }
 
-    /* 3. Search PATH */
-    char on_path[MAX_PATH];
-    strncpy(on_path, bin_filename, MAX_PATH - 1);
-    on_path[MAX_PATH - 1] = '\0';
-    if (PathFindOnPathA(on_path, NULL)) {
-        strncpy(cache, on_path, MAX_PATH - 1);
-        cache[MAX_PATH - 1] = '\0';
-        windows_diag_log("resolved %s via PATH: %s", bin_filename, cache);
-        return cache;
+    /* 3. Search PATH (Unicode-safe via PathFindOnPathW) */
+    {
+        wchar_t* wbin = NULL;
+        if (utf8_to_wide(bin_filename, &wbin)) {
+            wchar_t on_path[MAX_PATH];
+            wcsncpy(on_path, wbin, MAX_PATH - 1);
+            on_path[MAX_PATH - 1] = L'\0';
+            free(wbin);
+            if (PathFindOnPathW(on_path, NULL)) {
+                WideCharToMultiByte(CP_UTF8, 0, on_path, -1,
+                                    cache, (int)(cache_sz - 1), NULL, NULL);
+                cache[cache_sz - 1] = '\0';
+                windows_diag_log("resolved %s via PATH: %s", bin_filename, cache);
+                return cache;
+            }
+        }
     }
 
     cache[0] = '\0';
@@ -149,31 +236,31 @@ static const char* windows_resolve_bin(const char* env_name,
 }
 
 const char* platform_get_ffmpeg_bin(void) {
-    static char cache[MAX_PATH] = {0};
+    static char cache[4096] = {0};
     static int  initialized = 0;
-    return windows_resolve_bin("FFMPEG", "FFMPEG_BIN", "ffmpeg.exe",
-                                cache, &initialized);
+    return windows_resolve_ffbin("FFMPEG", "FFMPEG_BIN", "ffmpeg.exe",
+                                  cache, sizeof(cache), &initialized);
 }
 
 const char* platform_get_ffprobe_bin(void) {
-    static char cache[MAX_PATH] = {0};
+    static char cache[4096] = {0};
     static int  initialized = 0;
-    return windows_resolve_bin("FFPROBE", "FFPROBE_BIN", "ffprobe.exe",
-                                cache, &initialized);
+    return windows_resolve_ffbin("FFPROBE", "FFPROBE_BIN", "ffprobe.exe",
+                                  cache, sizeof(cache), &initialized);
 }
 
 const char* platform_get_mkvmerge_bin(void) {
-    static char cache[MAX_PATH] = {0};
+    static char cache[4096] = {0};
     static int  initialized = 0;
-    return windows_resolve_bin("MKVMERGE", NULL, "mkvmerge.exe",
-                                cache, &initialized);
+    return windows_resolve_tool("MKVMERGE", "mkvmerge.exe",
+                                 cache, sizeof(cache), &initialized);
 }
 
 const char* platform_get_mp4box_bin(void) {
-    static char cache[MAX_PATH] = {0};
+    static char cache[4096] = {0};
     static int  initialized = 0;
-    return windows_resolve_bin("MP4BOX", NULL, "MP4Box.exe",
-                                cache, &initialized);
+    return windows_resolve_tool("MP4BOX", "MP4Box.exe",
+                                 cache, sizeof(cache), &initialized);
 }
 
 /* ---------------------------------------------------------------
@@ -183,23 +270,45 @@ const char* platform_get_mp4box_bin(void) {
 char* platform_escape_path_for_command(const char* path) {
     if (!path) return NULL;
 
-    /* On Windows CMD: wrap in double-quotes and escape embedded double-quotes
-     * by doubling them.  We also escape backslashes before a trailing quote. */
+    /* Windows cmd.exe / CommandLineToArgvW quoting rules:
+     *  - Wrap the argument in double-quotes.
+     *  - Backslashes are literal unless immediately before a double-quote.
+     *  - Backslashes before a double-quote: emit 2*N backslashes then \".
+     *  - Backslashes at end of string (before closing "): emit 2*N backslashes.
+     *  - A literal double-quote inside: escaped as \".
+     * Worst-case output: 2 * in_len + 3 bytes (all-backslash + closing quote). */
     size_t in_len = strlen(path);
-    /* Worst case: every char is '"' → doubled + outer 2 + NUL */
     char* out = malloc(2 + in_len * 2 + 1);
     if (!out) return NULL;
 
     char* p = out;
     *p++ = '"';
-    for (size_t i = 0; i < in_len; i++) {
-        if (path[i] == '"') {
+
+    const char* s = path;
+    while (*s != '\0') {
+        /* Count consecutive backslashes */
+        size_t n_bs = 0;
+        while (s[n_bs] == '\\') ++n_bs;
+
+        if (s[n_bs] == '"') {
+            /* Backslashes immediately before a double-quote:
+             * emit 2*N backslashes then \" */
+            for (size_t i = 0; i < n_bs * 2; i++) *p++ = '\\';
+            *p++ = '\\';
             *p++ = '"';
-            *p++ = '"';
+            s += n_bs + 1;
+        } else if (s[n_bs] == '\0') {
+            /* Backslashes at end of string (before closing "): emit 2*N */
+            for (size_t i = 0; i < n_bs * 2; i++) *p++ = '\\';
+            s += n_bs;
         } else {
-            *p++ = path[i];
+            /* Backslashes not before a quote: emit as-is, then the char */
+            for (size_t i = 0; i < n_bs; i++) *p++ = '\\';
+            *p++ = s[n_bs];
+            s += n_bs + 1;
         }
     }
+
     *p++ = '"';
     *p   = '\0';
     return out;
@@ -312,11 +421,23 @@ const char* platform_get_null_device(void) {
 }
 
 int platform_is_file_readable(const char* path) {
-    return (_access(path, R_OK) == 0) ? 1 : 0;
+    wchar_t* wpath = NULL;
+    int result;
+    if (!path || path[0] == '\0') return 0;
+    if (!utf8_to_wide(path, &wpath)) return 0;
+    result = (_waccess(wpath, R_OK) == 0) ? 1 : 0;
+    free(wpath);
+    return result;
 }
 
 int platform_is_dir_writable(const char* path) {
-    return (_access(path, W_OK) == 0) ? 1 : 0;
+    wchar_t* wpath = NULL;
+    int result;
+    if (!path || path[0] == '\0') return 0;
+    if (!utf8_to_wide(path, &wpath)) return 0;
+    result = (_waccess(wpath, W_OK) == 0) ? 1 : 0;
+    free(wpath);
+    return result;
 }
 
 /* ---------------------------------------------------------------
@@ -602,17 +723,23 @@ const char* platform_get_hw_vfilter(const char* codec, const void* opts)
 
 int platform_stat_is_regular_file(const char *path)
 {
+    wchar_t* wpath = NULL;
     DWORD attrs;
     if (!path || path[0] == '\0') return 0;
-    attrs = GetFileAttributesA(path);
+    if (!utf8_to_wide(path, &wpath)) return 0;
+    attrs = GetFileAttributesW(wpath);
+    free(wpath);
     return (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
 }
 
 int platform_stat_is_directory(const char *path)
 {
+    wchar_t* wpath = NULL;
     DWORD attrs;
     if (!path || path[0] == '\0') return 0;
-    attrs = GetFileAttributesA(path);
+    if (!utf8_to_wide(path, &wpath)) return 0;
+    attrs = GetFileAttributesW(wpath);
+    free(wpath);
     return (attrs != INVALID_FILE_ATTRIBUTES) && (attrs & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
 }
 

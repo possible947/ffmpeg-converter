@@ -807,7 +807,6 @@ static void build_ffmpeg_cmd(
     int fdk_vbr = prefer_fdk_q2 ? 2 : 5;
     int has_aac_at = ffmpeg_encoder_available("aac_at");
     int has_libfdk_aac = ffmpeg_encoder_available("libfdk_aac");
-    int has_native_aac = ffmpeg_encoder_available("aac");
     char audio_filter[1024];
 
     /* Shell-safe escaped versions of all user-provided paths */
@@ -989,12 +988,13 @@ static void build_ffmpeg_cmd(
                      fdk_vbr);
             if (cmd_cat(cmd, sizeof(cmd), &pos, aac0_opts) < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
-        } else if (has_native_aac) {
-            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:0 aac -q:a:0 2 -ar:a:0 48000 ") < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac");
         } else {
-            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:0 aac -q:a:0 2 -ar:a:0 48000 ") < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder fallback: native aac (unverified)");
+            if (c->cb.on_error)
+                c->cb.on_error("fdk_aac mode requires libfdk_aac but encoder is not available",
+                               ERR_INVALID_OPTIONS);
+            free(esc_ffmpeg); free(esc_input); free(esc_output);
+            cmd_out[0] = '\0';
+            return;
         }
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 ") < 0) goto overflow;
     } else if (is_fdk_single_audio_output) {
@@ -1006,12 +1006,13 @@ static void build_ffmpeg_cmd(
             snprintf(fdk_opts, sizeof(fdk_opts), "-c:a libfdk_aac -vbr %d -ar 48000 ", fdk_vbr);
             if (cmd_cat(cmd, sizeof(cmd), &pos, fdk_opts) < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
-        } else if (has_native_aac) {
-            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac -q:a 2 -ar 48000 ") < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac");
         } else {
-            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac -q:a 2 -ar 48000 ") < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder fallback: native aac (unverified)");
+            if (c->cb.on_error)
+                c->cb.on_error("fdk_aac mode requires libfdk_aac but encoder is not available",
+                               ERR_INVALID_OPTIONS);
+            free(esc_ffmpeg); free(esc_input); free(esc_output);
+            cmd_out[0] = '\0';
+            return;
         }
     } else if (audio_output_mode_is(opts->audio_output_mode, "pcm")) {
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a pcm_s16le -ar 48000 ") < 0) goto overflow;
