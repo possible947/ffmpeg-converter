@@ -100,9 +100,9 @@ GUI_DEPS := \
 # is the native C/Cocoa GUI (src/gui_macos_native).  The FPC Makefile now
 # only supports Linux and Windows builds.
 ifeq ($(UNAME_S),Darwin)
-.PHONY: all cli lib tests apple-test gui gui-app clean
+.PHONY: all cli lib tests apple-test gui gui-app appimage clean
 
-all cli lib tests apple-test gui gui-app:
+all cli lib tests apple-test gui gui-app appimage:
 	@echo "ERROR: Pascal/FPC macOS build is no longer supported."
 	@echo "       Use the native C/Cocoa GUI (src/gui_macos_native) instead."
 	@exit 1
@@ -112,7 +112,7 @@ clean:
 
 else
 
-.PHONY: all cli lib tests apple-test gui gui-app clean
+.PHONY: all cli lib tests apple-test gui gui-app appimage clean
 
 all: cli lib tests copy-binaries
 
@@ -145,6 +145,10 @@ copy-binaries:
 
 gui-app: $(GUI_BIN)
 	@echo "Skipping gui-app packaging (macOS Pascal build is not supported)."
+
+appimage: $(GUI_BIN)
+	@mkdir -p "$(BIN_DIR)"
+	bash "$(ROOT)/fpc/build/package_appimage.sh" "$(BIN_DIR)"
 
 endif
 

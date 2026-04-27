@@ -2,8 +2,9 @@
 #
 # package_appimage.sh — Create AppImage for ffmpeg_converter_gui
 #
-# Usage: package_appimage.sh [build_dir]
-#   build_dir — path to CMake build directory (default: ../build relative to script)
+# Usage: package_appimage.sh [build_dir] [output_dir]
+#   build_dir  — path to CMake build directory (default: ../build relative to script)
+#   output_dir — directory for resulting AppImage (default: <build_dir>/bin)
 #
 # Requires: appimagetool (https://github.com/AppImage/AppImageKit) in PATH
 # Creates: ffmpeg_converter_gui-<arch>.AppImage in script directory
@@ -13,6 +14,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${1:-${SCRIPT_DIR}/../build}"
+OUTPUT_DIR_ARG="${2:-}"
 
 ABS_BUILD_DIR="$(cd "${BUILD_DIR}" 2>/dev/null && pwd || true)"
 if [ -z "${ABS_BUILD_DIR}" ] || [ ! -d "${ABS_BUILD_DIR}" ]; then
@@ -27,20 +29,23 @@ echo "Script dir: ${SCRIPT_DIR}"
 
 BIN_DIR="${ABS_BUILD_DIR}/bin"
 GUI_BIN="${BIN_DIR}/ffmpeg_converter_gui"
+PROJECT_TOOLS_DIR="${SCRIPT_DIR}/../platform/linux/bin"
+
+if [ -n "${OUTPUT_DIR_ARG}" ]; then
+    OUTPUT_DIR="${OUTPUT_DIR_ARG}"
+else
+    OUTPUT_DIR="${BIN_DIR}"
+fi
+
+mkdir -p "${OUTPUT_DIR}"
 APPIMAGE_NAME="ffmpeg_converter_gui-$(uname -m).AppImage"
+APPIMAGE_PATH="${OUTPUT_DIR}/${APPIMAGE_NAME}"
 APPDIR="${SCRIPT_DIR}/AppDir"
 
 # Check GUI binary
 if [ ! -x "${GUI_BIN}" ]; then
     echo "ERROR: GUI binary not found or not executable: ${GUI_BIN}"
     echo "Build the linux_gui target first: cmake --build ${ABS_BUILD_DIR} --target linux_gui"
-    exit 1
-fi
-
-# Check appimagetool
-if ! command -v appimagetool &>/dev/null; then
-    echo "ERROR: appimagetool not found in PATH."
-    echo "Install from: https://github.com/AppImage/AppImageKit"
     exit 1
 fi
 
@@ -56,15 +61,47 @@ echo "Copying gui binary..."
 cp "${GUI_BIN}" "${APPDIR}/usr/bin/ffmpeg_converter_gui"
 chmod +x "${APPDIR}/usr/bin/ffmpeg_converter_gui"
 
-# Copy bundled tools (ffmpeg, ffprobe, mkvmerge, MP4Box) if present
+# Require project-specific ffmpeg/ffprobe from src/platform/linux/bin
+if [ ! -x "${PROJECT_TOOLS_DIR}/ffmpeg" ] || [ ! -x "${PROJECT_TOOLS_DIR}/ffprobe" ]; then
+    echo "ERROR: Missing required project tools in ${PROJECT_TOOLS_DIR}."
+    echo "Required: ffmpeg and ffprobe (project-built binaries)."
+    exit 1
+fi
+
+# Check appimagetool
+APPIMAGETOOL_BIN=""
+if command -v appimagetool >/dev/null 2>&1; then
+    APPIMAGETOOL_BIN="$(command -v appimagetool)"
+elif command -v appimagetool.AppImage >/dev/null 2>&1; then
+    APPIMAGETOOL_BIN="$(command -v appimagetool.AppImage)"
+else
+    echo "ERROR: appimagetool/appimagetool.AppImage not found in PATH."
+    echo "Install from: https://github.com/AppImage/AppImageKit"
+    exit 1
+fi
+
+# Copy mandatory project tools
+cp "${PROJECT_TOOLS_DIR}/ffmpeg" "${APPDIR}/usr/bin/ffmpeg"
+cp "${PROJECT_TOOLS_DIR}/ffprobe" "${APPDIR}/usr/bin/ffprobe"
+chmod +x "${APPDIR}/usr/bin/ffmpeg" "${APPDIR}/usr/bin/ffprobe"
+
+# Copy optional tools (mkvmerge, MP4Box)
 echo "Copying bundled tools..."
-for tool in ffmpeg ffprobe mkvmerge MP4Box; do
-    if [ -x "${BIN_DIR}/${tool}" ]; then
-        cp "${BIN_DIR}/${tool}" "${APPDIR}/usr/bin/"
+for tool in mkvmerge MP4Box; do
+    if [ -x "${PROJECT_TOOLS_DIR}/${tool}" ]; then
+        cp "${PROJECT_TOOLS_DIR}/${tool}" "${APPDIR}/usr/bin/${tool}"
         chmod +x "${APPDIR}/usr/bin/${tool}"
-        echo "  ${tool} → bundled"
+        echo "  ${tool} → bundled from project"
+    elif [ -x "${BIN_DIR}/${tool}" ]; then
+        cp "${BIN_DIR}/${tool}" "${APPDIR}/usr/bin/${tool}"
+        chmod +x "${APPDIR}/usr/bin/${tool}"
+        echo "  ${tool} → bundled from build/bin"
+    elif command -v "${tool}" >/dev/null 2>&1; then
+        cp "$(command -v "${tool}")" "${APPDIR}/usr/bin/${tool}"
+        chmod +x "${APPDIR}/usr/bin/${tool}"
+        echo "  ${tool} → bundled from system PATH"
     else
-        echo "  ${tool} — not found in bin/, skipping"
+        echo "  ${tool} — not found, skipping"
     fi
 done
 
@@ -158,9 +195,9 @@ fi
 # Build AppImage
 echo "Building AppImage..."
 cd "${SCRIPT_DIR}"
-if appimagetool "${APPDIR}" "${APPIMAGE_NAME}"; then
-    echo "=== Success: ${APPIMAGE_NAME} ==="
-    ls -lh "${APPIMAGE_NAME}"
+if "${APPIMAGETOOL_BIN}" "${APPDIR}" "${APPIMAGE_PATH}"; then
+    echo "=== Success: ${APPIMAGE_PATH} ==="
+    ls -lh "${APPIMAGE_PATH}"
 else
     echo "ERROR: appimagetool failed"
     exit 1

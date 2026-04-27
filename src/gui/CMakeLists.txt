@@ -100,12 +100,12 @@ endif()
  option(ENABLE_APPIMAGE "Build AppImage package for linux_gui" OFF)
 
  if (ENABLE_APPIMAGE)
-     find_program(APPIMAGETOOL appimagetool)
+     find_program(APPIMAGETOOL NAMES appimagetool appimagetool.AppImage)
      if (NOT APPIMAGETOOL)
          message(WARNING "appimagetool not found — ENABLE_APPIMAGE=ON but tool missing. Install from https://github.com/AppImage/AppImageKit")
      else()
          add_custom_target(package_appimage
-             COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/package_appimage.sh" "${CMAKE_BINARY_DIR}"
+             COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/package_appimage.sh" "${CMAKE_BINARY_DIR}" "${CMAKE_BINARY_DIR}/bin"
              DEPENDS linux_gui
              WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
              COMMENT "Building AppImage package..."

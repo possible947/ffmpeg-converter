@@ -52,26 +52,31 @@ Artifacts in the flat Linux layout:
 ### 1.3 AppImage packaging (optional)
 AppImage produces a single-file portable executable that bundles the GUI, ffmpeg/ffprobe, and required libraries.
 
+Requires `appimagetool.AppImage` (or `appimagetool`) in PATH. Download from https://github.com/AppImage/AppImageKit/releases.
+
 ```bash
-# From the build directory (with ENABLE_APPIMAGE=ON)
-cmake -DENABLE_APPIMAGE=ON ..
-cmake --build . --target package_appimage
+# From the repository root (build directory must already exist)
+cmake -S . -B build -DENABLE_APPIMAGE=ON
+cmake --build build --target linux_gui
+cmake --build build --target package_appimage
 ```
 
-The AppImage is created at `src/gui/ffmpeg_converter_gui-x86_64.AppImage` (≈71 MB). Requires `appimagetool` in PATH.
+The AppImage is created at `build/bin/ffmpeg_converter_gui-x86_64.AppImage` (≈71 MB).
+
+**Important:** `ffmpeg` and `ffprobe` must be present in `src/platform/linux/bin/` before packaging — the script enforces this and will exit with an error otherwise.
 
 Alternatively, run the packaging script directly:
 ```bash
-cd src/gui
-./package_appimage.sh ../build
+bash src/gui/package_appimage.sh "$(pwd)/build" "$(pwd)/build/bin"
 ```
 
 The script:
-- Copies the GUI binary and bundled tools (ffmpeg, ffprobe, mkvmerge, MP4Box) into an AppDir
+- Requires project-built `ffmpeg`/`ffprobe` in `src/platform/linux/bin/` (mandatory)
+- Copies optional tools (`mkvmerge`, `MP4Box`) from project dir, `build/bin`, or system PATH
 - Resolves shared library dependencies via `ldd`, excluding system libraries (`/lib`, `/usr/lib` paths)
 - Generates `AppRun` wrapper that sets `PATH` and `LD_LIBRARY_PATH`
 - Creates a desktop entry with icon
-- Invokes `appimagetool` to produce the final `.AppImage`
+- Invokes `appimagetool.AppImage` (or `appimagetool`) to produce the final `.AppImage`
 
 ## 2. Free Pascal Path (v2.4: Feature-complete, tested)
 
@@ -85,25 +90,47 @@ From repository root:
 ```bash
 # CLI binary
 make -C fpc/build cli
-# → fpc/cli/ffmpeg_converter
+# → fpc/bin/ffmpeg_converter
 
 # Shared library
 make -C fpc/build lib
 # → fpc/converter/libconverter_pas.so
 
-# GUI app bundle (self-contained)
-make -C fpc/build gui-app
-# → fpc/gui/form.app
+# GUI binary
+make -C fpc/build gui
+# → fpc/bin/ffmpeg_converter_gui
 
 # Unit tests
 make -C fpc/build tests
 ```
 
 Artifacts:
-- `fpc/cli/ffmpeg_converter` — CLI binary (parity with C CLI)
+- `fpc/bin/ffmpeg_converter` — CLI binary (parity with C CLI)
 - `fpc/converter/libconverter_pas.so` — shared library (C ABI export)
-- `fpc/gui/form.app` — GUI app bundle with bundled ffmpeg/ffprobe
+- `fpc/bin/ffmpeg_converter_gui` — GUI binary
 - `fpc/test/test_*` — unit test executables
+
+### 2.3 AppImage packaging (optional)
+Packages the FPC GUI into a portable single-file AppImage.
+
+Requires `appimagetool.AppImage` (or `appimagetool`) in PATH and project-built `ffmpeg`/`ffprobe` in `src/platform/linux/bin/`.
+
+```bash
+make -C fpc/build gui
+make -C fpc/build appimage
+```
+
+The AppImage is created at `fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage`.
+
+Alternatively, run the script directly:
+```bash
+bash fpc/build/package_appimage.sh
+```
+
+Bundling behaviour (same as C variant):
+- `ffmpeg`/`ffprobe` — mandatory, taken from `src/platform/linux/bin/`
+- `mkvmerge`, `MP4Box` — optional, taken from project dir or system PATH
+- Shared libraries resolved via `ldd`, system paths excluded
 
 ## 3. Runtime Notes
 
@@ -137,8 +164,12 @@ Artifacts:
 - To run the toolset from another directory, copy or symlink `build/bin/*` to `~/.local/bin`.
 - `MP4Box` is a single binary; no shared-library bundle created. Ensure target system
   has compatible GPAC runtime libraries.
-- AppImage (C only): `cmake -DENABLE_APPIMAGE=ON .. && cmake --build . --target package_appimage`
-  produces a single-file portable executable (~71 MB).
+- **AppImage (C GUI):** `cmake -S . -B build -DENABLE_APPIMAGE=ON && cmake --build build --target package_appimage`
+  — output: `build/bin/ffmpeg_converter_gui-x86_64.AppImage` (~71 MB).
+- **AppImage (FPC GUI):** `make -C fpc/build appimage`
+  — output: `fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage`.
+- Both AppImage builds require `appimagetool.AppImage` in PATH and project-built `ffmpeg`/`ffprobe`
+  in `src/platform/linux/bin/`.
 
 ## 4. Validation and Testing
 
