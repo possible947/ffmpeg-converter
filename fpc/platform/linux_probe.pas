@@ -144,13 +144,11 @@ var
   I: Integer;
   Cmd: string;
   R: TRunResult;
-  Successes: Integer;
 begin
 {$IFDEF Linux}
   Result := False;
   if FfmpegBin = '' then
     Exit;
-  Successes := 0;
   for I := 0 to 7 do
   begin
     Cmd := QuoteForShell(FfmpegBin) +
@@ -162,12 +160,11 @@ begin
     R := RunCommandCapture(Cmd);
     if R.ExitCode = 0 then
     begin
-      Inc(Successes);
       Result := True;
       Exit;
     end;
     { Stop early if no successes after 3 attempts — no Vulkan GPU present. }
-    if (Successes = 0) and (I >= 2) then
+    if I >= 2 then
       Break;
   end;
 {$ELSE}
@@ -258,7 +255,7 @@ var
   GAV1Decoder: string;
 
 { Return the best available AV1 decoder for the current ffmpeg build.
-  Priority: av1_qsv (Intel QSV/D3D11VA) > libdav1d (pure software) > '' (native).
+  Priority: av1_qsv (Intel QSV hardware decode) > libdav1d (pure software) > '' (native).
   The native av1 decoder may crash on systems with NVDEC that lacks AV1 support;
   libdav1d and av1_qsv bypass this issue. }
 function GetBestAV1Decoder(const FfmpegBin: string): string;

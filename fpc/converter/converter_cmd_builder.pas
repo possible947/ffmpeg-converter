@@ -177,18 +177,26 @@ begin
 
   { --- Audio codec ---
     Windows and Linux: require libfdk_aac (validated upstream in converter_set_options).
-    Other platforms (macOS, etc.): fall back to native aac. }
+    macOS and other Unix-like systems: fall back to native aac encoder. }
   if AudioOut = 'fdk_aac_q5_ac3_640' then
-{$IF defined(Windows) or defined(Linux)}
+{$IFDEF Windows}
     Result += '-c:a:0 libfdk_aac -vbr:a:0 5 -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
 {$ELSE}
+  {$IFDEF Linux}
+    Result += '-c:a:0 libfdk_aac -vbr:a:0 5 -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
+  {$ELSE}
     Result += '-c:a:0 aac -q:a:0 2 -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
+  {$ENDIF}
 {$ENDIF}
   else if AudioOut = 'fdk_aac_q5' then
-{$IF defined(Windows) or defined(Linux)}
+{$IFDEF Windows}
     Result += '-c:a libfdk_aac -vbr 5 -ar 48000 '
 {$ELSE}
+  {$IFDEF Linux}
+    Result += '-c:a libfdk_aac -vbr 5 -ar 48000 '
+  {$ELSE}
     Result += '-c:a aac -q:a 2 -ar 48000 '
+  {$ENDIF}
 {$ENDIF}
   else if Opts.use_aac_for_h265 <> 0 then
     Result += '-c:a aac -q:a 2 -ar 48000 '
