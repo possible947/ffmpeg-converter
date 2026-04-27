@@ -86,7 +86,7 @@ int m4v_platform_unlink(const char *path)
     wchar_t* wpath = NULL;
     int result;
     if (!path) return -1;
-    if (!m4v_utf8_to_wide(path, &wpath)) return _unlink(path);
+    if (!m4v_utf8_to_wide(path, &wpath)) return -1;
     result = _wunlink(wpath);
     free(wpath);
     return result;
