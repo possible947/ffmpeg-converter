@@ -111,26 +111,30 @@ static int ffmpeg_encoder_available(const char* encoder_name) {
 
     if (!initialized) {
         const char* ffmpeg_bin = platform_get_ffmpeg_bin();
-        char cmd[2048];
-        snprintf(cmd, sizeof(cmd),
-                 "\"%s\" -hide_banner -v error -encoders 2>%s",
-                 ffmpeg_bin, platform_get_null_device());
+        char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
+        if (esc_ffmpeg) {
+            char cmd[4096];
+            snprintf(cmd, sizeof(cmd),
+                     "%s -hide_banner -v error -encoders 2>%s",
+                     esc_ffmpeg, platform_get_null_device());
+            free(esc_ffmpeg);
 
-        FILE* fp = platform_popen(cmd, "r");
-        if (fp) {
-            char line[1024];
-            while (fgets(line, sizeof(line), fp)) {
-                if (!has_aac_at && strstr(line, " aac_at")) {
-                    has_aac_at = 1;
+            FILE* fp = platform_popen(cmd, "r");
+            if (fp) {
+                char line[1024];
+                while (fgets(line, sizeof(line), fp)) {
+                    if (!has_aac_at && strstr(line, " aac_at")) {
+                        has_aac_at = 1;
+                    }
+                    if (!has_libfdk_aac && strstr(line, " libfdk_aac")) {
+                        has_libfdk_aac = 1;
+                    }
+                    if (!has_aac && strstr(line, " aac ")) {
+                        has_aac = 1;
+                    }
                 }
-                if (!has_libfdk_aac && strstr(line, " libfdk_aac")) {
-                    has_libfdk_aac = 1;
-                }
-                if (!has_aac && strstr(line, " aac ")) {
-                    has_aac = 1;
-                }
+                platform_pclose(fp);
             }
-            platform_pclose(fp);
         }
 
         initialized = 1;
@@ -168,13 +172,24 @@ static int probe_input_video_codec(const char* input,
     const char* ffprobe_bin = platform_get_ffprobe_bin();
     if (!ffprobe_bin || ffprobe_bin[0] == '\0') return 0;
 
+    char* esc_ffprobe = platform_escape_path_for_command(ffprobe_bin);
+    char* esc_input   = platform_escape_path_for_command(input);
+    if (!esc_ffprobe || !esc_input) {
+        free(esc_ffprobe);
+        free(esc_input);
+        return 0;
+    }
+
     char cmd[4096];
     snprintf(cmd, sizeof(cmd),
-             "\"%s\" -v error -select_streams v:0 "
+             "%s -v error -select_streams v:0 "
              "-show_entries stream=codec_name "
              "-of default=noprint_wrappers=1:nokey=1 "
-             "\"%s\" 2>%s",
-             ffprobe_bin, input, platform_get_null_device());
+             "%s 2>%s",
+             esc_ffprobe, esc_input, platform_get_null_device());
+
+    free(esc_ffprobe);
+    free(esc_input);
 
     FILE* fp = platform_popen(cmd, "r");
     if (!fp) return 0;
@@ -377,12 +392,23 @@ static ConverterError ensure_output_dir_writable(
 //  ffprobe duration
 // ------------------------------------------------------------
 static double get_duration(const char *input) {
-    char cmd[2048];
     const char *ffprobe_bin = get_ffprobe_bin();
+    char* esc_ffprobe = platform_escape_path_for_command(ffprobe_bin);
+    char* esc_input   = platform_escape_path_for_command(input);
+    if (!esc_ffprobe || !esc_input) {
+        free(esc_ffprobe);
+        free(esc_input);
+        return 0.0;
+    }
+
+    char cmd[4096];
     snprintf(cmd, sizeof(cmd),
-             "\"%s\" -v error -show_entries format=duration "
-             "-of default=noprint_wrappers=1:nokey=1 \"%s\" 2>%s",
-             ffprobe_bin, input, platform_get_null_device());
+             "%s -v error -show_entries format=duration "
+             "-of default=noprint_wrappers=1:nokey=1 %s 2>%s",
+             esc_ffprobe, esc_input, platform_get_null_device());
+
+    free(esc_ffprobe);
+    free(esc_input);
 
     FILE *fp = platform_popen(cmd, "r");
     if (!fp) return 0.0;
@@ -528,12 +554,26 @@ static ConverterError peak_two_pass(
     if (c->cb.on_stage)
         c->cb.on_stage("peak analysis");
 
-    char cmd[2048];
     const char *ffmpeg_bin = get_ffmpeg_bin();
     int filter_threads = get_filter_threads();
+
+    char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
+    char* esc_input  = platform_escape_path_for_command(input);
+    if (!esc_ffmpeg || !esc_input) {
+        free(esc_ffmpeg);
+        free(esc_input);
+        if (c->cb.on_error)
+            c->cb.on_error("out of memory", ERR_UNKNOWN);
+        return ERR_UNKNOWN;
+    }
+
+    char cmd[4096];
     snprintf(cmd, sizeof(cmd),
-        "\"%s\" -hwaccel none -filter_threads %d -vn -i \"%s\" -af volumedetect -f null - 2>&1",
-        ffmpeg_bin, filter_threads, input);
+        "%s -hwaccel none -filter_threads %d -vn -i %s -af volumedetect -f null - 2>&1",
+        esc_ffmpeg, filter_threads, esc_input);
+
+    free(esc_ffmpeg);
+    free(esc_input);
 
     double duration = get_duration(input);
     FILE* fp = platform_popen(cmd, "r");
@@ -623,14 +663,28 @@ static ConverterError loudnorm_two_pass(
     if (c->cb.on_stage)
         c->cb.on_stage("loudnorm analysis");
 
-    char cmd[2048];
     const char *ffmpeg_bin = get_ffmpeg_bin();
     int filter_threads = get_filter_threads();
+
+    char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
+    char* esc_input  = platform_escape_path_for_command(input);
+    if (!esc_ffmpeg || !esc_input) {
+        free(esc_ffmpeg);
+        free(esc_input);
+        if (c->cb.on_error)
+            c->cb.on_error("out of memory", ERR_UNKNOWN);
+        return ERR_UNKNOWN;
+    }
+
+    char cmd[4096];
     snprintf(cmd, sizeof(cmd),
-        "\"%s\" -hwaccel none -filter_threads %d -vn -i \"%s\" -af "
+        "%s -hwaccel none -filter_threads %d -vn -i %s -af "
         "\"loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:linear=true:print_format=json\" "
         "-f null - 2>&1",
-        ffmpeg_bin, filter_threads, input, I_target, TP_target, LRA_target);
+        esc_ffmpeg, filter_threads, esc_input, I_target, TP_target, LRA_target);
+
+    free(esc_ffmpeg);
+    free(esc_input);
 
     double duration = get_duration(input);
     FILE* fp = platform_popen(cmd, "r");
@@ -721,6 +775,17 @@ static ConverterError loudnorm_two_pass(
 // ------------------------------------------------------------
 //  Build ffmpeg command (strictly same logic as CLI)
 // ------------------------------------------------------------
+
+/* Append string s to buf[0..buf_sz-1], tracking offset *pos.
+ * Returns 0 on success, -1 if the buffer would overflow. */
+static int cmd_cat(char* buf, size_t buf_sz, size_t* pos, const char* s) {
+    size_t n = strlen(s);
+    if (*pos + n + 1 > buf_sz) return -1;
+    memcpy(buf + *pos, s, n + 1);
+    *pos += n;
+    return 0;
+}
+
 static void build_ffmpeg_cmd(
     Converter* c,
     const char* input,
@@ -745,34 +810,62 @@ static void build_ffmpeg_cmd(
     int has_native_aac = ffmpeg_encoder_available("aac");
     char audio_filter[1024];
 
-    char cmd[16384];
-    cmd[0] = 0;
+    /* Shell-safe escaped versions of all user-provided paths */
+    char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
+    char* esc_input  = platform_escape_path_for_command(input);
+    char* esc_output = platform_escape_path_for_command(output);
+    if (!esc_ffmpeg || !esc_input || !esc_output) {
+        free(esc_ffmpeg);
+        free(esc_input);
+        free(esc_output);
+        if (c->cb.on_message)
+            c->cb.on_message("ffmpeg command build failed: out of memory");
+        cmd_out[0] = '\0';
+        return;
+    }
+
+    /* Use a large internal buffer to avoid truncation */
+    char cmd[65536];
+    size_t pos = 0;
+    cmd[0] = '\0';
 
     build_audio_filter_expr(opts, audio_filter, sizeof(audio_filter));
 
-    snprintf(cmd, sizeof(cmd), "\"%s\" ", ffmpeg_bin);
+    /* ffmpeg binary */
+    if (cmd_cat(cmd, sizeof(cmd), &pos, esc_ffmpeg) < 0) goto overflow;
+    if (cmd_cat(cmd, sizeof(cmd), &pos, " ") < 0) goto overflow;
 
-    if (opts->overwrite)
-        strcat(cmd, "-y ");
-    else
-        strcat(cmd, "-n ");
+    if (opts->overwrite) {
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-y ") < 0) goto overflow;
+    } else {
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-n ") < 0) goto overflow;
+    }
 
     /* Pre-input hardware device initialisation (Vulkan, future HW APIs).
      * Must appear before -i so ffmpeg can locate the device context. */
     {
         const char* pre_hw = platform_get_preinput_hw_flags(opts->codec, opts);
         if (pre_hw && pre_hw[0] != '\0') {
-            strcat(cmd, pre_hw);
-            strcat(cmd, " ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, pre_hw) < 0) goto overflow;
+            if (cmd_cat(cmd, sizeof(cmd), &pos, " ") < 0) goto overflow;
         }
     }
 
     /* VAAPI requires a device node before the input */
     if (codec_is_vaapi(opts->codec) && opts->hw_device[0] != '\0') {
-        strcat(cmd, "-vaapi_device ");
-        strcat(cmd, "\"");
-        strcat(cmd, opts->hw_device);
-        strcat(cmd, "\" ");
+        char* esc_hw = platform_escape_path_for_command(opts->hw_device);
+        if (!esc_hw) {
+            free(esc_ffmpeg); free(esc_input); free(esc_output);
+            cmd_out[0] = '\0';
+            return;
+        }
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-vaapi_device ") < 0 ||
+            cmd_cat(cmd, sizeof(cmd), &pos, esc_hw) < 0 ||
+            cmd_cat(cmd, sizeof(cmd), &pos, " ") < 0) {
+            free(esc_hw);
+            goto overflow;
+        }
+        free(esc_hw);
     }
 
     /* Select input decoder.
@@ -792,44 +885,44 @@ static void build_ffmpeg_cmd(
              * decoder on systems with NVDEC that doesn't support AV1.  The
              * hwaccel_output_format=nv12 ensures CPU-readable frames for
              * downstream software encoders (prores_ks, prores, etc.). */
-            strcat(cmd, "-hwaccel qsv -hwaccel_output_format nv12 "
-                        "-c:v av1_qsv ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos,
+                        "-hwaccel qsv -hwaccel_output_format nv12 "
+                        "-c:v av1_qsv ") < 0) goto overflow;
         } else if (input_is_av1 && (c->platform_caps & PLAT_CAP_LIBDAV1D_DEC)) {
             /* libdav1d: pure software AV1 decoder, no hardware dependency.
              * Bypasses the native av1 decoder which probes NVDEC/VAAPI
              * pixel formats and crashes when the GPU lacks AV1 decode
              * support.  Works on all platforms including Linux without QSV. */
-            strcat(cmd, "-hwaccel none -c:v libdav1d ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-hwaccel none -c:v libdav1d ") < 0) goto overflow;
         } else {
             /* Software decode for all other inputs (VP9, H264, HEVC, etc.).
              * Also used as AV1 fallback when neither QSV nor libdav1d
              * is available (may fail on NVDEC systems for AV1). */
-            strcat(cmd, "-hwaccel none ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-hwaccel none ") < 0) goto overflow;
         }
     }
 
-    strcat(cmd, "-i ");
-    strcat(cmd, "\"");
-    strcat(cmd, input);
-    strcat(cmd, "\" ");
+    if (cmd_cat(cmd, sizeof(cmd), &pos, "-i ") < 0 ||
+        cmd_cat(cmd, sizeof(cmd), &pos, esc_input) < 0 ||
+        cmd_cat(cmd, sizeof(cmd), &pos, " ") < 0) goto overflow;
 
     // map
-    strcat(cmd, "-map 0:v:0 ");
+    if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:v:0 ") < 0) goto overflow;
     if (is_dual_audio_output) {
-        strcat(cmd, "-filter_complex \"[0:a:0]");
-        strcat(cmd, audio_filter);
-        strcat(cmd, ",asplit=2[aout0][aout1]\" ");
-        strcat(cmd, "-map [aout0] -map [aout1] ");
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-filter_complex \"[0:a:0]") < 0 ||
+            cmd_cat(cmd, sizeof(cmd), &pos, audio_filter) < 0 ||
+            cmd_cat(cmd, sizeof(cmd), &pos, ",asplit=2[aout0][aout1]\" ") < 0 ||
+            cmd_cat(cmd, sizeof(cmd), &pos, "-map [aout0] -map [aout1] ") < 0) goto overflow;
     } else {
-        strcat(cmd, "-map 0:a:0 ");
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:a:0 ") < 0) goto overflow;
     }
-    strcat(cmd, "-map_metadata 0 ");
+    if (cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0) goto overflow;
 
     // video codec
     // Try platform-specific codec flags first (VAAPI, VideoToolbox, NVENC, etc.)
     const char* platform_vcodec = platform_get_video_codec_flags(opts->codec, input, opts);
     if (platform_vcodec != NULL) {
-        strcat(cmd, platform_vcodec);
+        if (cmd_cat(cmd, sizeof(cmd), &pos, platform_vcodec) < 0) goto overflow;
     }
     else if (strcmp(opts->codec, "prores") == 0 ||
              strcmp(opts->codec, "prores_ks") == 0)
@@ -849,116 +942,128 @@ static void build_ffmpeg_cmd(
             snprintf(tmp, sizeof(tmp),
                      "-c:v prores_ks -profile:v %s ",
                      profile_name);
-            strcat(cmd, tmp);
+            if (cmd_cat(cmd, sizeof(cmd), &pos, tmp) < 0) goto overflow;
         } else {
             char tmp[128];
             snprintf(tmp, sizeof(tmp),
                      "-c:v prores -profile:v %d ",
                      profile_value);
-            strcat(cmd, tmp);
+            if (cmd_cat(cmd, sizeof(cmd), &pos, tmp) < 0) goto overflow;
         }
     }
     else {
-        strcat(cmd, "-c:v copy ");
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:v copy ") < 0) goto overflow;
     }
 
     // deblock (not applicable for hardware encoders or hw-upload codecs)
     if (platform_vcodec == NULL && !codec_is_vaapi(opts->codec) && !codec_is_vulkan(opts->codec)) {
         if (opts->deblock == 2) {
-            strcat(cmd,
-                "-vf \"deblock=filter=weak:block=4:planes=1\" ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos,
+                    "-vf \"deblock=filter=weak:block=4:planes=1\" ") < 0) goto overflow;
         }
         else if (opts->deblock == 3) {
-            strcat(cmd,
-                "-vf \"deblock=filter=strong:block=4:"
-                "alpha=0.12:beta=0.07:gamma=0.06:delta=0.05:planes=1\" ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos,
+                    "-vf \"deblock=filter=strong:block=4:"
+                    "alpha=0.12:beta=0.07:gamma=0.06:delta=0.05:planes=1\" ") < 0) goto overflow;
         }
     }
     else if (codec_is_vaapi(opts->codec) || codec_is_vulkan(opts->codec)) {
         /* Pixel format conversion and GPU upload for hw-accelerated codecs.
          * The filter string is provided by the platform; defaults to VAAPI. */
         const char* hw_vf = platform_get_hw_vfilter(opts->codec, opts);
-        strcat(cmd, "-vf \"format=");
-        strcat(cmd, (hw_vf && hw_vf[0] != '\0') ? hw_vf : "nv12,hwupload");
-        strcat(cmd, "\" ");
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-vf \"format=") < 0 ||
+            cmd_cat(cmd, sizeof(cmd), &pos,
+                    (hw_vf && hw_vf[0] != '\0') ? hw_vf : "nv12,hwupload") < 0 ||
+            cmd_cat(cmd, sizeof(cmd), &pos, "\" ") < 0) goto overflow;
     }
 
     // audio codec
     if (is_dual_audio_output) {
         if (has_aac_at) {
-            strcat(cmd, "-c:a:0 aac_at -q:a:0 2 -ar:a:0 48000 ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:0 aac_at -q:a:0 2 -ar:a:0 48000 ") < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at");
         } else if (has_libfdk_aac) {
             char aac0_opts[128];
             snprintf(aac0_opts, sizeof(aac0_opts),
                      "-c:a:0 libfdk_aac -vbr:a:0 %d -ar:a:0 48000 ",
                      fdk_vbr);
-            strcat(cmd, aac0_opts);
+            if (cmd_cat(cmd, sizeof(cmd), &pos, aac0_opts) < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
         } else if (has_native_aac) {
-            strcat(cmd, "-c:a:0 aac -q:a:0 2 -ar:a:0 48000 ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:0 aac -q:a:0 2 -ar:a:0 48000 ") < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac");
         } else {
-            strcat(cmd, "-c:a:0 aac -q:a:0 2 -ar:a:0 48000 ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:0 aac -q:a:0 2 -ar:a:0 48000 ") < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder fallback: native aac (unverified)");
         }
-        strcat(cmd, "-c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 ");
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 ") < 0) goto overflow;
     } else if (is_fdk_single_audio_output) {
         if (has_aac_at) {
-            strcat(cmd, "-c:a aac_at -q:a 2 -ar 48000 ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac_at -q:a 2 -ar 48000 ") < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at");
         } else if (has_libfdk_aac) {
             char fdk_opts[128];
             snprintf(fdk_opts, sizeof(fdk_opts), "-c:a libfdk_aac -vbr %d -ar 48000 ", fdk_vbr);
-            strcat(cmd, fdk_opts);
+            if (cmd_cat(cmd, sizeof(cmd), &pos, fdk_opts) < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
         } else if (has_native_aac) {
-            strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac -q:a 2 -ar 48000 ") < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac");
         } else {
-            strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac -q:a 2 -ar 48000 ") < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder fallback: native aac (unverified)");
         }
     } else if (audio_output_mode_is(opts->audio_output_mode, "pcm")) {
-        strcat(cmd, "-c:a pcm_s16le -ar 48000 ");
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a pcm_s16le -ar 48000 ") < 0) goto overflow;
     } else if (c->opts.use_aac_for_h265) {
         if (has_aac_at) {
-            strcat(cmd, "-c:a aac_at -q:a 2 -ar 48000 ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac_at -q:a 2 -ar 48000 ") < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at");
         } else if (has_libfdk_aac) {
             char fdk_opts[128];
             snprintf(fdk_opts, sizeof(fdk_opts), "-c:a libfdk_aac -vbr %d -ar 48000 ", fdk_vbr);
-            strcat(cmd, fdk_opts);
+            if (cmd_cat(cmd, sizeof(cmd), &pos, fdk_opts) < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
         } else {
-            strcat(cmd, "-c:a aac -q:a 2 -ar 48000 ");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac -q:a 2 -ar 48000 ") < 0) goto overflow;
             if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac");
         }
     } else {
-        strcat(cmd, "-c:a pcm_s16le -ar 48000 ");
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a pcm_s16le -ar 48000 ") < 0) goto overflow;
     }
 
     if (!is_dual_audio_output) {
-        strcat(cmd, "-af \"");
-        strcat(cmd, audio_filter);
-        strcat(cmd, "\" ");
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-af \"") < 0 ||
+            cmd_cat(cmd, sizeof(cmd), &pos, audio_filter) < 0 ||
+            cmd_cat(cmd, sizeof(cmd), &pos, "\" ") < 0) goto overflow;
     }
 
     // ffmpeg progress options must be placed before output
-    strcat(cmd, "-progress pipe:1 -nostats -nostdin ");
+    if (cmd_cat(cmd, sizeof(cmd), &pos, "-progress pipe:1 -nostats -nostdin ") < 0) goto overflow;
 
     // output
-    strcat(cmd, "\"");
-    strcat(cmd, output);
-    strcat(cmd, "\"");
+    if (cmd_cat(cmd, sizeof(cmd), &pos, esc_output) < 0) goto overflow;
+
+    free(esc_ffmpeg);
+    free(esc_input);
+    free(esc_output);
 
     // copy to output buffer
     strncpy(cmd_out, cmd, cmd_out_sz);
-    cmd_out[cmd_out_sz - 1] = 0;
+    cmd_out[cmd_out_sz - 1] = '\0';
 
     if (c->cb.on_message) {
         c->cb.on_message("ffmpeg command built");
     }
+    return;
+
+overflow:
+    free(esc_ffmpeg);
+    free(esc_input);
+    free(esc_output);
+    if (c->cb.on_message)
+        c->cb.on_message("ffmpeg command build failed: command too long");
+    cmd_out[0] = '\0';
 }
 
 // ------------------------------------------------------------
@@ -1188,7 +1293,7 @@ ConverterError converter_process_files(
         // ----------------------------------------------------
         //  Build ffmpeg command
         // ----------------------------------------------------
-        char cmd[16384];
+        char cmd[65536];
         c->opts.use_aac_for_h265 = codec_uses_aac_audio(c->opts.codec) ? 1 : 0;
         /* Platform-specific bitrate calculation for VideoToolbox is handled
          * inside platform_get_video_codec_flags() in converter_macos.c. */
