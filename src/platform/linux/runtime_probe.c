@@ -336,6 +336,7 @@ static int probe_vaapi_encoder(const char *ffmpeg_bin,
 {
     char cmd[8192];
     char *q;
+    char *q_node;
     int rc;
 
     if (!ffmpeg_bin || !render_node || !encoder_name)
@@ -344,17 +345,21 @@ static int probe_vaapi_encoder(const char *ffmpeg_bin,
     q = posix_shell_quote(ffmpeg_bin);
     if (!q) return 0;
 
+    q_node = posix_shell_quote(render_node);
+    if (!q_node) { free(q); return 0; }
+
     snprintf(cmd,
              sizeof(cmd),
              "%s -v error -hide_banner "
-             "-init_hw_device vaapi=va:\"%s\" "
+             "-init_hw_device vaapi=va:%s "
              "-f lavfi -i color=size=1920x1080:rate=1 "
              "-frames:v 1 -vf format=nv12,hwupload "
              "-c:v %s -f null - >/dev/null 2>&1",
              q,
-             render_node,
+             q_node,
              encoder_name);
     free(q);
+    free(q_node);
 
     rc = system(cmd);
     if (rc == -1)

@@ -187,8 +187,9 @@ int platform_validate_audio_filters(void) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
              "%s -hide_banner -filters 2>/dev/null | grep -q soxr", esc_ffmpeg);
+    int result = (system(cmd) == 0) ? 1 : 0;
     free(esc_ffmpeg);
-    return (system(cmd) == 0) ? 1 : 0;
+    return result;
 }
 
 int platform_supports_codec(const char* codec) {
@@ -268,7 +269,6 @@ int platform_detect_gpu_support(void) {
                 snprintf(cmd, sizeof(cmd),
                          "%s -hide_banner -v error -decoders 2>/dev/null",
                          esc_ffmpeg);
-                free(esc_ffmpeg);
                 FILE* fp = platform_popen(cmd, "r");
                 if (fp) {
                     char line[1024];
@@ -281,6 +281,7 @@ int platform_detect_gpu_support(void) {
                     }
                     platform_pclose(fp);
                 }
+                free(esc_ffmpeg);
             }
         }
     }
