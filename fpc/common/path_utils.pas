@@ -15,7 +15,8 @@ uses
 function QuoteForShell(const S: string): string;
 begin
 {$IFDEF Windows}
-  Result := '"' + StringReplace(S, '"', '\"', [rfReplaceAll]) + '"';
+  { cmd.exe standard: embed a literal " as "" inside a double-quoted string }
+  Result := '"' + StringReplace(S, '"', '""', [rfReplaceAll]) + '"';
 {$ELSE}
   { POSIX single-quote wrapping: no shell metacharacter ($, `, \, !, etc.) is
     interpreted inside single quotes.  The only character that needs escaping

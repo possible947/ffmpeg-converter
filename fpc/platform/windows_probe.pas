@@ -23,7 +23,7 @@ function ProbeVulkanEncoder(const FfmpegBin: string): Boolean;
 
 implementation
 
-uses SysUtils, process_utils, windows_mkvmerge, tool_paths;
+uses SysUtils, process_utils, windows_mkvmerge, tool_paths, path_utils;
 
 var
   GSupportCached: Boolean = False;
@@ -37,7 +37,7 @@ var
   R: TRunResult;
 begin
 {$IFDEF Windows}
-  Cmd := '"' + FfmpegBin + '" -f lavfi -i color=c=black:s=64x64:d=1 -vframes 1' +
+  Cmd := QuoteForShell(FfmpegBin) + ' -f lavfi -i color=c=black:s=64x64:d=1 -vframes 1' +
          ' -vcodec ' + EncoderName + ' -f null NUL 2>nul';
   R := RunCommandCapture(Cmd);
   Result := R.ExitCode = 0;
@@ -58,7 +58,7 @@ begin
 
   for DeviceIdx := 0 to 7 do
   begin
-    Cmd := '"' + FfmpegBin + '" -v error -hide_banner ' +
+    Cmd := QuoteForShell(FfmpegBin) + ' -v error -hide_banner ' +
            '-init_hw_device vulkan=vk:' + IntToStr(DeviceIdx) + ' -filter_hw_device vk ' +
            '-f lavfi -i color=size=1920x1080:rate=1 -frames:v 1 ' +
            '-vf format=yuv422p10le,hwupload -c:v prores_ks_vulkan -f null NUL 2>nul';

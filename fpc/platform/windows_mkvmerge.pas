@@ -12,7 +12,7 @@ uses
   SysUtils,
   process_utils
   {$IFDEF Windows}
-  , Windows
+  , Windows, windows_file_utils
   {$ENDIF}
   ;
 
@@ -21,7 +21,7 @@ var
   CmdRes: TRunResult;
 {$IFDEF Windows}
   SearchPath: string;
-  ExePath: array[0..MAX_PATH] of AnsiChar;
+  ExePathW: array[0..MAX_PATH] of WideChar;
 {$ENDIF}
 begin
   Result := '';
@@ -43,9 +43,9 @@ begin
   end;
 
   { Check in application directory }
-  FillChar(ExePath, SizeOf(ExePath), 0);
-  GetModuleFileNameA(0, ExePath, MAX_PATH);
-  SearchPath := ExtractFilePath(StrPas(ExePath)) + 'mkvmerge.exe';
+  FillChar(ExePathW, SizeOf(ExePathW), 0);
+  GetModuleFileNameW(0, ExePathW, MAX_PATH);
+  SearchPath := ExtractFilePath(WideToAnsi(WideString(ExePathW))) + 'mkvmerge.exe';
   if FileExists(SearchPath) then
   begin
     Result := SearchPath;
