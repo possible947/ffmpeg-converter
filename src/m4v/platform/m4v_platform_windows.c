@@ -3,12 +3,12 @@
  * Windows implementation of the m4v platform abstraction.
  *
  * Implements the m4v_platform.h interface using:
- *  - GetFileAttributesA() for file existence checks
- *  - GetTempPathA() + CreateDirectoryA() for temporary directory creation
- *  - FindFirstFileA / DeleteFileA / RemoveDirectoryA for recursive removal
- *  - _popen() / _pclose() for process execution
+ *  - GetFileAttributesW() for file existence checks
+ *  - GetTempPathW() + CreateDirectoryW() for temporary directory creation
+ *  - FindFirstFileW / DeleteFileW / RemoveDirectoryW for recursive removal
+ *  - _wpopen() / _pclose() for process execution
  *  - Double-quote cmd.exe (CommandLineToArgvW) shell quoting
- *  - _unlink() for file removal
+ *  - _wunlink() for file removal
  *
  * Binary resolution (platform_get_ffmpeg_bin / platform_get_ffprobe_bin /
  * platform_get_mp4box_bin) is provided by the converter library via
@@ -21,7 +21,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <io.h>     /* _unlink */
+#include <io.h>     /* _wunlink */
+
+/* ---------------------------------------------------------------
+ *  Internal helpers
+ * --------------------------------------------------------------- */
+
+/* Convert a UTF-8 string to a newly allocated wide string.
+ * Returns 1 on success (caller must free *out), 0 on failure. */
+static int m4v_utf8_to_wide(const char* s, wchar_t** out) {
+    int wlen;
+    if (!s || !out) return 0;
+    wlen = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    if (wlen <= 0) return 0;
+    *out = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
+    if (!*out) return 0;
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, *out, wlen);
+    return 1;
+}
 
 /* ---------------------------------------------------------------
  *  File system
@@ -29,12 +46,18 @@
 
 int m4v_platform_is_regular_file(const char *path)
 {
+    wchar_t* wpath = NULL;
     DWORD attrs;
 
     if (!path || path[0] == '\0')
         return 0;
 
-    attrs = GetFileAttributesA(path);
+    if (!m4v_utf8_to_wide(path, &wpath))
+        return 0;
+
+    attrs = GetFileAttributesW(wpath);
+    free(wpath);
+
     if (attrs == INVALID_FILE_ATTRIBUTES)
         return 0;
 
@@ -44,14 +67,29 @@ int m4v_platform_is_regular_file(const char *path)
 
 int m4v_platform_file_exists(const char *path)
 {
+    wchar_t* wpath = NULL;
+    DWORD attrs;
+
     if (!path || path[0] == '\0')
         return 0;
-    return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+
+    if (!m4v_utf8_to_wide(path, &wpath))
+        return 0;
+
+    attrs = GetFileAttributesW(wpath);
+    free(wpath);
+    return attrs != INVALID_FILE_ATTRIBUTES;
 }
 
 int m4v_platform_unlink(const char *path)
 {
-    return _unlink(path);
+    wchar_t* wpath = NULL;
+    int result;
+    if (!path) return -1;
+    if (!m4v_utf8_to_wide(path, &wpath)) return -1;
+    result = _wunlink(wpath);
+    free(wpath);
+    return result;
 }
 
 /* ---------------------------------------------------------------
@@ -60,8 +98,8 @@ int m4v_platform_unlink(const char *path)
 
 int m4v_platform_make_temp_dir(char *path, size_t path_sz)
 {
-    char tmp_base[MAX_PATH];
-    char dir_path[MAX_PATH];
+    wchar_t tmp_base[4096];
+    wchar_t dir_path[4096];
     DWORD rv;
     DWORD pid;
     static volatile LONG s_counter = 0;
@@ -70,62 +108,73 @@ int m4v_platform_make_temp_dir(char *path, size_t path_sz)
     if (!path || path_sz == 0)
         return 0;
 
-    rv = GetTempPathA(sizeof(tmp_base), tmp_base);
-    if (rv == 0 || rv >= sizeof(tmp_base))
+    rv = GetTempPathW(4096, tmp_base);
+    if (rv == 0 || rv >= 4096)
         return 0;
 
     pid   = GetCurrentProcessId();
     count = InterlockedIncrement(&s_counter);
 
     /* Build a unique directory name: <TempPath>m4v_mux_<PID>_<counter> */
-    snprintf(dir_path, sizeof(dir_path), "%sm4v_mux_%lu_%lu",
-             tmp_base, (unsigned long)pid, (unsigned long)count);
+    _snwprintf(dir_path, 4096, L"%sm4v_mux_%lu_%lu",
+               tmp_base, (unsigned long)pid, (unsigned long)count);
+    dir_path[4095] = L'\0';
 
-    if (!CreateDirectoryA(dir_path, NULL))
+    if (!CreateDirectoryW(dir_path, NULL))
         return 0;
 
-    strncpy(path, dir_path, path_sz - 1);
+    /* Convert wide path back to UTF-8 for the caller */
+    if (WideCharToMultiByte(CP_UTF8, 0, dir_path, -1,
+                            path, (int)(path_sz - 1), NULL, NULL) == 0)
+        return 0;
     path[path_sz - 1] = '\0';
     return 1;
 }
 
-/* Recursive helper — removes all contents of dir, then dir itself */
-static void win_rmtree(const char *path)
+/* Recursive helper — removes all contents of dir, then dir itself.
+ * Operates entirely in wide-char to support Unicode paths. */
+static void win_rmtree_w(const wchar_t *path)
 {
-    WIN32_FIND_DATAA ffd;
+    WIN32_FIND_DATAW ffd;
     HANDLE hFind;
-    char pattern[MAX_PATH];
-    char child[MAX_PATH];
+    wchar_t pattern[4096];
+    wchar_t child[4096];
 
-    if (!path || path[0] == '\0')
+    if (!path || path[0] == L'\0')
         return;
 
-    snprintf(pattern, sizeof(pattern), "%s\\*", path);
-    hFind = FindFirstFileA(pattern, &ffd);
+    _snwprintf(pattern, 4096, L"%s\\*", path);
+    pattern[4095] = L'\0';
+    hFind = FindFirstFileW(pattern, &ffd);
     if (hFind == INVALID_HANDLE_VALUE) {
-        RemoveDirectoryA(path);
+        RemoveDirectoryW(path);
         return;
     }
 
     do {
-        if (strcmp(ffd.cFileName, ".") == 0 || strcmp(ffd.cFileName, "..") == 0)
+        if (wcscmp(ffd.cFileName, L".") == 0 || wcscmp(ffd.cFileName, L"..") == 0)
             continue;
-        snprintf(child, sizeof(child), "%s\\%s", path, ffd.cFileName);
+        _snwprintf(child, 4096, L"%s\\%s", path, ffd.cFileName);
+        child[4095] = L'\0';
         if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-            win_rmtree(child);
+            win_rmtree_w(child);
         else
-            DeleteFileA(child);
-    } while (FindNextFileA(hFind, &ffd));
+            DeleteFileW(child);
+    } while (FindNextFileW(hFind, &ffd));
 
     FindClose(hFind);
-    RemoveDirectoryA(path);
+    RemoveDirectoryW(path);
 }
 
 void m4v_platform_remove_temp_dir(const char *dir)
 {
+    wchar_t* wdir = NULL;
     if (!dir || dir[0] == '\0')
         return;
-    win_rmtree(dir);
+    if (!m4v_utf8_to_wide(dir, &wdir))
+        return;
+    win_rmtree_w(wdir);
+    free(wdir);
 }
 
 /* ---------------------------------------------------------------
