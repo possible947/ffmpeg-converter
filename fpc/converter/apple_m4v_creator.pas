@@ -1,6 +1,8 @@
 unit apple_m4v_creator;
 
 {$mode objfpc}{$H+}
+{$HINTS OFF}
+{$WARN 5091 OFF}
 
 interface
 
@@ -88,7 +90,7 @@ procedure LogFailedCommand(const Cmd: string; const R: TRunResult; const FfmpegB
   InputFile, OutputFile, FallbackLogDir, ContextNote: string);
 var
   Tools: TToolPaths;
-  LogInfo: TCommandErrorLog;
+  LogInfo{%H-}: TCommandErrorLog;
   DummyPath: string;
   DummyError: string;
 begin
@@ -188,7 +190,7 @@ function RunStep(const Cmd, ErrorPrefix, FfmpegBin, FfprobeBin, InputFile, Outpu
 var
   R: TRunResult;
   Tools: TToolPaths;
-  LogInfo: TCommandErrorLog;
+  LogInfo{%H-}: TCommandErrorLog;
   ErrorLogPath: string;
   ErrorLogNotice: string;
 begin

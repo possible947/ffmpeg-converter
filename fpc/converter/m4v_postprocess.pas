@@ -13,9 +13,7 @@ implementation
 
 uses
   SysUtils,
-  process_utils,
   path_utils,
-  tool_paths,
   fs_utils,
   apple_m4v_creator;
 
@@ -65,7 +63,7 @@ var
   IntermediateFile: string;
   OutputFile: string;
   M4VParams: string;
-  Remaining: string;
+  Remaining{%H-}: string;
   VideoTrackIdx, AudioTrackIdx, AacQuality, Ac3Bitrate: Integer;
   Lang: string;
   AddChapters: Boolean;

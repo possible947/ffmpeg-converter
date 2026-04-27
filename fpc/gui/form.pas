@@ -1,6 +1,10 @@
 unit form;
 
 {$mode objfpc}{$H+}
+{$HINTS OFF}
+{$WARN 5024 OFF}
+{$WARN 5057 OFF}
+{$WARN 5091 OFF}
 
 interface
 
@@ -205,7 +209,7 @@ procedure CbMessage(text: PAnsiChar); cdecl; forward;
 procedure CbError(text: PAnsiChar; code: TConverterError); cdecl; forward;
 procedure CbComplete; cdecl; forward;
 
-function ResolveOutputDirForInput(const InputFile, MainOutputDir: string): string;
+function ResolveOutputDirForInput(const InputFile{%H-}, MainOutputDir: string): string;
 begin
   if MainOutputDir <> '' then
     Result := MainOutputDir
@@ -265,11 +269,10 @@ var
   ErrText: string;
   Err: TConverterError;
   Conv: Pointer;
-  Cb: TConverterCallbacks;
-  TmpFiles: array of PAnsiChar;
+  Cb{%H-}: TConverterCallbacks;
+  TmpFiles{%H-}: array of PAnsiChar;
   CodecName: string;
   MainOutputDir: string;
-  Tools: TToolPaths;
   ResolvedOutDir: string;
   OutDirError: string;
 
@@ -333,8 +336,6 @@ begin
   CodecName := string(PAnsiChar(@FConvertOpts.codec[0]));
   for I := 0 to High(FFiles) do
   begin
-    Tools := ResolveToolPaths;
-
     if FUseEditFlow then
     begin
       if MainOutputDir = '' then
@@ -419,6 +420,9 @@ begin
     FErrorText := 'No files to process.';
 end;
 
+{$PUSH}
+{$WARN 4055 OFF}
+
 procedure TMainForm.AsyncLog(Data: PtrInt);
 var
   P: PLogData;
@@ -491,7 +495,7 @@ begin
   end;
 end;
 
-procedure TMainForm.AsyncComplete(Data: PtrInt);
+procedure TMainForm.AsyncComplete(Data{%H-}: PtrInt);
 begin
   UiComplete;
 end;
@@ -579,6 +583,8 @@ begin
     Application.QueueAsyncCall(@GMainForm.AsyncComplete, 0);
 end;
 
+{$POP}
+
 procedure CbFileBegin(filename: PAnsiChar; index, total: LongInt); cdecl;
 begin
   QueueFileBegin(string(filename), index, total);
@@ -639,10 +645,10 @@ end;
 
 procedure TConverterThread.Execute;
 var
-  Cb: TConverterCallbacks;
+  Cb{%H-}: TConverterCallbacks;
   Err: TConverterError;
   I: Integer;
-  TmpFiles: array of PAnsiChar;
+  TmpFiles{%H-}: array of PAnsiChar;
 begin
   FConverter := converter_create;
   if FConverter = nil then
@@ -741,7 +747,7 @@ begin
   Result := Codec = 'prores_ks_vulkan';
 end;
 
-procedure TMainForm.FormCreate(Sender: TObject);
+procedure TMainForm.FormCreate(Sender{%H-}: TObject);
 var
   Tools: TToolPaths;
   {$IFDEF Windows}
@@ -981,12 +987,12 @@ begin
     Files[I] := lstFiles.Items[I];
 end;
 
-procedure TMainForm.CodecChanged(Sender: TObject);
+procedure TMainForm.CodecChanged(Sender{%H-}: TObject);
 begin
   UpdateDependentWidgets;
 end;
 
-procedure TMainForm.AudioNormChanged(Sender: TObject);
+procedure TMainForm.AudioNormChanged(Sender{%H-}: TObject);
 begin
   UpdateDependentWidgets;
 end;
@@ -1051,7 +1057,7 @@ begin
     cmbCodec.ItemIndex := 0;
 end;
 
-procedure TMainForm.VulkanDeviceChanged(Sender: TObject);
+procedure TMainForm.VulkanDeviceChanged(Sender{%H-}: TObject);
 begin
   if Assigned(cmbVulkanDevice) then
   begin
@@ -1063,7 +1069,7 @@ begin
 end;
 {$ENDIF}
 
-procedure TMainForm.AddFilesClicked(Sender: TObject);
+procedure TMainForm.AddFilesClicked(Sender{%H-}: TObject);
 var
   Dlg: TOpenDialog;
   I: Integer;
@@ -1080,7 +1086,7 @@ begin
   UpdateDependentWidgets;
 end;
 
-procedure TMainForm.AddTrackClicked(Sender: TObject);
+procedure TMainForm.AddTrackClicked(Sender{%H-}: TObject);
 var
   Dlg: TOpenDialog;
 begin
@@ -1097,7 +1103,7 @@ begin
   end;
 end;
 
-procedure TMainForm.ChooseOutputDirClicked(Sender: TObject);
+procedure TMainForm.ChooseOutputDirClicked(Sender{%H-}: TObject);
 var
   Dir: string;
 begin
@@ -1109,14 +1115,14 @@ begin
   end;
 end;
 
-procedure TMainForm.RemoveSelectedClicked(Sender: TObject);
+procedure TMainForm.RemoveSelectedClicked(Sender{%H-}: TObject);
 begin
   if lstFiles.ItemIndex >= 0 then
     lstFiles.Items.Delete(lstFiles.ItemIndex);
   UpdateDependentWidgets;
 end;
 
-procedure TMainForm.ClearListClicked(Sender: TObject);
+procedure TMainForm.ClearListClicked(Sender{%H-}: TObject);
 begin
   lstFiles.Clear;
   FVideoTrackPath := '';
@@ -1124,10 +1130,10 @@ begin
   UpdateDependentWidgets;
 end;
 
-procedure TMainForm.StartClicked(Sender: TObject);
+procedure TMainForm.StartClicked(Sender{%H-}: TObject);
 var
   Opts: TConvertOptions;
-  FileArr: array of string;
+  FileArr{%H-}: array of string;
   Count: Integer;
   ResolvedDir: string;
   DirError: string;
@@ -1190,7 +1196,7 @@ begin
   FWorker.Start;
 end;
 
-procedure TMainForm.StopClicked(Sender: TObject);
+procedure TMainForm.StopClicked(Sender{%H-}: TObject);
 begin
   if Assigned(FWorker) and (FWorker.ConverterHandle <> nil) then
     converter_stop(FWorker.ConverterHandle);
@@ -1199,9 +1205,9 @@ begin
   SetRunningState(False);
 end;
 
-procedure TMainForm.AppleM4VCreatorClicked(Sender: TObject);
+procedure TMainForm.AppleM4VCreatorClicked(Sender{%H-}: TObject);
 var
-  Files: array of string;
+  Files{%H-}: array of string;
   I: Integer;
   ConvertOpts: TConvertOptions;
   Opts: TAppleM4VOptions;
@@ -1347,7 +1353,7 @@ begin
   Result := True;
 end;
 
-procedure TMainForm.WorkerTerminated(Sender: TObject);
+procedure TMainForm.WorkerTerminated(Sender{%H-}: TObject);
 begin
   FWorker := nil;
   SetAppleActionState(Assigned(FAppleWorker));

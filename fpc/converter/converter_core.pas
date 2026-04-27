@@ -1,6 +1,8 @@
 unit converter_core;
 
 {$mode objfpc}{$H+}
+{$HINTS OFF}
+{$WARN 5057 OFF}
 
 interface
 
@@ -34,9 +36,7 @@ uses
   tool_paths,
   converter_cmd_builder,
   converter_analysis,
-  converter_runner,
-  mux_postprocess,
-  m4v_postprocess;
+  converter_runner;
 
 type
   TConverterObj = record
@@ -135,7 +135,7 @@ end;
 function CheckInputFile(Ctx: PConverterObj; const InputFile: string): TConverterError;
 {$IFNDEF Windows}
 var
-  Info: Stat;
+  Info{%H-}: Stat;
 {$ENDIF}
 begin
 {$IFDEF Windows}

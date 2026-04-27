@@ -64,6 +64,7 @@ var
   Devices: TStringArray;
 begin
   Result := nil;
+  Devices := nil;
 {$IFDEF Linux}
   SetLength(Devices, 0);
   for I := 128 to 135 do
@@ -187,7 +188,15 @@ var
   RenderNode: string;
   I: Integer;
 begin
-  FillChar(Result, SizeOf(Result), 0);
+  Result.HasVaapiH264 := False;
+  Result.HasVaapiHEVC := False;
+  Result.HasNVENC := False;
+  Result.HasAMF := False;
+  Result.HasQSV := False;
+  Result.HasVulkan := False;
+  Result.HasMkvmerge := False;
+  Result.HasMp4Box := False;
+  Result.VaapiRenderNode := '';
 {$IFDEF Linux}
   Tools := ResolveToolPaths;
   FfmpegBin := Tools.FfmpegBin;

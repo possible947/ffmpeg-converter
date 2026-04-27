@@ -1,6 +1,8 @@
 unit converter_runner;
 
 {$mode objfpc}{$H+}
+{$WARN 5057 OFF}
+{$WARN 5091 OFF}
 
 interface
 
@@ -115,7 +117,7 @@ var
   Tools: TToolPaths;
   R: TRunResult;
   Cmd: string;
-  LogInfo: TCommandErrorLog;
+  LogInfo{%H-}: TCommandErrorLog;
   Code: Integer;
 begin
   ErrorLogPath := '';
@@ -161,9 +163,9 @@ function RunEncode(const CommandBase, InputFile, OutputFile, FallbackLogDir: str
 var
   Tools: TToolPaths;
   Cmd: string;
-  EffectiveCmd: string;
+  EffectiveCmd{%H-}: string;
   P: TProcess;
-  ReadBuf: array[0..4095] of Byte;
+  ReadBuf{%H-}: array[0..4095] of Byte;
   ReadCount: LongInt;
   Chunk: string;
   Pending: string;
@@ -176,7 +178,7 @@ var
   StartTickMs: QWord;
   TerminatedByStop: Boolean;
   ExitCode: LongInt;
-  LogInfo: TCommandErrorLog;
+  LogInfo{%H-}: TCommandErrorLog;
 begin
   ErrorLogPath := '';
   ErrorLogNotice := '';

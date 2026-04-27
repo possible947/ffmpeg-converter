@@ -1,6 +1,7 @@
 unit converter_types;
 
 {$mode objfpc}{$H+}
+{$WARN 5058 OFF}
 
 interface
 
@@ -79,13 +80,13 @@ const
   DEFAULT_AUDIO_NORM = 'peak_norm_2pass';
   DEFAULT_AUDIO_OUTPUT_MODE = 'pcm';
 
-procedure InitDefaultOptions(out Opts: TConvertOptions);
+procedure InitDefaultOptions(out Opts{%H-}: TConvertOptions);
 
 implementation
 
 uses SysUtils;
 
-procedure InitDefaultOptions(out Opts: TConvertOptions);
+procedure InitDefaultOptions(out Opts{%H-}: TConvertOptions);
 begin
   FillChar(Opts, SizeOf(Opts), 0);
 

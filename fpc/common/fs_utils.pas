@@ -1,6 +1,7 @@
 unit fs_utils;
 
 {$mode objfpc}{$H+}
+{$WARN 5057 OFF}
 
 interface
 
@@ -97,7 +98,7 @@ end;
 function FileRegular(const Path: string): Boolean;
 {$IFNDEF Windows}
 var
-  Info: Stat;
+  Info{%H-}: Stat;
 {$ELSE}
 var
   Attr: LongInt;
@@ -121,7 +122,7 @@ var
   TmpFile: string;
   F: Integer;
 {$ELSE}
-  Info: Stat;
+  Info{%H-}: Stat;
 {$ENDIF}
 begin
 {$IFDEF Windows}
@@ -178,7 +179,7 @@ function EnsureOutputDirWritable(const RequestedDir: string; out ResolvedDir: st
 var
   TargetDir: string;
 {$IFNDEF Windows}
-  Info: Stat;
+  Info{%H-}: Stat;
 {$ELSE}
   Attr: Integer;
 {$ENDIF}

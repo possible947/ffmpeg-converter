@@ -4,10 +4,11 @@ unit cli_args;
 
 interface
 
-uses converter_types, SysUtils,
+uses converter_types, SysUtils
   {$IFDEF Windows}
-  windows_probe;
+  , windows_probe
   {$ENDIF}
+  ;
 
 type
   TStringArray = array of string;

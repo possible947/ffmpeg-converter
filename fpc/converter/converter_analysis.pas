@@ -1,6 +1,8 @@
 unit converter_analysis;
 
 {$mode objfpc}{$H+}
+{$WARN 5057 OFF}
+{$WARN 5091 OFF}
 
 interface
 
@@ -99,8 +101,8 @@ function RunAnalysisWithProgress(const CommandLine, InputFile: string;
   OnProgress: TOnProgressAnalysis): TRunResult;
 var
   P: TProcess;
-  EffectiveCmd: string;
-  ReadBuf: array[0..4095] of Byte;
+  EffectiveCmd{%H-}: string;
+  ReadBuf{%H-}: array[0..4095] of Byte;
   ReadCount: LongInt;
   Chunk: string;
   Pending: string;
@@ -248,7 +250,7 @@ var
   Tools: TToolPaths;
   Cmd: string;
   R: TRunResult;
-  LogInfo: TCommandErrorLog;
+  LogInfo{%H-}: TCommandErrorLog;
   V: Double;
   NullOutput: string;
 begin
@@ -388,7 +390,7 @@ var
   Cmd: string;
   FilterStr: string;
   R: TRunResult;
-  LogInfo: TCommandErrorLog;
+  LogInfo{%H-}: TCommandErrorLog;
   Metrics: TLoudnormMetrics;
   JsonText: string;
   NullOutput: string;

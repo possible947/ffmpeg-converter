@@ -1,6 +1,7 @@
 unit loudnorm_json;
 
 {$mode objfpc}{$H+}
+{$WARN 5058 OFF}
 
 interface
 
@@ -13,7 +14,7 @@ type
     TargetOffset: Double;
   end;
 
-function TryParseLoudnormJson(const Text: string; out Metrics: TLoudnormMetrics): Boolean;
+function TryParseLoudnormJson(const Text: string; out Metrics{%H-}: TLoudnormMetrics): Boolean;
 
 implementation
 
@@ -46,7 +47,7 @@ begin
   Result := True;
 end;
 
-function TryParseLoudnormJson(const Text: string; out Metrics: TLoudnormMetrics): Boolean;
+function TryParseLoudnormJson(const Text: string; out Metrics{%H-}: TLoudnormMetrics): Boolean;
 var
   J: TJSONData;
   O: TJSONObject;

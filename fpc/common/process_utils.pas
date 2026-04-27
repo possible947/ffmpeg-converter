@@ -1,6 +1,8 @@
 unit process_utils;
 
 {$mode objfpc}{$H+}
+{$WARN 5057 OFF}
+{$NOTES OFF}
 
 interface
 
@@ -160,10 +162,12 @@ function RunCommandCapture(const CommandLine: string): TRunResult;
 var
   P: TProcess;
   S: TStringStream;
+{$IFDEF Windows}
   EffectiveCmd: string;
+{$ENDIF}
   DataAvailable: Boolean;
   ReadCount: LongInt;
-  ReadBuf: array[0..4095] of Byte;
+  ReadBuf{%H-}: array[0..4095] of Byte;
   Chunk: AnsiString;
   MaxWaitAttempts: Integer;
   WaitAttempts: Integer;

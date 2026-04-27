@@ -1,6 +1,7 @@
 unit tool_paths;
 
 {$mode objfpc}{$H+}
+{$WARN 5024 OFF}
 
 interface
 
@@ -46,7 +47,7 @@ begin
 {$ENDIF}
 end;
 
-function ResolveBundledMacTool(const PrimaryName: string): string;
+function ResolveBundledMacTool(const PrimaryName{%H-}: string): string;
 {$IFDEF DARWIN}
 var
   BundleMarkerPos: SizeInt;
@@ -163,7 +164,7 @@ begin
     Result := P;
 end;
 
-function ResolveBinary(const PrimaryName: string; const MacCandidates: array of string): string;
+function ResolveBinary(const PrimaryName: string; const MacCandidates{%H-}: array of string): string;
 {$IFDEF DARWIN}
 var
   I: Integer;
@@ -224,7 +225,7 @@ begin
     Result := Candidate;
 end;
 
-function ResolveFromRepoWindowsBin(const Name: string): string;
+function ResolveFromRepoWindowsBin(const Name{%H-}: string): string;
 {$IFDEF Windows}
 var
   BaseDir: string;
