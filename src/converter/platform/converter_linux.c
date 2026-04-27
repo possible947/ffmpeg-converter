@@ -181,9 +181,13 @@ int platform_validate_audio_filters(void) {
     const char* ffmpeg = platform_get_ffmpeg_bin();
     if (!ffmpeg || ffmpeg[0] == '\0') return 0;
 
+    char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg);
+    if (!esc_ffmpeg) return 0;
+
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
-             "\"%s\" -hide_banner -filters 2>/dev/null | grep -q soxr", ffmpeg);
+             "%s -hide_banner -filters 2>/dev/null | grep -q soxr", esc_ffmpeg);
+    free(esc_ffmpeg);
     return (system(cmd) == 0) ? 1 : 0;
 }
 
@@ -258,21 +262,25 @@ int platform_detect_gpu_support(void) {
     {
         const char* ffmpeg = platform_get_ffmpeg_bin();
         if (ffmpeg && ffmpeg[0] != '\0') {
-            char cmd[1024];
-            snprintf(cmd, sizeof(cmd),
-                     "\"%s\" -hide_banner -v error -decoders 2>/dev/null",
-                     ffmpeg);
-            FILE* fp = platform_popen(cmd, "r");
-            if (fp) {
-                char line[1024];
-                while (fgets(line, sizeof(line), fp)) {
-                    if (strstr(line, " libdav1d"))
-                        caps |= PLAT_CAP_LIBDAV1D_DEC;
-                    if ((caps & (PLAT_CAP_QSV_H264 | PLAT_CAP_QSV_HEVC)) &&
-                        strstr(line, " av1_qsv"))
-                        caps |= PLAT_CAP_AV1_QSV_DEC;
+            char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg);
+            if (esc_ffmpeg) {
+                char cmd[1024];
+                snprintf(cmd, sizeof(cmd),
+                         "%s -hide_banner -v error -decoders 2>/dev/null",
+                         esc_ffmpeg);
+                free(esc_ffmpeg);
+                FILE* fp = platform_popen(cmd, "r");
+                if (fp) {
+                    char line[1024];
+                    while (fgets(line, sizeof(line), fp)) {
+                        if (strstr(line, " libdav1d"))
+                            caps |= PLAT_CAP_LIBDAV1D_DEC;
+                        if ((caps & (PLAT_CAP_QSV_H264 | PLAT_CAP_QSV_HEVC)) &&
+                            strstr(line, " av1_qsv"))
+                            caps |= PLAT_CAP_AV1_QSV_DEC;
+                    }
+                    platform_pclose(fp);
                 }
-                platform_pclose(fp);
             }
         }
     }

@@ -16,6 +16,43 @@ typedef struct {
 
 static LinuxCodecSupportCache g_cache;
 
+/**
+ * posix_shell_quote()
+ * Returns a malloc'd single-quoted shell-safe string for path.
+ * Embedded single-quotes are replaced with '\''.
+ * Caller must free() the returned pointer.
+ * Returns NULL on allocation failure.
+ */
+static char *posix_shell_quote(const char *path)
+{
+    size_t in_len;
+    char *out;
+    char *p;
+    size_t i;
+
+    if (!path) return NULL;
+    in_len = strlen(path);
+    /* worst case: each char becomes '\'', plus outer single-quotes + NUL */
+    out = malloc(2 + in_len * 4 + 1);
+    if (!out) return NULL;
+
+    p = out;
+    *p++ = '\'';
+    for (i = 0; i < in_len; i++) {
+        if (path[i] == '\'') {
+            *p++ = '\'';
+            *p++ = '\\';
+            *p++ = '\'';
+            *p++ = '\'';
+        } else {
+            *p++ = path[i];
+        }
+    }
+    *p++ = '\'';
+    *p   = '\0';
+    return out;
+}
+
 static int is_executable_file(const char *path)
 {
     return path && path[0] != '\0' && access(path, X_OK) == 0;
@@ -202,24 +239,6 @@ static void resolve_preferred_binary(const char* env_name_primary,
 }
 
 /**
- * linux_path_is_shell_safe()
- * Returns 1 if path contains no characters interpreted specially by
- * the shell inside a double-quoted argument (", $, `, \).
- * Paths failing this check are not used in system() calls.
- */
-static int linux_path_is_shell_safe(const char *path)
-{
-    const char *p;
-    if (!path)
-        return 0;
-    for (p = path; *p != '\0'; ++p) {
-        if (*p == '"' || *p == '$' || *p == '`' || *p == '\\')
-            return 0;
-    }
-    return 1;
-}
-
-/**
  * probe_simple_encoder()
  * Tests a single GPU encoder (NVENC, AMF, QSV) via a one-frame encode.
  * No device path is required — these encoders auto-select the GPU.
@@ -229,19 +248,22 @@ static int probe_simple_encoder(const char *ffmpeg_bin,
                                 const char *encoder_name)
 {
     char cmd[8192];
+    char *q;
     int  rc;
 
     if (!ffmpeg_bin || ffmpeg_bin[0] == '\0' || !encoder_name)
         return 0;
-    if (!linux_path_is_shell_safe(ffmpeg_bin))
-        return 0;
+
+    q = posix_shell_quote(ffmpeg_bin);
+    if (!q) return 0;
 
     snprintf(cmd, sizeof(cmd),
-             "\"%s\" -v error -hide_banner "
+             "%s -v error -hide_banner "
              "-f lavfi -i color=size=1920x1080:rate=1 "
              "-frames:v 1 "
              "-c:v %s -f null - >/dev/null 2>&1",
-             ffmpeg_bin, encoder_name);
+             q, encoder_name);
+    free(q);
 
     rc = system(cmd);
     if (rc == -1)
@@ -264,25 +286,28 @@ static int probe_vulkan_prores(const char *ffmpeg_bin,
                                int *out_device_count)
 {
     int i, mask = 0, count = 0, best = -1;
+    char *q;
 
     if (out_working_mask)  *out_working_mask  = 0;
     if (out_device_count)  *out_device_count  = 0;
 
     if (!ffmpeg_bin || ffmpeg_bin[0] == '\0') return -1;
-    if (!linux_path_is_shell_safe(ffmpeg_bin)) return -1;
+
+    q = posix_shell_quote(ffmpeg_bin);
+    if (!q) return -1;
 
     for (i = 0; i < LINUX_VULKAN_MAX_DEVICES; i++) {
         char cmd[8192];
         int  rc;
 
         snprintf(cmd, sizeof(cmd),
-                 "\"%s\" -v error -hide_banner "
+                 "%s -v error -hide_banner "
                  "-init_hw_device vulkan=vk:%d -filter_hw_device vk "
                  "-f lavfi -i color=size=1920x1080:rate=1 "
                  "-frames:v 1 "
                  "-vf format=yuv422p10le,hwupload "
                  "-c:v prores_ks_vulkan -f null - >/dev/null 2>&1",
-                 ffmpeg_bin, i);
+                 q, i);
 
         rc = system(cmd);
         if (rc == -1)
@@ -298,6 +323,8 @@ static int probe_vulkan_prores(const char *ffmpeg_bin,
         }
     }
 
+    free(q);
+
     if (out_working_mask)  *out_working_mask  = mask;
     if (out_device_count)  *out_device_count  = count;
     return best;
@@ -308,21 +335,26 @@ static int probe_vaapi_encoder(const char *ffmpeg_bin,
                                const char *encoder_name)
 {
     char cmd[8192];
+    char *q;
     int rc;
 
     if (!ffmpeg_bin || !render_node || !encoder_name)
         return 0;
 
+    q = posix_shell_quote(ffmpeg_bin);
+    if (!q) return 0;
+
     snprintf(cmd,
              sizeof(cmd),
-             "\"%s\" -v error -hide_banner "
+             "%s -v error -hide_banner "
              "-init_hw_device vaapi=va:\"%s\" "
              "-f lavfi -i color=size=1920x1080:rate=1 "
              "-frames:v 1 -vf format=nv12,hwupload "
              "-c:v %s -f null - >/dev/null 2>&1",
-             ffmpeg_bin,
+             q,
              render_node,
              encoder_name);
+    free(q);
 
     rc = system(cmd);
     if (rc == -1)
