@@ -5,7 +5,42 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## [2.2.0] — 2026-04-11
+## [2.4.0] — 2026-04-27
+
+### Added
+- **macOS is now C-only** — native Cocoa GUI is the sole macOS implementation.
+  Pascal macOS support discontinued.
+- **Windows C CLI expanded** — now the primary and most complete Windows implementation.
+- **Linux and Windows feature parity** — both C and Pascal implementations support
+  identical codec sets, audio modes, and mux workflows.
+- New build system configuration for unified platform detection (CMake + FPC).
+- Enhanced tool discovery for bundled binaries:
+  - Linux: searches `build/bin/` first, then falls back to `src/platform/linux/bin/`,
+    then PATH.
+  - Windows: searches `build-msvc/src/cli/Release/`, then bundled `src/platform/windows/bin/`,
+    then PATH.
+  - macOS: searches bundled `.app` resources, then MacPorts paths, then system PATH.
+
+### Changed
+- macOS no longer includes Pascal implementation or packaging scripts.
+- Documentation updated to reflect platform feature coverage (C primary on all,
+  Pascal available on Linux/Windows).
+- Windows CLI build scripts (PowerShell/CMD) updated to reflect new target structure.
+- CMakeLists.txt reorganized for clearer platform-specific configurations.
+
+### Removed
+- Pascal macOS `.app` packaging and build support (`fpc/build/package_macos_app.sh`).
+- Pascal macOS CLI and GUI targets from repository.
+- macOS-specific Pascal converter implementations.
+
+### Platform Status (v2.4)
+- **macOS**: C CLI + native Cocoa GUI (stable, no new functions).
+- **Linux**: C CLI + GTK4 GUI, Pascal CLI + LCL GUI (feature-matched).
+- **Windows**: C CLI (most complete), Pascal CLI + GUI (feature-matched).
+
+---
+
+## [2.2.0] — 2026-04-11 (archived)
 
 ### Added
 - Linux runtime probe for bundled/system tool resolution and VAAPI capability detection.
@@ -167,7 +202,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## [2.1.0] — 2026-03-19
+## [2.1.0] — 2026-03-19 (archived)
 
 ### Added
 - Apple M4V creator workflow in native macOS C GUI (`main.m`, `converter_bridge.m`,
@@ -202,7 +237,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## [2.0.0] — 2026-03-16
+## [2.0.0] — 2026-03-16 (archived)
 
 ### Added
 - Native macOS GUI (Cocoa/AppKit, Objective-C) replacing GTK4 on macOS.
@@ -230,7 +265,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## [1.1.0] — 2026-01-23
+## [1.1.0] — 2026-01-23 (archived)
 
 ### Changed
 - Full project architecture refactoring.
@@ -245,7 +280,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## [1.0.0] — 2025-12-01
+## [1.0.0] — 2025-12-01 (archived)
 
 ### Added
 - Initial project version.

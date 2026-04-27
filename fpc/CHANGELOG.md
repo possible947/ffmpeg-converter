@@ -5,7 +5,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## [Unreleased]
+## [2.4.0] — 2026-04-27
+
+### Changed
+- **macOS support removed** — Pascal implementation is now Linux and Windows only.
+  macOS users should use the C/CMake native Cocoa GUI instead.
+- CLI and GUI now feature-matched with C implementation on both Linux and Windows.
+- Build system unified with C/CMake via updated CMakeLists.txt and CMake integration.
+
+### Platform Status (v2.4)
+- **Linux**: CLI + Lazarus GUI (feature parity with C)
+- **Windows**: CLI + Lazarus GUI with Vulkan GPU support (feature parity with C CLI)
+- **macOS**: Discontinued
+
+### Removed
+- All macOS-specific code paths and build scripts.
+- `fpc/build/package_macos_app.sh` — no longer needed.
+- macOS `.app` bundle support in CMakeLists.txt.
+
+---
 
 ### Added
 - Windows GUI runtime probing for Vulkan ProRes (`prores_ks_vulkan`) with

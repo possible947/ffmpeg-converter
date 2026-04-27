@@ -73,7 +73,7 @@ The script:
 - Creates a desktop entry with icon
 - Invokes `appimagetool` to produce the final `.AppImage`
 
-## 2. Free Pascal Path
+## 2. Free Pascal Path (v2.4: Feature-complete, tested)
 
 ### 2.1 Install dependencies
 ```bash
@@ -83,48 +83,81 @@ sudo apt install -y fpc lazarus
 ### 2.2 Build targets
 From repository root:
 ```bash
+# CLI binary
 make -C fpc/build cli
+# → fpc/cli/ffmpeg_converter
+
+# Shared library
 make -C fpc/build lib
+# → fpc/converter/libconverter_pas.so
+
+# GUI app bundle (self-contained)
+make -C fpc/build gui-app
+# → fpc/gui/form.app
+
+# Unit tests
 make -C fpc/build tests
 ```
 
 Artifacts:
-- `fpc/cli/ffmpeg_converter`
-- `fpc/converter/libconverter_pas.so`
+- `fpc/cli/ffmpeg_converter` — CLI binary (parity with C CLI)
+- `fpc/converter/libconverter_pas.so` — shared library (C ABI export)
+- `fpc/gui/form.app` — GUI app bundle with bundled ffmpeg/ffprobe
+- `fpc/test/test_*` — unit test executables
 
 ## 3. Runtime Notes
-- Linux C path first prefers `ffmpeg` and `ffprobe` located in the same directory as
-	the executable. The Linux build now stages them together in `build/bin`.
-- During development, runtime still falls back to `src/platform/linux/bin` if needed.
-- If bundled tools are unavailable, runtime falls back to `FFMPEG`/`FFMPEG_BIN`,
-	`FFPROBE`/`FFPROBE_BIN`, and then `PATH`.
-- Linux mux mode also checks `MKVMERGE_BIN`, then executable-adjacent `mkvmerge`,
-	and then `PATH`.
-- Linux GTK Apple M4V creator checks `MP4BOX_BIN`, then executable-adjacent `MP4Box`,
-	and then `PATH`.
-- Linux hardware codec exposure is runtime-detected. Current C path exposes
-	`h264_vaapi` and `hevc_vaapi` only when the active system/driver actually supports them.
-- AV1 input decoding is runtime-detected. The converter probes `ffmpeg -decoders` at
-	startup and selects `av1_qsv` (when Intel QSV encoders are present), then `libdav1d`
-	(when available), then falls back to the native `av1` decoder with `-hwaccel none`.
-	Requires ffmpeg compiled with `--enable-libdav1d` for the software-decoder path.
-- C CLI inputs are positional (`ffmpeg_converter [options] file1 file2 ...`).
-- `-o/--output` sets output directory; if omitted, default is
-	`$HOME/ffmpeg_converter` (created automatically).
-- Linux `codec=mux` is a one-source-file session. It requires
-	`--video-track <file>` and always writes final `.mkv` via `mkvmerge`.
-- Linux GTK also provides a separate Apple M4V creator button.
-- Linux Apple M4V creator is GUI-only and follows the macOS direct M4V steps
-	through `ffmpeg`, `ffprobe`, and `MP4Box`.
-- Linux Apple M4V creator input preflight currently allows only `h264`, `hevc`,
-	or `prores` video streams.
-- To run the toolset from another directory on the same Linux machine, copy or symlink
-	the staged files from `build/bin` into one folder such as `~/.local/bin`.
-- `MP4Box` is staged as a single binary only. No Linux shared-library bundle is created,
-	so it works where the target system already has compatible GPAC/runtime libraries.
 
-## 4. Validation
+### Both C and Pascal: Tool Discovery
+- **Bundled tool priority**: executable-adjacent directory → `src/platform/linux/bin/` (dev) → env vars → `PATH`
+- Environment variable overrides:
+  - `FFMPEG` / `FFMPEG_BIN` → ffmpeg binary path
+  - `FFPROBE` / `FFPROBE_BIN` → ffprobe binary path
+  - `MKVMERGE_BIN` → mkvmerge path (for mux mode)
+  - `MP4BOX_BIN` → MP4Box path (for Apple M4V workflow)
+
+### CLI Behavior (both C and Pascal)
+- Inputs are positional arguments (`ffmpeg_converter [options] file1 file2 ...`).
+- `-o/--output` sets output directory (not filename).
+- Default output directory is `$HOME/ffmpeg_converter` when `-o` is omitted.
+- `codec=mux` requires exactly one source file and `--video-track <file>` for replacement video.
+- Final mux output is always `.mkv` via `mkvmerge`.
+
+### GUI-only Features (C GTK on Linux)
+- Apple M4V creator button (available alongside standard conversion and mux workflows).
+- Audio output selector with modes: `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`.
+- Runtime VAAPI codec probing: `h264_vaapi` and `hevc_vaapi` appear only on compatible hardware.
+
+### Hardware Codecs (Runtime Detected)
+- C and Pascal both probe Linux hardware support at startup.
+- `h264_vaapi` and `hevc_vaapi` exposed only when the system has working VAAPI driver.
+- AV1 input decoding is automatic: selects `av1_qsv` (Intel Arc), then `libdav1d` (software),
+  then `av1` with `-hwaccel none`. Requires ffmpeg with `--enable-libdav1d`.
+
+### Packaging and Deployment
+- To run the toolset from another directory, copy or symlink `build/bin/*` to `~/.local/bin`.
+- `MP4Box` is a single binary; no shared-library bundle created. Ensure target system
+  has compatible GPAC runtime libraries.
+- AppImage (C only): `cmake -DENABLE_APPIMAGE=ON .. && cmake --build . --target package_appimage`
+  produces a single-file portable executable (~71 MB).
+
+## 4. Validation and Testing
+
+### C Path
 ```bash
-make -C fpc/build all
-nm -D fpc/converter/libconverter_pas.so | grep -E 'converter_(create|destroy|set_callbacks|set_options|process_files|stop|error_string)'
+cmake --build build --target linux_cli
+./build/bin/ffmpeg_converter --help
+```
+
+### Pascal Path
+```bash
+# Run all unit tests
+make -C fpc/build tests
+
+# Run specific tests
+./fpc/test/test_cmd_builder
+./fpc/test/test_cli_mode_matrix
+./fpc/test/test_unified_tool_resolver
+
+# Full regression suite (requires test.mp4)
+bash fpc/test/run_all_regression_and_capture.sh
 ```

@@ -1,40 +1,44 @@
-# ffmpeg_converter 2.2
+# ffmpeg_converter 2.4
 
 Cross-platform media conversion and mux tool with CLI and GUI for building and
-running optimized `ffmpeg` workflows. Version 2.2 adds Linux runtime-probed
-VAAPI, MKV post-mux mode, and a Linux GTK Apple M4V creator workflow.
+running optimized `ffmpeg` workflows. Version 2.4 unifies feature sets across
+platforms, stabilizes macOS (C-only), and completes Linux and Windows implementations
+with full feature parity.
 
 Two independent implementations share the same conversion logic and CLI behavior:
 
-- **C/CMake** (`src/`) — original engine, Linux GTK4 GUI, native macOS Cocoa GUI.
-- **Free Pascal** (`fpc/`) — full FPC port with CLI, shared library, and
-  Lazarus/LCL GUI for Linux/Windows (plus macOS parity packaging scripts).
+- **C/CMake** (`src/`) — primary engine; macOS native Cocoa GUI, Linux GTK4 GUI,
+  Windows CLI (MSVC build).
+- **Free Pascal** (`fpc/`) — complete port with CLI and GUI; available for Linux
+  and Windows (macOS version discontinued).
 
-## macOS v2.2 Highlights
+## Version 2.4 Updates
 
-- Native macOS GUI now supports `mux` workflow with replacement video track
-  and final `.mkv` output via `mkvmerge`.
-- Audio output modes in macOS native GUI are aligned with Linux:
-  `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`.
-- Apple M4V creator performs source codec preflight and accepts only
-  `h264`, `hevc`, `prores` without re-encode in this path.
-- AAC encoder selection for M4V and converter audio now uses runtime fallback:
-  `aac_at` -> `libfdk_aac` -> `aac`.
-- ProRes profile handling is hardened: invalid or missing profile defaults to
-  `standard`; `prores_ks` uses explicit profile names (`lt`, `standard`, `hq`).
-- Native `.app` bundling includes `ffmpeg`/`ffprobe` and attempts to bundle
-  `mkvmerge` (with runtime fallback to `MKVMERGE_BIN` or PATH lookup).
+### macOS (C only, no Pascal)
+- **Native Cocoa GUI now the only GUI option** — Pascal macOS packaging removed.
+- Full feature parity with Linux/Windows: mux mode, Apple M4V creator, audio
+  normalization, codec selection.
+- Self-contained `.app` bundle with bundled `ffmpeg`, `ffprobe`, `MP4Box`,
+  and `mkvmerge`.
+- Stable platform (no new functions added in v2.4; focus on reliability).
 
-## Linux v2.2 Highlights
+### Linux (C + Pascal, feature-matched)
+- **Both C and Pascal versions complete and tested with identical functionality**.
+- New build system: `make -C fpc/build cli`, `make -C fpc/build gui-app`,
+  `make -C fpc/build tests`.
+- Runtime tool discovery (ffmpeg, ffprobe, mkvmerge, MP4Box) now unified across
+  implementations.
+- VAAPI codec runtime probing in both implementations.
+- AppImage packaging support (C only).
 
-- Linux GUI: GTK4 with audio normalization, mux mode, and Apple M4V creator.
-- Runtime VAAPI codec probing: `h264_vaapi` and `hevc_vaapi` appear only when
-  the active system/driver supports them.
-- Optional **AppImage packaging** via CMake `ENABLE_APPIMAGE` option and
-  `package_appimage` target. Produces a single portable executable (~71 MB)
-  bundling the GUI, ffmpeg/ffprobe, mkvmerge, MP4Box, and required non-system
-  shared libraries. Run `cmake --build . --target package_appimage` after
-  enabling the option.
+### Windows (C CLI primary, C/Pascal GUI options)
+- **C CLI is the most complete version** — full functionality, MSVC build, bundled
+  binaries, new PowerShell/CMD build scripts.
+- **Windows Pascal CLI and GUI** — complete and tested, feature-matched with C CLI,
+  with native Vulkan ProRes encoder support in GUI.
+- New build system: unified CMake integration with FPC targets.
+- Codec support: CPU ProRes, GPU accelerators (NVIDIA/AMD/Intel/Vulkan), AV1
+  input decoding, mux mode, Apple M4V creator.
 
 ---
 
@@ -64,28 +68,33 @@ Two independent implementations share the same conversion logic and CLI behavior
 ## Requirements
 
 ### C/CMake path
-- `cmake` ≥ 3.16, C compiler (clang/gcc).
+- `cmake` ≥ 3.16, C compiler (clang/gcc on Linux/macOS; MSVC on Windows).
 - `jansson` library (JSON parsing for loudnorm).
-- `ffmpeg` + `ffprobe`:
-  - Linux: staged next to CLI/GUI in `build/bin` when available from `src/platform/linux/bin/`.
-  - macOS: bundled inside native `.app` from `src/platform/macos/bin/`.
-  - Windows (MSVC): required in `src/platform/windows/bin/` (`ffmpeg.exe`, `ffprobe.exe`, and their DLL dependencies); copied next to `ffmpeg_converter.exe` at build time.
-  - **AV1 input decoding** requires ffmpeg compiled with `--enable-libdav1d` and `libdav1d-7.dll`
-    present in the `bin/` folder. The bundled Windows binary set already satisfies this requirement.
-    On Linux, ensure the system or bundled `ffmpeg` includes libdav1d support
-    (see [docs/install-linux.md](docs/install-linux.md)).
-  On macOS, priority order: macports FFmpeg8 (`/opt/local/bin/ffmpeg8`) → macports (`/opt/local/bin/ffmpeg`) → system PATH.
-- `MP4Box` (GPAC) for Apple M4V packaging/runtime on macOS native GUI and Linux GTK M4V workflow.
-- `mkvmerge` for mux mode (Linux, macOS, and Windows). On Windows: install via `choco install mkvtoolnix`, MSYS2 `pacman -S mingw-w64-x86_64-mkvtoolnix`, or place `mkvmerge.exe` next to `ffmpeg_converter.exe`. The `MKVMERGE` or `MKVMERGE_BIN` environment variable can also point to a custom path. Mux mode is silently disabled when mkvmerge is not found.
+- `ffmpeg` + `ffprobe` (platform-specific bundling):
+  - **Linux**: staged next to CLI/GUI in `build/bin` when available from `src/platform/linux/bin/`.
+  - **macOS**: bundled inside native `.app` from `src/platform/macos/bin/`; CLI also
+    checks MacPorts paths (`/opt/local/bin`, `/opt/homebrew/bin`).
+  - **Windows (MSVC)**: required in `src/platform/windows/bin/` (`ffmpeg.exe`, `ffprobe.exe`,
+    and all DLL dependencies); copied next to `ffmpeg_converter.exe` at build time.
+- **AV1 input decoding** (Linux/Windows): requires ffmpeg compiled with `--enable-libdav1d`
+  and `libdav1d-7.dll` present in `bin/` folder (already included in default bundled sets).
+- `MP4Box` (GPAC) for Apple M4V packaging on macOS native GUI and Linux GTK M4V workflow.
+- `mkvmerge` for mux mode on all platforms (Linux, macOS, Windows).
+  - Windows: install via Chocolatey (`choco install mkvtoolnix`), MSYS2 (`pacman -S mingw-w64-x86_64-mkvtoolnix`),
+    or place `mkvmerge.exe` next to `ffmpeg_converter.exe`.
+  - Environment variables: `MKVMERGE` or `MKVMERGE_BIN` override binary path.
+  - Mux mode silently disabled if mkvmerge not found.
 - Linux GUI only: `libgtk-4-dev` (or distro equivalent).
-- Optional AppImage packaging: `appimagetool` (https://github.com/AppImage/AppImageKit).
+- macOS GUI only: Xcode command-line tools (includes clang, libtool).
+- Optional AppImage packaging (Linux): `appimagetool` (https://github.com/AppImage/AppImageKit).
 
-### Free Pascal path
-- Lazarus IDE + FPC (for GUI), or plain `fpc` compiler (for CLI/library).
-- macOS packaging: `MP4Box` from GPAC — `sudo port install gpac`.
-- `ffmpeg` + `ffprobe` static binaries placed in `src/platform/macos/bin/`
-  for bundling.
+### Free Pascal path (Linux and Windows)
+- **Linux & Windows**: Lazarus IDE + FPC (for GUI), or plain `fpc` compiler (for CLI/library).
+- **macOS**: Pascal support discontinued in v2.4.
+- `ffmpeg` + `ffprobe` for Linux bundling in `src/platform/linux/bin/` (not required for CLI,
+  but used for GUI packaging).
 - `mkvmerge` for Pascal `mux` workflow (`codec=mux`) and GUI post-mux stage.
+- **Windows GPU support**: Vulkan device probing in GUI (any GPU with Vulkan 1.1+).
 
 ---
 
@@ -165,19 +174,27 @@ Output folder:
 - `build-msvc/src/cli/Release/`
 - Contains `ffmpeg_converter.exe` plus copied bundled `ffmpeg.exe`, `ffprobe.exe`, and DLL dependencies.
 
-### Free Pascal
+### Free Pascal (Linux and Windows)
 
 ```bash
-# CLI
+# Linux CLI
 make -C fpc/build cli
+# → fpc/cli/ffmpeg_converter
 
-# GUI binary
-lazbuild fpc/gui/form.lpi
-
-# Package into self-contained .app (bundles ffmpeg, ffprobe, MP4Box, icon)
+# Linux GUI app bundle (self-contained)
 make -C fpc/build gui-app
 # → fpc/gui/form.app
+
+# Windows CLI (via FPC compiler)
+fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli \
+  ./fpc/cli/ffmpeg_converter_windows.lpr -offmpeg_converter_windows.exe
+
+# Windows GUI (via Lazarus)
+lazbuild fpc/gui/form.lpi
+# → fpc/gui/ffmpeg_converter_gui.exe
 ```
+
+**Note**: Pascal macOS implementation discontinued; use C/CMake native GUI instead.
 
 ---
 
@@ -199,11 +216,11 @@ CLI notes:
   and creates it if missing.
 
 GUI:
-- **Linux**: `./build/bin/ffmpeg_converter_gui` or the AppImage:
-  `src/gui/ffmpeg_converter_gui-x86_64.AppImage`
-- **macOS native**: `open build/install/ffmpeg_converter_gui_macos.app`
-- **macOS Pascal**: `open fpc/gui/form.app`
-- **Windows CLI**: `build-msvc/src/cli/Release/ffmpeg_converter.exe`
+- **Linux (C)**: `./build/bin/ffmpeg_converter_gui` or AppImage: `src/gui/ffmpeg_converter_gui-x86_64.AppImage`
+- **Linux (Pascal)**: `open fpc/gui/form.app`
+- **macOS (C)**: `open build/install/ffmpeg_converter_gui_macos.app`
+- **Windows (C CLI)**: `build-msvc/src/cli/Release/ffmpeg_converter.exe` (CLI only, most complete)
+- **Windows (Pascal)**: GUI: `fpc/gui/ffmpeg_converter_gui.exe` or CLI: `fpc/cli/ffmpeg_converter_windows.exe`
 
 ---
 
@@ -237,9 +254,8 @@ third_party/   Vendored jansson (C path)
   [docs/install-windows.md](docs/install-windows.md)
 - **Dependencies analysis**: [docs/DEPENDENCIES_ANALYSIS.md](docs/DEPENDENCIES_ANALYSIS.md) — complete reference for all libraries, codecs, filters, and GPU acceleration
 - C architecture: [docs/PROJECT_DESCRIPTION.md](docs/PROJECT_DESCRIPTION.md)
-- C developer description: [docs/PROJECT_DESCRIPTION.md](docs/PROJECT_DESCRIPTION.md)
-- Native macOS install + behavior notes: [docs/install-macos.md](docs/install-macos.md)
-- Pascal port: [fpc/README.md](fpc/README.md)
+- Native macOS install + behavior notes (C only): [docs/install-macos.md](docs/install-macos.md)
+- Pascal port (Linux/Windows): [fpc/README.md](fpc/README.md)
 - Pascal converter library: [fpc/converter/CONVERTER_LIBRARY_DETAIL.md](fpc/converter/CONVERTER_LIBRARY_DETAIL.md)
 - C changelog: [CHANGELOG.md](CHANGELOG.md)
 - Pascal changelog: [fpc/CHANGELOG.md](fpc/CHANGELOG.md)
@@ -265,10 +281,10 @@ third_party/   Vendored jansson (C path)
 - Loudness 2-pass requires `ffmpeg` and `jansson`.
 - The macOS native C `.app` bundle includes ffmpeg/ffprobe and attempts to bundle
   MP4Box + dependent dylibs at build time.
-- The macOS Pascal `.app` bundle is fully self-contained — no system ffmpeg needed.
-- The Pascal `.app` bundle now includes `icon.icns` (imported from C macOS GUI resources).
-- Bundled ffmpeg/ffprobe targets Intel x86_64; runs via Rosetta 2 on Apple Silicon.
+- macOS Pascal support discontinued in v2.4; use native C GUI instead.
+- Bundled ffmpeg/ffprobe targets Intel x86_64; runs via Rosetta 2 on Apple Silicon on macOS.
 - Windows MSVC CLI requires bundled ffmpeg/ffprobe payload in `src/platform/windows/bin/`; build copies that directory content next to the generated `.exe`.
+- Windows Pascal GUI/CLI auto-detect Vulkan devices for GPU-accelerated ProRes encoding.
 
 ---
 

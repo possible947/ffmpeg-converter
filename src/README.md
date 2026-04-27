@@ -1,14 +1,13 @@
-# C Implementation (src)
+# C Implementation (src) — Version 2.4
 
-This directory contains the C/CMake implementation of ffmpeg_converter.
+This directory contains the C/CMake implementation of ffmpeg_converter, the primary
+implementation across all platforms.
 
-## Overview
+## Platform Coverage
 
-C path provides:
-- Core converter engine (`src/converter/`).
-- CLI frontends (`src/cli/linux`, `src/cli/macos`, `src/cli/windows`).
-- Linux GTK4 GUI (`src/gui/`).
-- Native macOS Cocoa GUI (`src/gui_macos_native/`).
+- **macOS**: C CLI + native Cocoa GUI (sole implementation for macOS; Pascal removed in v2.4)
+- **Linux**: C CLI + GTK4 GUI (feature-matched with Pascal)
+- **Windows**: C CLI (most complete version, MSVC build)
 
 ## Build Targets
 

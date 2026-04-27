@@ -277,25 +277,81 @@ audio output steps (not applicable) and instead prompts for:
 - The `--audio-norm`, `--audio-output`, `--profile`, `--deblock`, and `--genre`
   flags are ignored when `-c m4v` is used (m4v manages its own audio pipeline).
 
-## 3. Free Pascal Path
+## 3. Free Pascal Path (v2.4: CLI and GUI, feature-complete)
 
-### 2.1 Install dependencies
-Install FPC. Install Lazarus too if GUI work is needed.
+### 3.1 Install dependencies
+- **FPC** (Free Pascal Compiler) — download from [www.freepascal.org](https://www.freepascal.org/)
+- **Lazarus IDE** (optional, for GUI build) — download from [lazarus-ide.org](https://www.lazarus-ide.org/)
 
-### 2.2 Build targets
+### 3.2 Build targets
+
 From repository root:
-```bash
-make -C fpc/build cli
-make -C fpc/build tests
+
+```batch
+REM CLI binary (requires FPC only)
+fpc -Fu.\fpc\converter -Fu.\fpc\common -Fu.\fpc\json -Fu.\fpc\platform -Fu.\fpc\cli ^
+  -WwO2 .\fpc\cli\ffmpeg_converter_windows.lpr -offmpeg_converter_windows.exe
+
+REM GUI (requires Lazarus installed)
+lazbuild --build-mode=default .\fpc\gui\form.lpi
 ```
 
-Notes:
-- `fpc/build/Makefile` includes a Windows shared-library output path (`fpc/converter/converter_pas.dll`).
+Artifacts:
+- `fpc/cli/ffmpeg_converter_windows.exe` — CLI binary (feature-matched with C CLI)
+- `fpc/gui/ffmpeg_converter_gui.exe` — GUI app with threaded conversion
 
-## 3. GUI Notes
-If Lazarus GUI build reports missing `Interfaces` or `Forms`, install full Lazarus/LCL widgetset packages for the active compiler/toolchain.
+### 3.3 Windows Pascal Features
 
-## 4. CLI Behavior Notes
+**GUI codec support:**
+- All CPU codecs: `copy`, `prores`, `prores_ks`
+- GPU encoders (auto-detected): NVIDIA NVENC, AMD AMF, Intel QSV, Vulkan ProRes
+- **Vulkan ProRes**: supports per-device selection in GUI (`vulkan:0..7`) when available
+- `mux`: replaces video track in MKV (requires `mkvmerge`)
+- `m4v`: Apple M4V creator (requires `MP4Box`)
+
+**Audio features:**
+- Normalization: peak, peak 2-pass, loudness, loudness 2-pass
+- Output modes: PCM, FDK AAC q5, FDK AAC q5 + AC3 640
+
+**CLI and GUI parity:**
+- Both support identical codec sets and command-line options
+- Both auto-detect bundled tools next to executable
+- Both support environment variable overrides (`FFMPEG_BIN`, `MKVMERGE_BIN`, etc.)
+
+### 3.4 Tool Discovery (Windows Pascal)
+
+**Priority (same as C):**
+1. Executable-adjacent directory (`fpc/cli/`, `fpc/gui/`)
+2. Environment variables: `FFMPEG`, `FFMPEG_BIN`, `FFPROBE`, `FFPROBE_BIN`, `MKVMERGE_BIN`, `MP4BOX_BIN`
+3. System `PATH`
+
+**Vulkan device detection (GUI only):**
+- Automatically probes available Vulkan devices at startup
+- Lists devices as `vulkan:0`, `vulkan:1`, etc. in the encoder menu
+- User can select preferred device for Vulkan ProRes encoding
+- Silent fallback to software if Vulkan unavailable
+
+---
+
+## 4. Tool Resolution and Environment
+
+Both C and Pascal implementations on Windows follow the same tool discovery order:
+1. Bundled executables (next to `.exe`)
+2. Environment variable paths
+3. System `PATH`
+
+Set environment variables for custom tool paths:
+```batch
+set FFMPEG_BIN=C:\tools\ffmpeg.exe
+set FFPROBE_BIN=C:\tools\ffprobe.exe
+set MKVMERGE_BIN=C:\Program Files\MKVToolNix\mkvmerge.exe
+set MP4BOX_BIN=C:\tools\MP4Box.exe
+
+REM Run CLI or GUI
+ffmpeg_converter.exe -c prores -a loudnorm input.mov
+```
+
+## 5. CLI Behavior Notes
 - C CLI uses positional inputs: `ffmpeg_converter [options] file1 file2 ...`.
 - `-o/--output` expects output directory path.
 - If output directory is not set, default output directory is

@@ -1,12 +1,12 @@
-# FPC Port Description
+# FPC Port Description (Version 2.4)
 
-This directory contains the Free Pascal implementation of the ffmpeg-converter project, providing a fully functional CLI, shared library with C ABI, and Lazarus/LCL GUI.
+This directory contains the Free Pascal implementation of the ffmpeg-converter project, providing a fully functional CLI and Lazarus/LCL GUI for **Linux and Windows**. macOS support was discontinued in v2.4.
 
 ## Platform Support
 
-- **Linux**: Pascal CLI and GUI — full support, including VAAPI hardware codecs (`h264_vaapi`, `hevc_vaapi`).
-- **Windows**: Pascal CLI and Lazarus GUI are supported. Windows-specific hardware codecs are runtime-probed (`h264_nvenc`, `hevc_nvenc`, `h264_amf`, `hevc_amf`, `h264_qsv`, `hevc_qsv`, `prores_ks_vulkan`) and shown only when available.
-- **macOS**: Native C GUI (`cli_macos.c` / macOS app bundle) remains the primary macOS path. Pascal tooling and packaging scripts are also present for parity workflows.
+- **Linux**: Pascal CLI and GUI — full support, including VAAPI hardware codecs (`h264_vaapi`, `hevc_vaapi`), feature-matched with C implementation.
+- **Windows**: Pascal CLI and Lazarus GUI with full support. Windows-specific hardware codecs are runtime-probed (`h264_nvenc`, `hevc_nvenc`, `h264_amf`, `hevc_amf`, `h264_qsv`, `hevc_qsv`, `prores_ks_vulkan`) and shown only when available.
+- **macOS**: **Discontinued in v2.4**. Use the C/CMake native Cocoa GUI instead.
 
 ## API Compatibility Scope
 
@@ -38,19 +38,28 @@ Exported API mirrors these C symbols:
 
 ## Verification Commands
 
+### Linux
 ```bash
 # CLI binary
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli ./fpc/cli/ffmpeg_converter.lpr
+make -C fpc/build cli
 
-# Unit tests
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/test/test_cmd_builder.pas
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/test/test_path_parse.pas
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli ./fpc/test/test_cli_mode_matrix.pas
+# GUI app bundle
+make -C fpc/build gui-app
+
+# All unit tests
+make -C fpc/build tests
 
 # Integration tests (require ffmpeg in PATH)
 bash fpc/test/test_cli_args_matrix.sh
 bash fpc/test/check_gui_cli_issues.sh
+```
 
-# Windows build (CLI + GUI staging to fpc/bin)
-powershell -ExecutionPolicy Bypass -File scripts/windows_build_fpc.ps1
+### Windows
+```batch
+REM CLI binary
+fpc -Fu.\fpc\converter -Fu.\fpc\common -Fu.\fpc\json -Fu.\fpc\cli ^
+  -WwO2 .\fpc\cli\ffmpeg_converter_windows.lpr -offmpeg_converter_windows.exe
+
+REM GUI (requires Lazarus)
+lazbuild --build-mode=default .\fpc\gui\form.lpi
 ```

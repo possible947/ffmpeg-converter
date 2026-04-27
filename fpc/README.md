@@ -1,6 +1,13 @@
-# Free Pascal Port — ffmpeg_converter
+# Free Pascal Port — ffmpeg_converter (Version 2.4)
 
-This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-converter` project, including CLI, shared library, and Lazarus/LCL GUI.
+This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-converter` project,
+available for **Linux and Windows only**. macOS support was discontinued in version 2.4.
+
+## Platform Status
+
+- **Linux**: CLI + Lazarus/LCL GUI (feature-matched with C implementation)
+- **Windows**: CLI + Lazarus/LCL GUI with Vulkan GPU support
+- **macOS**: Discontinued in v2.4 (use C/CMake native Cocoa GUI instead)
 
 ## Features
 

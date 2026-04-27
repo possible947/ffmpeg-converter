@@ -4,19 +4,13 @@ unit cli_args;
 
 interface
 
-uses converter_types, SysUtils;
+uses converter_types, SysUtils,
+  {$IFDEF Windows}
+  windows_probe;
+  {$ENDIF}
 
 type
   TStringArray = array of string;
-  {$IFDEF Windows}
-  TWindowsCodecSupport = record
-    HasNVENC: Boolean;
-    HasAMF: Boolean;
-    HasQSV: Boolean;
-    HasVulkan: Boolean;
-    HasMkvmerge: Boolean;
-  end;
-  {$ENDIF}
 
 procedure PrintUsage;
 function ParseArgs(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt): Boolean;
@@ -30,8 +24,6 @@ uses
   {$IFNDEF Windows}
   BaseUnix,
   linux_probe,
-  {$ELSE}
-  windows_probe,
   {$ENDIF}
   tool_paths,
   fs_utils;
