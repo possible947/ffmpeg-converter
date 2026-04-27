@@ -1,6 +1,6 @@
 # ffmpeg_converter User Manual
 
-A cross-platform media conversion tool with command-line and graphical interfaces for building and running optimized `ffmpeg` workflows. This manual covers how to use ffmpeg_converter on macOS, Linux, and Windows.
+A specialized media conversion tool for high-quality audio preparation and professional media workflows. ffmpeg_converter simplifies working with `ffmpeg 8.1` by providing intuitive command-line and graphical interfaces. **Important:** This tool requires ffmpeg and ffprobe version 8.1 specifically compiled with **fdk_aac** codec and **soxr** filter support. These tools must be bundled with project binaries—system ffmpeg will not work. This manual covers how to use ffmpeg_converter on macOS, Linux, and Windows.
 
 ---
 
@@ -18,22 +18,39 @@ A cross-platform media conversion tool with command-line and graphical interface
 
 ## What is ffmpeg_converter?
 
-ffmpeg_converter is a media conversion tool that simplifies working with `ffmpeg` by providing:
+ffmpeg_converter is a specialized tool designed for **high-quality audio preparation and professional media workflows**. It simplifies working with `ffmpeg 8.1` through intuitive command-line and graphical interfaces.
 
-- **Codec options** for video (ProRes, H.264, H.265, GPU-accelerated encoders)
-- **Audio processing** including normalization (peak/loudness)
+### Core Purpose
+
+ffmpeg_converter enables professional audio preparation workflows with:
+
+- **High-quality audio codecs** including fdk_aac (FDK AAC encoder) for superior audio quality
+- **Advanced audio processing** with EBU R128 loudness normalization and soxr resampling
+- **Professional video codecs** (ProRes, H.264, H.265, GPU-accelerated encoders)
+- **Audio normalization** (peak/loudness) optimized for different content genres
 - **Mux workflows** for remuxing video and audio tracks
 - **Apple M4V creator** for producing files compatible with Apple TV
 - **Batch processing** for converting multiple files
-- **Progress display** with real-time encoding feedback
+- **Real-time progress display** with encoding feedback
+
+### Critical Requirements
+
+**ffmpeg_converter requires ffmpeg and ffprobe version 8.1 specifically:**
+- Must be compiled with **FDK AAC (fdk_aac)** codec support
+- Must include **soxr** (SoX resampler) filter support
+- Must be bundled in the project binary directory
+- System ffmpeg/ffprobe will NOT work
+
+Without these components, audio workflows will fail or produce degraded quality.
 
 ### Key Concepts
 
 - **Input files**: One or more media files you want to convert (positional arguments)
 - **Output directory**: Where converted files are saved (default: `$HOME/ffmpeg_converter`)
 - **Codecs**: Video encoding options (copy, ProRes, H.264, etc.)
-- **Audio normalization**: Processing to standardize audio loudness
+- **Audio normalization**: EBU R128 loudness processing optimized for genre (podcast, rock, edm, etc.)
 - **Hardware acceleration**: GPU-based encoding for faster conversion
+- **Custom ffmpeg 8.1**: Project-specific build with fdk_aac and soxr; must be co-located with binaries
 
 ---
 
@@ -79,8 +96,8 @@ Select from available codecs in the dropdown:
 
 **Audio Output Mode:**
 - **pcm** — uncompressed audio
-- **fdk_aac_q5** — AAC audio (high quality)
-- **fdk_aac_q5_ac3_640** — AAC + Dolby Digital AC3
+- **fdk_aac_q5** — AAC audio via FDK AAC encoder (high quality; **requires ffmpeg 8.1 compiled with fdk_aac support**)
+- **fdk_aac_q5_ac3_640** — AAC (FDK) + Dolby Digital AC3 (**requires ffmpeg 8.1 with fdk_aac support**)
 
 #### Step 4: Video Options (for ProRes codecs)
 
@@ -152,10 +169,12 @@ For command-line conversion on macOS:
 ./build/src/cli/ffmpeg_converter -c mux --video-track replacement.hevc input.mkv
 ```
 
-### macOS Tips
+### macOS Requirements and Tips
 
+- **ffmpeg/ffprobe 8.1**: Must be bundled in `build/install/ffmpeg_converter_gui_macos.app/Contents/Resources/bin/`
+  - Verify with: `file build/install/ffmpeg_converter_gui_macos.app/Contents/Resources/bin/ffmpeg`
+  - Must include fdk_aac and soxr support (verify: `ffmpeg -codecs | grep fdk_aac` and `ffmpeg -filters | grep soxr`)
 - **No console window**: GUI applications run without terminal windows
-- **Bundled tools**: ffmpeg and ffprobe are included; no installation needed
 - **Apple Silicon**: Intel binaries run transparently via Rosetta 2
 - **Chapters support**: M4V creator can import chapter markers from source files
 
@@ -251,12 +270,16 @@ Benefits:
 - Includes ffmpeg, ffprobe, and other dependencies
 - Can be copied and run on another Linux system
 
-### Linux Tips
+### Linux Requirements and Tips
 
-- **Tool resolution**: CLI looks for ffmpeg in current directory, then `PATH`
+- **ffmpeg/ffprobe 8.1**: Must be co-located in `build/bin/` alongside `ffmpeg_converter` binary
+  - Verify version: `./build/bin/ffmpeg -version | head -1` (should show version 8.x)
+  - Verify fdk_aac: `./build/bin/ffmpeg -codecs | grep fdk_aac`
+  - Verify soxr: `./build/bin/ffmpeg -filters | grep soxr`
+  - **Do not use system ffmpeg** — must use project-bundled version
 - **GTK4 requirements**: Some distributions may need GTK4 development packages
 - **AppImage performance**: Slightly slower startup due to FUSE mounting (negligible)
-- **Custom ffmpeg**: Set `FFMPEG_BIN` and `FFPROBE_BIN` environment variables to use custom builds
+- **AppImage tools**: ffmpeg/ffprobe bundled inside AppImage; no additional setup needed
 
 ---
 
@@ -360,14 +383,19 @@ ffmpeg_converter.exe -c h264_nvenc input.mov
 # Check your implementation for Vulkan support in CLI
 ```
 
-### Windows Tips
+### Windows Requirements and Tips
 
+- **ffmpeg/ffprobe 8.1**: Must be co-located in `build-msvc\src\cli\Release\` (or same directory as ffmpeg_converter.exe)
+  - Copy ffmpeg.exe and ffprobe.exe from `src/platform/windows/bin/` to build output directory
+  - Verify version: `ffmpeg.exe -version | findstr version` (should show version 8.x)
+  - Verify fdk_aac: `ffmpeg.exe -codecs | findstr fdk_aac`
+  - Verify soxr: `ffmpeg.exe -filters | findstr soxr`
+  - **Do not use system ffmpeg** — must use project-bundled version
 - **Output directory**: Supports Windows paths with backslashes
 - **UNC paths**: Network paths like `\\server\share` are supported
 - **MKVMERGE**: Install via Chocolatey: `choco install mkvtoolnix`
 - **MP4BOX**: Install GPAC: `choco install gpac`
 - **Long paths**: Enable long path support in Windows 10+ if needed
-- **Environment variables**: Set `FFMPEG_BIN`, `FFPROBE_BIN`, `MKVMERGE_BIN`, `MP4BOX_BIN` to override tool paths
 
 ---
 
@@ -626,12 +654,13 @@ ffmpeg_converter -c copy -o ~/backup/ *.mkv
 - **Requires**: mkvmerge installed
 
 ### m4v
-- **Description**: Apple M4V creator with dual audio
+- **Description**: Apple M4V creator with dual audio (FDK AAC + AC3)
 - **Video**: Stream copy (h264, HEVC, ProRes)
-- **Audio**: AAC (VBR) + AC3 (Dolby Digital)
+- **Audio**: AAC via FDK encoder (VBR) + AC3 (Dolby Digital)
 - **Output**: `.m4v` compatible with Apple TV
-- **Use for**: Creating Apple TV-compatible files
-- **Requires**: MP4Box installed
+- **Use for**: Creating Apple TV-compatible files with high-quality audio
+- **Requires**: MP4Box installed + ffmpeg 8.1 compiled with fdk_aac support
+- **Note**: FDK AAC encoding requires project-bundled ffmpeg 8.1; system ffmpeg will fail
 
 ---
 
@@ -639,46 +668,78 @@ ffmpeg_converter -c copy -o ~/backup/ *.mkv
 
 ### Issue: "ffmpeg not found" or "ffprobe not found"
 
-**Cause**: ffmpeg/ffprobe binaries are not in the expected location.
+**CRITICAL:** ffmpeg_converter requires **ffmpeg and ffprobe version 8.1 specifically compiled with fdk_aac and soxr support**. These tools MUST be bundled with project binaries in the same directory. System ffmpeg will NOT work.
+
+**Cause**: ffmpeg/ffprobe are not in the project binary directory, or wrong version/missing codecs.
 
 **Solutions**:
 
 **Linux:**
 ```bash
-# Option 1: Install ffmpeg from package manager
-sudo apt install ffmpeg  # Debian/Ubuntu
-sudo dnf install ffmpeg  # Fedora
+# 1. Verify ffmpeg 8.1 with fdk_aac/soxr is in build/bin/
+ls -la build/bin/ffmpeg build/bin/ffprobe
 
-# Option 2: Set environment variables
-export FFMPEG_BIN=/path/to/ffmpeg
-export FFPROBE_BIN=/path/to/ffprobe
-ffmpeg_converter input.mov
+# 2. Verify version and codecs
+./build/bin/ffmpeg -version | head -1
+./build/bin/ffmpeg -codecs | grep fdk_aac
+./build/bin/ffmpeg -filters | grep soxr
+
+# 3. If missing, copy from src/platform/linux/bin/ or rebuild
+cp src/platform/linux/bin/ffmpeg build/bin/
+cp src/platform/linux/bin/ffprobe build/bin/
+
+# 4. Run conversion (DO NOT use system ffmpeg)
+./build/bin/ffmpeg_converter input.mov
 ```
 
 **macOS:**
 ```bash
-# Option 1: Install from Homebrew
-brew install ffmpeg
+# 1. Verify ffmpeg 8.1 is bundled in app
+ls build/install/ffmpeg_converter_gui_macos.app/Contents/Resources/bin/
 
-# Option 2: Use MacPorts
-sudo port install ffmpeg
+# 2. Verify version and codecs
+build/install/ffmpeg_converter_gui_macos.app/Contents/Resources/bin/ffmpeg -version | head -1
+build/install/ffmpeg_converter_gui_macos.app/Contents/Resources/bin/ffmpeg -codecs | grep fdk_aac
 
-# Option 3: Set environment variables
-export FFMPEG=/path/to/ffmpeg
-export FFPROBE=/path/to/ffprobe
-./build/src/cli/ffmpeg_converter input.mov
+# 3. If missing, rebuild app
+cmake --build build --target macos_gui_native
+
+# 4. Run app (do NOT use system ffmpeg)
+open build/install/ffmpeg_converter_gui_macos.app
 ```
 
 **Windows:**
 ```powershell
-# Option 1: Place ffmpeg.exe in same directory as ffmpeg_converter.exe
-# (Copy from src/platform/windows/bin/)
+# 1. Verify ffmpeg 8.1 with fdk_aac/soxr is in build-msvc\src\cli\Release
+dir build-msvc\src\cli\Release\ffmpeg.exe
 
-# Option 2: Set environment variables (PowerShell)
-$env:FFMPEG_BIN = "C:\tools\ffmpeg.exe"
-$env:FFPROBE_BIN = "C:\tools\ffprobe.exe"
-ffmpeg_converter.exe input.mov
+# 2. Verify version and codecs
+.\build-msvc\src\cli\Release\ffmpeg.exe -version | Select-Object -First 1
+.\build-msvc\src\cli\Release\ffmpeg.exe -codecs | Select-String "fdk_aac"
+.\build-msvc\src\cli\Release\ffmpeg.exe -filters | Select-String "soxr"
+
+# 3. If missing, copy from src/platform/windows/bin/
+copy src\platform\windows\bin\ffmpeg.exe build-msvc\src\cli\Release\
+copy src\platform\windows\bin\ffprobe.exe build-msvc\src\cli\Release\
+
+# 4. Copy all DLL dependencies as well
+copy src\platform\windows\bin\*.dll build-msvc\src\cli\Release\
+
+# 5. Run conversion (do NOT use system ffmpeg)
+.\build-msvc\src\cli\Release\ffmpeg_converter.exe input.mov
 ```
+
+**Verify bundled tools:**
+```bash
+# After ensuring ffmpeg/ffprobe are in correct directory
+ffmpeg_converter -h  # Should work if tools are found
+```
+
+**If still failing:**
+- Check that ffmpeg version is 8.x (not older)
+- Verify fdk_aac codec is available (critical for audio workflows)
+- Verify soxr filter is available (critical for audio normalization)
+- Do NOT use system ffmpeg—only use project-bundled version
 
 ---
 
@@ -806,26 +867,44 @@ choco install gpac
 
 ### Issue: Audio levels too loud/quiet after conversion
 
-**Cause**: Audio normalization not applied or settings incorrect.
+**Cause**: Audio normalization not applied, settings incorrect, or soxr filter unavailable.
 
 **Solutions**:
 
-1. **Apply loudness normalization:**
+1. **Verify soxr filter is available:**
+   ```bash
+   # Linux/macOS
+   ./build/bin/ffmpeg -filters | grep soxr
+   
+   # Windows
+   .\build-msvc\src\cli\Release\ffmpeg.exe -filters | findstr soxr
+   ```
+   If soxr is not found, rebuild ffmpeg 8.1 with soxr support.
+
+2. **Apply loudness normalization (requires soxr):**
    ```bash
    ffmpeg_converter -a loudnorm2 -g podcast input.mov
    ```
 
-2. **Adjust genre setting** based on content:
-   - `podcast` for speech
+3. **Adjust genre setting** based on content:
+   - `podcast` for speech (most consistent)
    - `edm` for electronic music
    - `rock` for rock music
+   - `hiphop` for hip-hop
+   - `classical` for classical music
 
-3. **Use peak normalization** (simpler, faster):
+4. **Use peak normalization** (simpler, faster, no soxr needed):
    ```bash
    ffmpeg_converter -a peak input.mov
    ```
 
-4. **Verify source audio** is not already clipped
+5. **Verify ffmpeg 8.1 with fdk_aac for AAC output:**
+   ```bash
+   ffmpeg_converter -a loudnorm2 -g podcast input.mov  # will use fdk_aac
+   ```
+   If audio output fails, verify fdk_aac is available.
+
+6. **Verify source audio** is not already clipped
 
 ---
 
@@ -926,18 +1005,30 @@ fpc\cli\ffmpeg_converter_windows.exe input.mov
 
 ### Using Environment Variables
 
-Override tool locations globally:
+**Note:** ffmpeg_converter prefers bundled ffmpeg/ffprobe in project binary directory. Environment variables are fallback only and should only be used if custom-compiled ffmpeg 8.1 with fdk_aac/soxr is needed:
 
 ```bash
 # Linux/macOS
-export FFMPEG_BIN=/custom/path/ffmpeg
-export FFPROBE_BIN=/custom/path/ffprobe
+export FFMPEG_BIN=/custom/ffmpeg-8.1/bin/ffmpeg  # Must be version 8.1 with fdk_aac/soxr
+export FFPROBE_BIN=/custom/ffmpeg-8.1/bin/ffprobe
 export MKVMERGE_BIN=/custom/path/mkvmerge
 export MP4BOX_BIN=/custom/path/MP4Box
 
 # Windows PowerShell
-$env:FFMPEG_BIN = "C:\custom\ffmpeg.exe"
-$env:FFPROBE_BIN = "C:\custom\ffprobe.exe"
+$env:FFMPEG_BIN = "C:\ffmpeg-8.1\ffmpeg.exe"  # Must be version 8.1 with fdk_aac/soxr
+$env:FFPROBE_BIN = "C:\ffmpeg-8.1\ffprobe.exe"
+```
+
+**Verify custom ffmpeg meets requirements:**
+```bash
+# Verify version is 8.x
+/custom/ffmpeg/ffmpeg -version | head -1
+
+# Verify fdk_aac is available
+/custom/ffmpeg/ffmpeg -codecs | grep fdk_aac
+
+# Verify soxr is available
+/custom/ffmpeg/ffmpeg -filters | grep soxr
 ```
 
 ### Custom Genre for Loudness Normalization
