@@ -68,11 +68,24 @@ static void macos_get_video_info(const char* input,
 
     char cmd[2048];
     const char* ffprobe_bin = platform_get_ffprobe_bin();
+    if (!ffprobe_bin || ffprobe_bin[0] == '\0') return;
+
+    char* esc_ffprobe = platform_escape_path_for_command(ffprobe_bin);
+    char* esc_input   = platform_escape_path_for_command(input);
+    if (!esc_ffprobe || !esc_input) {
+        free(esc_ffprobe);
+        free(esc_input);
+        return;
+    }
+
     snprintf(cmd, sizeof(cmd),
-             "\"%s\" -v error -select_streams v:0"
+             "%s -v error -select_streams v:0"
              " -show_entries stream=width,height,r_frame_rate"
-             " -of default=noprint_wrappers=1:nokey=1 \"%s\" 2>/dev/null",
-             ffprobe_bin, input);
+             " -of default=noprint_wrappers=1:nokey=1 %s 2>/dev/null",
+             esc_ffprobe, esc_input);
+
+    free(esc_ffprobe);
+    free(esc_input);
 
     FILE* fp = popen(cmd, "r");
     if (!fp) return;
@@ -302,10 +315,21 @@ void platform_normalize_output_line(char* line) {
  * --------------------------------------------------------------- */
 
 int platform_validate_audio_filters(void) {
-    /* On macOS we assume the bundled or MacPorts ffmpeg was built with libsoxr.
-     * Return 1 (valid) unless ffmpeg binary is missing entirely. */
     const char* ffmpeg = platform_get_ffmpeg_bin();
-    return (ffmpeg && ffmpeg[0] != '\0') ? 1 : 0;
+    if (!ffmpeg || ffmpeg[0] == '\0') return 0;
+
+    /* Verify that the bundled ffmpeg was built with libsoxr support.
+     * Without libsoxr the aresample=resampler=soxr filter will fail. */
+    char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg);
+    if (!esc_ffmpeg) return 0;
+
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+             "%s -hide_banner -filters 2>/dev/null | grep -q soxr",
+             esc_ffmpeg);
+    free(esc_ffmpeg);
+
+    return (system(cmd) == 0) ? 1 : 0;
 }
 
 int platform_supports_codec(const char* codec) {

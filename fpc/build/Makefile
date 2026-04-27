@@ -96,6 +96,22 @@ GUI_DEPS := \
 	$(COMMON_UNITS) \
 	$(CONVERTER_UNITS)
 
+# macOS Pascal support has been removed.  The primary macOS implementation
+# is the native C/Cocoa GUI (src/gui_macos_native).  The FPC Makefile now
+# only supports Linux and Windows builds.
+ifeq ($(UNAME_S),Darwin)
+.PHONY: all cli lib tests apple-test gui gui-app clean
+
+all cli lib tests apple-test gui gui-app:
+	@echo "ERROR: Pascal/FPC macOS build is no longer supported."
+	@echo "       Use the native C/Cocoa GUI (src/gui_macos_native) instead."
+	@exit 1
+
+clean:
+	rm -rf "$(UNIT_BASE)" "$(BIN_DIR)"
+
+else
+
 .PHONY: all cli lib tests apple-test gui gui-app clean
 
 all: cli lib tests copy-binaries
@@ -128,11 +144,9 @@ copy-binaries:
 	fi
 
 gui-app: $(GUI_BIN)
-	@if [ "$(UNAME_S)" = "Darwin" ]; then \
-		"$(ROOT)/fpc/build/package_macos_app.sh" "$(GUI_BIN)"; \
-	else \
-		echo "Skipping gui-app packaging on non-Darwin host."; \
-	fi
+	@echo "Skipping gui-app packaging (macOS Pascal build is not supported)."
+
+endif
 
 $(GUI_BIN): $(GUI_DEPS)
 	@command -v "$(LAZBUILD)" >/dev/null 2>&1 || { echo "ERROR: lazbuild not found in PATH."; exit 1; }

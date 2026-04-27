@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# DEPRECATED: The Pascal/FPC macOS GUI build is no longer supported.
+# The primary macOS implementation is the native C/Cocoa GUI in src/gui_macos_native.
+# This script is retained for reference only and will not be invoked by the build system.
+echo "ERROR: package_macos_app.sh is deprecated. macOS Pascal build is not supported." >&2
+exit 1
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
