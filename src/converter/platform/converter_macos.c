@@ -319,17 +319,31 @@ int platform_validate_audio_filters(void) {
     if (!ffmpeg || ffmpeg[0] == '\0') return 0;
 
     /* Verify that the bundled ffmpeg was built with libsoxr support.
-     * Without libsoxr the aresample=resampler=soxr filter will fail. */
+     * Without libsoxr the aresample=resampler=soxr filter will fail.
+     * Use popen() to avoid shell metacharacter concerns with system(). */
     char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg);
     if (!esc_ffmpeg) return 0;
 
     char cmd[2048];
     snprintf(cmd, sizeof(cmd),
-             "%s -hide_banner -filters 2>/dev/null | grep -q soxr",
+             "%s -hide_banner -filters 2>/dev/null",
              esc_ffmpeg);
     free(esc_ffmpeg);
 
-    return (system(cmd) == 0) ? 1 : 0;
+    FILE* fp = popen(cmd, "r");
+    if (!fp) return 0;
+
+    char line[256];
+    int found = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        if (strstr(line, "soxr")) {
+            found = 1;
+            break;
+        }
+    }
+    pclose(fp);
+
+    return found;
 }
 
 int platform_supports_codec(const char* codec) {

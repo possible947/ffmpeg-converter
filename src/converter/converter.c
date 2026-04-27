@@ -679,7 +679,7 @@ static ConverterError loudnorm_two_pass(
     char cmd[4096];
     snprintf(cmd, sizeof(cmd),
         "%s -hwaccel none -filter_threads %d -vn -i %s -af "
-        "'loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:linear=true:print_format=json' "
+        "\"loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:linear=true:print_format=json\" "
         "-f null - 2>&1",
         esc_ffmpeg, filter_threads, esc_input, I_target, TP_target, LRA_target);
 
