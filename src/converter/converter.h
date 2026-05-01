@@ -54,7 +54,7 @@ typedef struct {
     char codec[32];     // "copy", "prores", "prores_ks",
                         // "prores_videotoolbox" (macOS),
                         // "hevc_videotoolbox"   (macOS)
-    int  profile;       // 0=none, 1=lt, 2=standard, 3=hq
+    int  profile;       // 0=none, 1=lt, 2=standard, 3=hq, 4=4444
     int  deblock;       // 1=none, 2=weak, 3=strong
 
     // AUDIO NORMALIZATION
@@ -78,7 +78,7 @@ typedef struct {
 
     // OUTPUT
     int  overwrite;      // 0=skip, 1=force
-    char output_dir[1024]; // optional output directory ("" = same as input)
+    char output_dir[1024]; // optional output directory ("" = default $HOME/ffmpeg_converter)
     int output_dir_status;
     char video_track_path[1024];
     char hw_device[1024];

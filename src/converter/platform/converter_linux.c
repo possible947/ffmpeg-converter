@@ -176,17 +176,48 @@ void platform_normalize_output_line(char* line) {
  * --------------------------------------------------------------- */
 
 int platform_validate_audio_filters(void) {
-    /* Check that ffmpeg was built with --enable-libsoxr by testing
-     * whether the 'soxr' resampler option is available. */
+    /* Check that ffmpeg was built with --enable-libsoxr.
+     * On many FFmpeg builds, `soxr` is not listed in `-filters` output;
+     * it is exposed as an `aresample` option. */
     const char* ffmpeg = platform_get_ffmpeg_bin();
     if (!ffmpeg || ffmpeg[0] == '\0') return 0;
 
     char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg);
     if (!esc_ffmpeg) return 0;
 
+    {
+        char cmd[1024];
+        FILE* fp;
+        char line[512];
+        int found_soxr = 0;
+
+        snprintf(cmd, sizeof(cmd),
+                 "%s -hide_banner -h filter=aresample 2>/dev/null",
+                 esc_ffmpeg);
+
+        fp = platform_popen(cmd, "r");
+        if (fp) {
+            while (fgets(line, sizeof(line), fp)) {
+                if (strstr(line, "soxr")) {
+                    found_soxr = 1;
+                    break;
+                }
+            }
+            platform_pclose(fp);
+        }
+
+        if (found_soxr) {
+            free(esc_ffmpeg);
+            return 1;
+        }
+    }
+
+    /* Fallback probe: execute a tiny soxr resample graph. */
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
-             "%s -hide_banner -filters 2>/dev/null | grep -q soxr", esc_ffmpeg);
+             "%s -hide_banner -v error -f lavfi -i anullsrc=r=48000:cl=stereo "
+             "-t 0.01 -af aresample=resampler=soxr -f null - 2>/dev/null",
+             esc_ffmpeg);
     int result = (system(cmd) == 0) ? 1 : 0;
     free(esc_ffmpeg);
     return result;
