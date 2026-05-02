@@ -47,6 +47,7 @@ add_library(gui_lib
 )
 
 target_include_directories(gui_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(gui_lib PRIVATE -Wno-deprecated-declarations)
 target_link_libraries(gui_lib
     PRIVATE PkgConfig::GTK4
     PUBLIC converter   # already defined in src/converter/CMakeLists
@@ -60,6 +61,7 @@ set_target_properties(linux_gui PROPERTIES
     OUTPUT_NAME "ffmpeg_converter_gui"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
+target_compile_options(linux_gui PRIVATE -Wno-deprecated-declarations)
 target_link_libraries(linux_gui
     PRIVATE gui_lib
     PRIVATE converter
