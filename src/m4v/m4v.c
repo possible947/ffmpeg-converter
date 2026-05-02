@@ -362,7 +362,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     char video_add[3072];
     char aac_add[3072];
     char ac3_add[3072];
-    char cmd[12288];
+    char cmd[20480];
     char chapter_json[65536];
     char detail[256];
     int rc;
