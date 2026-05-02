@@ -245,7 +245,9 @@ function Build-GUI {
     }
     Write-Host ''
 
-    $OutExe = Join-Path $FpcDir 'gui\ffmpeg_converter_gui.exe'
+    # form.lpi targets ..\bin\ffmpeg_converter_gui.exe, so lazbuild writes
+    # directly into fpc\bin.  Do not use the stale copy under fpc\gui here.
+    $OutExe = Join-Path $BinDir 'ffmpeg_converter_gui.exe'
     if ($rc -eq 0 -and (Test-Path $OutExe)) {
         Write-Host "GUI build succeeded." -ForegroundColor Green
         Write-Host "  Output: $OutExe" -ForegroundColor Green
@@ -267,8 +269,15 @@ function Stage-ToBin([string[]] $Exes) {
 
     foreach ($exe in $Exes) {
         if (Test-Path $exe) {
-            Copy-Item $exe $BinDir -Force
-            Write-Host "  Copied: $(Split-Path -Leaf $exe)" -ForegroundColor DarkGray
+            $src = (Resolve-Path $exe).Path
+            $dst = Join-Path $BinDir (Split-Path -Leaf $exe)
+            if ($src -ieq $dst) {
+                Write-Host "  Already staged: $(Split-Path -Leaf $exe)" -ForegroundColor DarkGray
+            }
+            else {
+                Copy-Item $exe $BinDir -Force
+                Write-Host "  Copied: $(Split-Path -Leaf $exe)" -ForegroundColor DarkGray
+            }
         }
     }
 
@@ -309,7 +318,7 @@ if (-not $GUIOnly) {
 if (-not $CLIOnly) {
     $guiOk = Build-GUI
     if ($guiOk) {
-        $stagedExes += Join-Path $FpcDir 'gui\ffmpeg_converter_gui.exe'
+        $stagedExes += Join-Path $BinDir 'ffmpeg_converter_gui.exe'
     }
 }
 

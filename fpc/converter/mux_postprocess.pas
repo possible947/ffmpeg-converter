@@ -29,6 +29,22 @@ begin
   Result := StrPas(@A[0]);
 end;
 
+procedure SafeWriteLn(const S: string);
+begin
+  try
+    WriteLn(S);
+  except
+  end;
+end;
+
+procedure SafeWriteErr(const S: string);
+begin
+  try
+    WriteLn(StdErr, S);
+  except
+  end;
+end;
+
 function RunMuxPostprocess(const Opts: TConvertOptions;
                            const InputFile: string): TConverterError;
 var
@@ -60,7 +76,7 @@ begin
   IntermediateFile := MakeOutputName(InputFile, 'copy', EffectiveOutputDir);
   if not FileExists(IntermediateFile) then
   begin
-    WriteLn(StdErr, 'Error: intermediate file not found: ', IntermediateFile);
+    SafeWriteErr('Error: intermediate file not found: ' + IntermediateFile);
     Exit(ERR_INPUT_NOT_FOUND);
   end;
 
@@ -68,7 +84,7 @@ begin
   VideoTrack := ArrToStr(Opts.video_track_path);
   if not FileExists(VideoTrack) then
   begin
-    WriteLn(StdErr, 'Error: video track file not found: ', VideoTrack);
+    SafeWriteErr('Error: video track file not found: ' + VideoTrack);
     Exit(ERR_INVALID_OPTIONS);
   end;
 
@@ -79,7 +95,7 @@ begin
     CmdRes := RunCommandCapture('command -v mkvmerge 2>/dev/null');
     if CmdRes.ExitCode <> 0 then
     begin
-      WriteLn(StdErr, 'Error: mkvmerge not found');
+      SafeWriteErr('Error: mkvmerge not found');
       Exit(ERR_INVALID_OPTIONS);
     end;
   end;
@@ -108,32 +124,32 @@ begin
     end;
     if MuxRate = '' then
     begin
-      WriteLn(StdErr, 'Error: could not probe source FPS from intermediate file');
+      SafeWriteErr('Error: could not probe source FPS from intermediate file');
       Exit(ERR_FFPROBE_FAILED);
     end;
   end;
 
   { Build mkvmerge command:
-      video from VideoTrack, audio from IntermediateFile }
+      video track 0 from VideoTrack, non-video tracks from IntermediateFile }
   MuxCmd := QuoteForShell(Tools.MkvmergeBin) + ' -o ' + QuoteForShell(TempOutputFile) +
             ' --no-audio --no-subtitles --no-buttons --no-attachments' +
             ' --no-chapters --no-global-tags --no-track-tags ';
   if MuxRate <> '' then
     MuxCmd += '--default-duration 0:' + MuxRate + 'fps ';
-  MuxCmd += QuoteForShell(VideoTrack) +
+  MuxCmd += '--video-tracks 0 ' + QuoteForShell(VideoTrack) +
             ' --no-video ' + QuoteForShell(IntermediateFile) + ' 2>&1';
 
-  WriteLn('Running mux postprocess...');
-  WriteLn('Command: ', MuxCmd);
+  SafeWriteLn('Running mux postprocess...');
+  SafeWriteLn('Command: ' + MuxCmd);
 
   { Execute mkvmerge }
   CmdRes := RunCommandCapture(MuxCmd);
   if CmdRes.ExitCode <> 0 then
   begin
     RunCommandCapture('rm -f ' + QuoteForShell(TempOutputFile));
-    WriteLn(StdErr, 'Error: mkvmerge failed with exit code: ', CmdRes.ExitCode);
+    SafeWriteErr('Error: mkvmerge failed with exit code: ' + IntToStr(CmdRes.ExitCode));
     if CmdRes.OutputText <> '' then
-      WriteLn(StdErr, 'mkvmerge output: ', CmdRes.OutputText);
+      SafeWriteErr('mkvmerge output: ' + CmdRes.OutputText);
     Exit(ERR_FFMPEG_FAILED);
   end;
 
@@ -148,7 +164,7 @@ begin
      (Pos('audio', CmdRes.OutputText) = 0) then
   begin
     RunCommandCapture('rm -f ' + QuoteForShell(TempOutputFile));
-    WriteLn(StdErr, 'Error: mux output validation failed');
+    SafeWriteErr('Error: mux output validation failed');
     Exit(ERR_FFPROBE_FAILED);
   end;
 
@@ -158,11 +174,11 @@ begin
   if CmdRes.ExitCode <> 0 then
   begin
     RunCommandCapture('rm -f ' + QuoteForShell(TempOutputFile));
-    WriteLn(StdErr, 'Error: could not move mux output into place');
+    SafeWriteErr('Error: could not move mux output into place');
     Exit(ERR_UNKNOWN);
   end;
 
-  WriteLn('Mux successful: ', IntermediateFile);
+  SafeWriteLn('Mux successful: ' + IntermediateFile);
   Result := ERR_OK;
 {$ELSE}
 {$IFDEF Windows}
@@ -175,7 +191,7 @@ begin
   IntermediateFile := MakeOutputName(InputFile, 'copy', EffectiveOutputDir);
   if not FileExists(IntermediateFile) then
   begin
-    WriteLn(StdErr, 'Error: intermediate file not found: ', IntermediateFile);
+    SafeWriteErr('Error: intermediate file not found: ' + IntermediateFile);
     Exit(ERR_INPUT_NOT_FOUND);
   end;
 
@@ -183,7 +199,7 @@ begin
   VideoTrack := ArrToStr(Opts.video_track_path);
   if not FileExists(VideoTrack) then
   begin
-    WriteLn(StdErr, 'Error: video track file not found: ', VideoTrack);
+    SafeWriteErr('Error: video track file not found: ' + VideoTrack);
     Exit(ERR_INVALID_OPTIONS);
   end;
 
@@ -192,7 +208,7 @@ begin
   MkvmergePath := FindMkvmergeBin;
   if MkvmergePath = '' then
   begin
-    WriteLn(StdErr, 'Error: mkvmerge not found');
+    SafeWriteErr('Error: mkvmerge not found');
     Exit(ERR_INVALID_OPTIONS);
   end;
 
@@ -221,23 +237,23 @@ begin
     end;
     if MuxRate = '' then
     begin
-      WriteLn(StdErr, 'Error: could not probe source FPS from intermediate file');
+      SafeWriteErr('Error: could not probe source FPS from intermediate file');
       Exit(ERR_FFPROBE_FAILED);
     end;
   end;
 
   { Build mkvmerge command for Windows:
-      video from VideoTrack, audio from IntermediateFile }
+      video track 0 from VideoTrack, non-video tracks from IntermediateFile }
   MuxCmd := '"' + MkvmergePath + '" -o "' + TempOutputFile + '"' +
             ' --no-audio --no-subtitles --no-buttons --no-attachments' +
             ' --no-chapters --no-global-tags --no-track-tags';
   if MuxRate <> '' then
     MuxCmd := MuxCmd + ' --default-duration 0:' + MuxRate + 'fps';
-  MuxCmd := MuxCmd + ' "' + VideoTrack + '"' +
+  MuxCmd := MuxCmd + ' --video-tracks 0 "' + VideoTrack + '"' +
             ' --no-video "' + IntermediateFile + '"';
 
-  WriteLn('Running mux postprocess...');
-  WriteLn('Command: ', MuxCmd);
+  SafeWriteLn('Running mux postprocess...');
+  SafeWriteLn('Command: ' + MuxCmd);
 
   { Execute mkvmerge }
   CmdRes := RunCommandCapture(MuxCmd);
@@ -245,9 +261,9 @@ begin
   begin
     if FileExists(TempOutputFile) then
       SysUtils.DeleteFile(TempOutputFile);
-    WriteLn(StdErr, 'Error: mkvmerge failed with exit code: ', CmdRes.ExitCode);
+    SafeWriteErr('Error: mkvmerge failed with exit code: ' + IntToStr(CmdRes.ExitCode));
     if CmdRes.OutputText <> '' then
-      WriteLn(StdErr, 'mkvmerge output: ', CmdRes.OutputText);
+      SafeWriteErr('mkvmerge output: ' + CmdRes.OutputText);
     Exit(ERR_FFMPEG_FAILED);
   end;
 
@@ -265,7 +281,7 @@ begin
     begin
       if FileExists(TempOutputFile) then
         SysUtils.DeleteFile(TempOutputFile);
-      WriteLn(StdErr, 'Error: mux output validation failed');
+      SafeWriteErr('Error: mux output validation failed');
       Exit(ERR_FFPROBE_FAILED);
     end;
   end;
@@ -277,14 +293,14 @@ begin
   begin
     if FileExists(TempOutputFile) then
       SysUtils.DeleteFile(TempOutputFile);
-    WriteLn(StdErr, 'Error: could not move mux output into place');
+    SafeWriteErr('Error: could not move mux output into place');
     Exit(ERR_UNKNOWN);
   end;
 
-  WriteLn('Mux successful: ', IntermediateFile);
+  SafeWriteLn('Mux successful: ' + IntermediateFile);
   Result := ERR_OK;
 {$ELSE}
-  WriteLn(StdErr, 'Error: mux postprocess is only supported on Linux and Windows');
+  SafeWriteErr('Error: mux postprocess is only supported on Linux and Windows');
   Result := ERR_INVALID_OPTIONS;
 {$ENDIF}
 {$ENDIF}

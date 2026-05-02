@@ -354,6 +354,7 @@ var
   FileOpts: TConvertOptions;
   WorkOpts: TConvertOptions;
   IntermediateFile: string;
+  OverallErr: TConverterError;
 
 begin
   if (c = nil) or (files = nil) or (file_count <= 0) then
@@ -361,6 +362,7 @@ begin
 
   Ctx := PConverterObj(c);
   Ctx^.StopFlag := 0;
+  OverallErr := ERR_OK;
 
   if not EnsureOutputDirWritable(ArrToStr(Ctx^.Opts.output_dir), EffectiveOutDir, DirError) then
   begin
@@ -536,6 +538,7 @@ begin
       ErrorLogPath,
       ErrorLogNotice
     );
+
     if Err <> ERR_OK then
     begin
       if Err <> ERR_SKIP_FILE then
@@ -552,12 +555,15 @@ begin
 
     if Assigned(Ctx^.Cb.on_file_end) then
       Ctx^.Cb.on_file_end(PAnsiChar(AnsiString(InputFile)), Err);
+
+    if (Err <> ERR_OK) and (Err <> ERR_SKIP_FILE) and (OverallErr = ERR_OK) then
+      OverallErr := Err;
   end;
 
-  if Assigned(Ctx^.Cb.on_complete) then
+  if (OverallErr = ERR_OK) and Assigned(Ctx^.Cb.on_complete) then
     Ctx^.Cb.on_complete;
 
-  Result := ERR_OK;
+  Result := OverallErr;
 end;
 
 procedure converter_stop(c: PConverter); cdecl;

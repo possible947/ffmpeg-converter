@@ -638,6 +638,8 @@ begin
   inherited Create(True);
   FreeOnTerminate := True;
   FOptions := Opts;
+  { Ensure video_track_path is correctly copied }
+  FOptions.video_track_path := Opts.video_track_path;
   SetLength(FFiles, Length(Files));
   for I := 0 to High(Files) do
     FFiles[I] := Files[I];
@@ -649,7 +651,9 @@ var
   Err: TConverterError;
   I: Integer;
   TmpFiles{%H-}: array of PAnsiChar;
+  CodecName: string;
 begin
+  Err := ERR_OK;
   FConverter := converter_create;
   if FConverter = nil then
   begin
@@ -657,7 +661,12 @@ begin
     Exit;
   end;
 
+  CodecName := LowerCase(Trim(StrPas(@FOptions.codec[0])));
   SetupConverterCallbacks(Cb);
+  if CodecName = 'mux' then
+  begin
+    Cb.on_complete := nil;
+  end;
 
   converter_set_callbacks(FConverter, @Cb);
   Err := converter_set_options(FConverter, @FOptions);
@@ -679,8 +688,35 @@ begin
     if Err <> ERR_OK then
       QueueLog('Processing finished with errors.');
 {$IF defined(Linux) or defined(Windows)}
-    if (Err = ERR_OK) and (StrPas(@FOptions.codec[0]) = 'mux') then
-      Err := RunMuxPostprocess(FOptions, string(FFiles[0]));
+    if (Err = ERR_OK) and (CodecName = 'mux') then
+    begin
+      QueueLog('Starting mux postprocess...');
+      QueueLog('Mux source: ' + string(FFiles[0]));
+      QueueLog('Mux video-track: ' + StrPas(@FOptions.video_track_path[0]));
+      QueueStatus('Stage: mux postprocess');
+
+      if StrPas(@FOptions.video_track_path[0]) = '' then
+      begin
+        QueueLog('ERROR: mux postprocess missing video-track path');
+        QueueStatus('ERROR: mux postprocess missing video-track path');
+        Err := ERR_INVALID_OPTIONS;
+      end
+      else
+      begin
+        Err := RunMuxPostprocess(FOptions, string(FFiles[0]));
+      end;
+
+      if Err <> ERR_OK then
+      begin
+        QueueLog('ERROR: mux postprocess failed (' + string(converter_error_string(Err)) + ')');
+        QueueStatus('ERROR: mux postprocess failed');
+      end
+      else
+      begin
+        QueueLog('Mux postprocess complete.');
+        QueueComplete;
+      end;
+    end;
 {$ENDIF}
   end;
 
@@ -721,7 +757,16 @@ end;
 
 function CodecIsMux(const Codec: string): Boolean;
 begin
-  Result := Codec = 'mux';
+  Result := LowerCase(Trim(Codec)) = 'mux';
+end;
+
+function ComboSelectedText(Combo: TComboBox): string;
+begin
+  if (Combo.ItemIndex >= 0) and (Combo.ItemIndex < Combo.Items.Count) then
+    Result := Combo.Items[Combo.ItemIndex]
+  else
+    Result := Combo.Text;
+  Result := LowerCase(Trim(Result));
 end;
 
 function CodecUsesSoftwareProres(const Codec: string): Boolean;
@@ -895,11 +940,13 @@ procedure TMainForm.BuildCurrentOptions(out Opts: TConvertOptions);
 var
   ResolvedDir: string;
   DirError: string;
+  CodecText: string;
 begin
   InitDefaultOptions(Opts);
 
-  if cmbCodec.ItemIndex >= 0 then
-    SetAnsiField(Opts.codec, cmbCodec.Items[cmbCodec.ItemIndex]);
+  CodecText := ComboSelectedText(cmbCodec);
+  if CodecText <> '' then
+    SetAnsiField(Opts.codec, CodecText);
 
   case cmbProfile.ItemIndex of
     0: Opts.profile := 1;
@@ -920,14 +967,14 @@ begin
   if cmbAudioOutput.ItemIndex >= 0 then
     SetAnsiField(Opts.audio_output_mode, cmbAudioOutput.Items[cmbAudioOutput.ItemIndex]);
 
-  if CodecIsMux(cmbCodec.Text) then
+  if CodecIsMux(CodecText) then
     SetAnsiField(Opts.video_track_path, FVideoTrackPath);
 
   Opts.genre := cmbGenre.ItemIndex + 1;
   Opts.overwrite := Ord(chkOverwrite.Checked);
 
   {$IFDEF Windows}
-  if CodecIsVulkanProres(cmbCodec.Text) then
+  if CodecIsVulkanProres(CodecText) then
     Opts.vulkan_device := FVulkanDeviceIndex
   else
     Opts.vulkan_device := 0;  { 0 = first/default device; only used by Vulkan codec }
@@ -951,7 +998,7 @@ var
   CodecText: string;
   AudioNormText: string;
 begin
-  CodecText := cmbCodec.Text;
+  CodecText := ComboSelectedText(cmbCodec);
   AudioNormText := cmbAudioNorm.Text;
 
   cmbProfile.Enabled := CodecUsesSoftwareProres(CodecText);
@@ -1144,7 +1191,7 @@ begin
     Exit;
   end;
 
-  if CodecIsMux(cmbCodec.Text) then
+  if CodecIsMux(ComboSelectedText(cmbCodec)) then
   begin
     if lstFiles.Items.Count <> 1 then
     begin
@@ -1175,6 +1222,11 @@ begin
 
   SetLength(FileArr, lstFiles.Items.Count);
   CollectOptions(Opts, FileArr, Count);
+  if CodecIsMux(ComboSelectedText(cmbCodec)) then
+  begin
+    SetAnsiField(Opts.codec, 'mux');
+    SetAnsiField(Opts.video_track_path, FVideoTrackPath);
+  end;
 
   if not EnsureOutputDirWritable(string(PAnsiChar(@Opts.output_dir[0])), ResolvedDir, DirError) then
   begin
