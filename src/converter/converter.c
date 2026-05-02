@@ -100,43 +100,44 @@ static int codec_uses_aac_audio(const char* codec) {
 static const char* get_ffmpeg_bin(void);
 
 static int ffmpeg_encoder_available(const char* encoder_name) {
-    int has_aac_at = 0;
-    int has_libfdk_aac = 0;
-    int has_aac = 0;
+    static int initialized = 0;
+    static int has_aac_at = 0;
+    static int has_libfdk_aac = 0;
+    static int has_aac = 0;
 
     if (!encoder_name || encoder_name[0] == '\0') {
         return 0;
     }
 
-    {
+    if (!initialized) {
         const char* ffmpeg_bin = platform_get_ffmpeg_bin();
         char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
-        if (!esc_ffmpeg) {
-            return 0;
-        }
+        if (esc_ffmpeg) {
+            char cmd[4096];
+            snprintf(cmd, sizeof(cmd),
+                     "%s -hide_banner -v error -encoders 2>%s",
+                     esc_ffmpeg, platform_get_null_device());
+            free(esc_ffmpeg);
 
-        char cmd[4096];
-        snprintf(cmd, sizeof(cmd),
-                 "%s -hide_banner -v error -encoders 2>%s",
-                 esc_ffmpeg, platform_get_null_device());
-        free(esc_ffmpeg);
-
-        FILE* fp = platform_popen(cmd, "r");
-        if (fp) {
-            char line[1024];
-            while (fgets(line, sizeof(line), fp)) {
-                if (!has_aac_at && strstr(line, " aac_at")) {
-                    has_aac_at = 1;
+            FILE* fp = platform_popen(cmd, "r");
+            if (fp) {
+                char line[1024];
+                while (fgets(line, sizeof(line), fp)) {
+                    if (!has_aac_at && strstr(line, " aac_at")) {
+                        has_aac_at = 1;
+                    }
+                    if (!has_libfdk_aac && strstr(line, " libfdk_aac")) {
+                        has_libfdk_aac = 1;
+                    }
+                    if (!has_aac && strstr(line, " aac ")) {
+                        has_aac = 1;
+                    }
                 }
-                if (!has_libfdk_aac && strstr(line, " libfdk_aac")) {
-                    has_libfdk_aac = 1;
-                }
-                if (!has_aac && strstr(line, " aac ")) {
-                    has_aac = 1;
-                }
+                platform_pclose(fp);
             }
-            platform_pclose(fp);
         }
+
+        initialized = 1;
     }
 
     if (strcmp(encoder_name, "aac_at") == 0) {
@@ -205,7 +206,8 @@ static int probe_input_video_codec(const char* input,
             found = 1;
         }
     }
-    platform_pclose(fp);
+    if (platform_pclose(fp) != 0)
+        found = 0;
     return found;
 }
 
@@ -413,11 +415,11 @@ static double get_duration(const char *input) {
     if (!fp) return 0.0;
 
     char buf[256];
-    if (!fgets(buf, sizeof(buf), fp)) {
-        platform_pclose(fp);
+    int got_output = (fgets(buf, sizeof(buf), fp) != NULL);
+    int status = platform_pclose(fp);
+    if (!got_output || status != 0) {
         return 0.0;
     }
-    platform_pclose(fp);
 
     return atof(buf);
 }
@@ -529,7 +531,8 @@ static ConverterError check_output_exists(
     Converter* c,
     const char* output
 ) {
-    if (platform_stat_is_regular_file(output) || platform_stat_is_directory(output)) {
+    struct stat st;
+    if (stat(output, &st) == 0) {
         // file exists
         if (c->opts.overwrite == 0) {
             if (c->cb.on_message)
@@ -1073,12 +1076,6 @@ static ConverterError run_ffmpeg_encode_with_progress(
     const char* cmd_base,
     double duration
 ) {
-    if (!cmd_base || cmd_base[0] == '\0') {
-        if (c->cb.on_error)
-            c->cb.on_error("ffmpeg command is empty", ERR_INVALID_OPTIONS);
-        return ERR_INVALID_OPTIONS;
-    }
-
     if (c->cb.on_stage)
         c->cb.on_stage("encoding");
 
@@ -1303,10 +1300,12 @@ ConverterError converter_process_files(
         /* Platform-specific bitrate calculation for VideoToolbox is handled
          * inside platform_get_video_codec_flags() in converter_macos.c. */
         build_ffmpeg_cmd(c, input, output, cmd, sizeof(cmd));
+
         if (cmd[0] == '\0') {
-            err = ERR_INVALID_OPTIONS;
+            if (c->cb.on_error)
+                c->cb.on_error("ffmpeg command build failed", ERR_INVALID_OPTIONS);
             if (c->cb.on_file_end)
-                c->cb.on_file_end(input, err);
+                c->cb.on_file_end(input, ERR_INVALID_OPTIONS);
             continue;
         }
 

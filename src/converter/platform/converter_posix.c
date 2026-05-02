@@ -10,6 +10,7 @@
 #include "../converter_platform.h"
 
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <stdio.h>
 
 int platform_stat_is_regular_file(const char *path)
@@ -33,5 +34,10 @@ FILE *platform_popen(const char *cmd, const char *mode)
 
 int platform_pclose(FILE *fp)
 {
-    return pclose(fp);
+    int rc = pclose(fp);
+    if (rc == -1)
+        return -1;
+    if (WIFEXITED(rc))
+        return WEXITSTATUS(rc);
+    return -1;
 }
