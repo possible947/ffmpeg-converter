@@ -26,6 +26,8 @@ typedef struct {
 
     /* Controls */
     GtkWidget *codec_combo;
+    GtkWidget *vulkan_device_label;
+    GtkWidget *vulkan_device_combo;
     GtkWidget *profile_combo;
     GtkWidget *deblock_combo;
 

@@ -14,6 +14,8 @@ type
     HasAMF:       Boolean;
     HasQSV:       Boolean;
     HasVulkan:    Boolean;
+    VulkanDeviceIndex: Integer;
+    VulkanDeviceCount: Integer;
     HasMkvmerge:  Boolean;
     HasMp4Box:    Boolean;
     VaapiRenderNode: string;
@@ -139,8 +141,9 @@ begin
 end;
 
 { Probe Vulkan prores_ks_vulkan on devices vk:0..vk:7.
-  Returns True if at least one device succeeds. }
-function ProbeVulkanEncoder(const FfmpegBin: string): Boolean;
+  Returns True if at least one device succeeds.
+  BestDevice is the highest working index, DeviceCount is number of working devices. }
+function ProbeVulkanEncoder(const FfmpegBin: string; out BestDevice: Integer; out DeviceCount: Integer): Boolean;
 var
   I: Integer;
   Cmd: string;
@@ -148,6 +151,8 @@ var
 begin
 {$IFDEF Linux}
   Result := False;
+  BestDevice := -1;
+  DeviceCount := 0;
   if FfmpegBin = '' then
     Exit;
   for I := 0 to 7 do
@@ -161,14 +166,17 @@ begin
     R := RunCommandCapture(Cmd);
     if R.ExitCode = 0 then
     begin
+      Inc(DeviceCount);
+      BestDevice := I;
       Result := True;
-      Exit;
     end;
     { Stop early if no successes after 3 attempts — no Vulkan GPU present. }
-    if I >= 2 then
+    if (DeviceCount = 0) and (I >= 2) then
       Break;
   end;
 {$ELSE}
+  BestDevice := -1;
+  DeviceCount := 0;
   Result := False;
 {$ENDIF}
 end;
@@ -187,6 +195,8 @@ var
   FfmpegBin: string;
   RenderNode: string;
   I: Integer;
+  VulkanBest: Integer;
+  VulkanCount: Integer;
 begin
   Result.HasVaapiH264 := False;
   Result.HasVaapiHEVC := False;
@@ -194,6 +204,8 @@ begin
   Result.HasAMF := False;
   Result.HasQSV := False;
   Result.HasVulkan := False;
+  Result.VulkanDeviceIndex := 0;
+  Result.VulkanDeviceCount := 0;
   Result.HasMkvmerge := False;
   Result.HasMp4Box := False;
   Result.VaapiRenderNode := '';
@@ -237,7 +249,12 @@ begin
                    ProbeSimpleEncoder(FfmpegBin, 'hevc_qsv');
 
   { Vulkan — any GPU with Vulkan 1.1+ }
-  Result.HasVulkan := ProbeVulkanEncoder(FfmpegBin);
+  Result.HasVulkan := ProbeVulkanEncoder(FfmpegBin, VulkanBest, VulkanCount);
+  Result.VulkanDeviceCount := VulkanCount;
+  if VulkanBest >= 0 then
+    Result.VulkanDeviceIndex := VulkanBest
+  else
+    Result.VulkanDeviceIndex := 0;
 {$ENDIF}
 end;
 

@@ -13,7 +13,9 @@ uses
   converter_types, apple_m4v_creator
   {$IFDEF Windows}
   , form_windows
-  , vulkan_device_selector
+  {$ENDIF}
+  {$IFDEF Linux}
+  , linux_probe
   {$ENDIF}
   ;
 
@@ -97,11 +99,14 @@ type
     FVideoTrackPath: string;
     FWorker: TConverterThread;
     FAppleWorker: TAppleM4VThread;
-    {$IFDEF Windows}
-    FWindowsHW: TWindowsHWInfo;
     FVulkanDeviceIndex: Integer;
     lblVulkanDevice: TLabel;
     cmbVulkanDevice: TComboBox;
+    {$IFDEF Linux}
+    FLinuxSupport: TLinuxCodecSupport;
+    {$ENDIF}
+    {$IFDEF Windows}
+    FWindowsHW: TWindowsHWInfo;
     {$ENDIF}
 
     procedure SetupControls;
@@ -111,9 +116,13 @@ type
 
     procedure CodecChanged(Sender: TObject);
     procedure AudioNormChanged(Sender: TObject);
+    procedure VulkanDeviceChanged(Sender: TObject);
+    procedure PopulateVulkanDeviceCombo(DeviceCount: Integer);
+    {$IFDEF Linux}
+    procedure PopulateLinuxCodecs;
+    {$ENDIF}
     {$IFDEF Windows}
     procedure PopulateWindowsCodecs;
-    procedure VulkanDeviceChanged(Sender: TObject);
     {$ENDIF}
     procedure AddFilesClicked(Sender: TObject);
     procedure AddTrackClicked(Sender: TObject);
@@ -779,6 +788,17 @@ begin
   Result := (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi');
 end;
 
+{$IFDEF Linux}
+function CodecIsLinuxHW(const Codec: string): Boolean;
+begin
+  Result := (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') or
+            (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
+            (Codec = 'h264_amf')   or (Codec = 'hevc_amf')   or
+            (Codec = 'h264_qsv')   or (Codec = 'hevc_qsv')   or
+            (Codec = 'prores_ks_vulkan');
+end;
+{$ENDIF}
+
 function CodecIsWindowsHW(const Codec: string): Boolean;
 begin
   Result := (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
@@ -790,6 +810,14 @@ end;
 function CodecIsVulkanProres(const Codec: string): Boolean;
 begin
   Result := Codec = 'prores_ks_vulkan';
+end;
+
+function VulkanDeviceDisplayText(Index: Integer): string;
+begin
+  if Index < 0 then
+    Result := 'Auto (default)'
+  else
+    Result := 'vulkan:' + IntToStr(Index);
 end;
 
 procedure TMainForm.FormCreate(Sender{%H-}: TObject);
@@ -807,9 +835,10 @@ begin
   FVideoTrackPath := '';
   FWorker := nil;
   FAppleWorker := nil;
-  {$IFDEF Windows}
-  FVulkanDeviceIndex := -1;  { Auto / no preference }
+  {$IFDEF Linux}
+  FLinuxSupport := ProbeLinuxCodecSupport;
   {$ENDIF}
+  FVulkanDeviceIndex := -1;  { Auto / no preference }
   SetupControls;
   UpdateDependentWidgets;
   Tools := ResolveToolPaths;
@@ -844,13 +873,9 @@ begin
   cmbCodec.Items.Add('copy');
   cmbCodec.Items.Add('prores');
   cmbCodec.Items.Add('prores_ks');
-{$IFDEF Linux}
-  cmbCodec.Items.Add('h264_vaapi');
-  cmbCodec.Items.Add('hevc_vaapi');
-{$ENDIF}
   cmbCodec.ItemIndex := 0;
 
-  {$IFDEF Windows}
+  {$IF defined(Linux) or defined(Windows)}
   { Create Vulkan device selector controls (dynamically, not in .lfm) }
   lblVulkanDevice := TLabel.Create(Self);
   lblVulkanDevice.Parent   := Self;
@@ -873,7 +898,12 @@ begin
   cmbVulkanDevice.Height    := 36;
   cmbVulkanDevice.Visible   := False;
   cmbVulkanDevice.OnChange  := @VulkanDeviceChanged;
+  PopulateVulkanDeviceCombo(0);
   {$ENDIF}
+
+{$IFDEF Linux}
+  PopulateLinuxCodecs;
+{$ENDIF}
 
   cmbProfile.Items.Clear;
   cmbProfile.Items.Add('lt');
@@ -973,12 +1003,19 @@ begin
   Opts.genre := cmbGenre.ItemIndex + 1;
   Opts.overwrite := Ord(chkOverwrite.Checked);
 
-  {$IFDEF Windows}
   if CodecIsVulkanProres(CodecText) then
-    Opts.vulkan_device := FVulkanDeviceIndex
+  begin
+    if FVulkanDeviceIndex >= 0 then
+      Opts.vulkan_device := FVulkanDeviceIndex
+    {$IFDEF Linux}
+    else if FLinuxSupport.VulkanDeviceIndex >= 0 then
+      Opts.vulkan_device := FLinuxSupport.VulkanDeviceIndex
+    {$ENDIF}
+    else
+      Opts.vulkan_device := 0;
+  end
   else
-    Opts.vulkan_device := 0;  { 0 = first/default device; only used by Vulkan codec }
-  {$ENDIF}
+    Opts.vulkan_device := 0;  { only used by prores_ks_vulkan }
 
   if EnsureOutputDirWritable(FOutputDir, ResolvedDir, DirError) then
   begin
@@ -1014,7 +1051,7 @@ begin
     lblVideoTrackValue.Caption := '(not set)';
   end;
 
-  {$IFDEF Windows}
+  {$IF defined(Linux) or defined(Windows)}
   if Assigned(lblVulkanDevice) and Assigned(cmbVulkanDevice) then
   begin
     lblVulkanDevice.Visible := CodecIsVulkanProres(CodecText);
@@ -1043,6 +1080,90 @@ procedure TMainForm.AudioNormChanged(Sender{%H-}: TObject);
 begin
   UpdateDependentWidgets;
 end;
+
+procedure TMainForm.PopulateVulkanDeviceCombo(DeviceCount: Integer);
+var
+  I: Integer;
+begin
+  if not Assigned(cmbVulkanDevice) then
+    Exit;
+
+  cmbVulkanDevice.Items.Clear;
+  cmbVulkanDevice.Items.Add(VulkanDeviceDisplayText(-1));
+  if DeviceCount > 0 then
+    for I := 0 to DeviceCount - 1 do
+      cmbVulkanDevice.Items.Add(VulkanDeviceDisplayText(I))
+  else
+    cmbVulkanDevice.Items.Add(VulkanDeviceDisplayText(0));
+
+  cmbVulkanDevice.ItemIndex := 0;
+  FVulkanDeviceIndex := -1;
+end;
+
+procedure TMainForm.VulkanDeviceChanged(Sender{%H-}: TObject);
+begin
+  if Assigned(cmbVulkanDevice) then
+  begin
+    if cmbVulkanDevice.ItemIndex <= 0 then
+      FVulkanDeviceIndex := -1
+    else
+      FVulkanDeviceIndex := cmbVulkanDevice.ItemIndex - 1;
+  end;
+end;
+
+{$IFDEF Linux}
+procedure TMainForm.PopulateLinuxCodecs;
+var
+  PreviousCodec: string;
+  I: Integer;
+begin
+  PreviousCodec := cmbCodec.Text;
+
+  I := cmbCodec.Items.Count - 1;
+  while I >= 0 do
+  begin
+    if CodecIsLinuxHW(cmbCodec.Items[I]) then
+      cmbCodec.Items.Delete(I);
+    Dec(I);
+  end;
+
+  if FLinuxSupport.HasVaapiH264 then
+    cmbCodec.Items.Add('h264_vaapi');
+  if FLinuxSupport.HasVaapiHEVC then
+    cmbCodec.Items.Add('hevc_vaapi');
+  if FLinuxSupport.HasNVENC then
+  begin
+    cmbCodec.Items.Add('h264_nvenc');
+    cmbCodec.Items.Add('hevc_nvenc');
+  end;
+  if FLinuxSupport.HasAMF then
+  begin
+    cmbCodec.Items.Add('h264_amf');
+    cmbCodec.Items.Add('hevc_amf');
+  end;
+  if FLinuxSupport.HasQSV then
+  begin
+    cmbCodec.Items.Add('h264_qsv');
+    cmbCodec.Items.Add('hevc_qsv');
+  end;
+  if FLinuxSupport.HasVulkan then
+    cmbCodec.Items.Add('prores_ks_vulkan');
+
+  if Assigned(cmbVulkanDevice) then
+  begin
+    if FLinuxSupport.HasVulkan then
+      PopulateVulkanDeviceCombo(FLinuxSupport.VulkanDeviceCount)
+    else
+      PopulateVulkanDeviceCombo(0);
+  end;
+
+  I := cmbCodec.Items.IndexOf(PreviousCodec);
+  if I >= 0 then
+    cmbCodec.ItemIndex := I
+  else if cmbCodec.Items.Count > 0 then
+    cmbCodec.ItemIndex := 0;
+end;
+{$ENDIF}
 
 {$IFDEF Windows}
 procedure TMainForm.PopulateWindowsCodecs;
@@ -1087,13 +1208,10 @@ begin
   { Populate Vulkan device combobox }
   if Assigned(cmbVulkanDevice) then
   begin
-    cmbVulkanDevice.Items.Clear;
-    cmbVulkanDevice.Items.Add(VulkanDeviceDisplayName(-1));
-    if FWindowsHW.VulkanDeviceCount > 0 then
-      for I := 0 to FWindowsHW.VulkanDeviceCount - 1 do
-        cmbVulkanDevice.Items.Add(VulkanDeviceDisplayName(I));
-    cmbVulkanDevice.ItemIndex := 0;
-    FVulkanDeviceIndex := -1;
+    if FWindowsHW.HasVulkan then
+      PopulateVulkanDeviceCombo(FWindowsHW.VulkanDeviceCount)
+    else
+      PopulateVulkanDeviceCombo(0);
   end;
 
   { Restore previous codec selection if still available }
@@ -1104,16 +1222,6 @@ begin
     cmbCodec.ItemIndex := 0;
 end;
 
-procedure TMainForm.VulkanDeviceChanged(Sender{%H-}: TObject);
-begin
-  if Assigned(cmbVulkanDevice) then
-  begin
-    if cmbVulkanDevice.ItemIndex <= 0 then
-      FVulkanDeviceIndex := -1
-    else
-      FVulkanDeviceIndex := cmbVulkanDevice.ItemIndex - 1;
-  end;
-end;
 {$ENDIF}
 
 procedure TMainForm.AddFilesClicked(Sender{%H-}: TObject);
@@ -1509,7 +1617,7 @@ begin
   btnClearList.Enabled := not Running;
   lstFiles.Enabled := not Running;
 
-  {$IFDEF Windows}
+  {$IF defined(Linux) or defined(Windows)}
   if Assigned(cmbVulkanDevice) then
     cmbVulkanDevice.Enabled := not Running;
   {$ENDIF}

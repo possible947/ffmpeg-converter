@@ -5,6 +5,8 @@
 #include "gui_window.h"
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
+#include <stdio.h>
 #include <glib.h>
 #include <gio/gio.h>
 /* GTK4 main header includes all necessary types and functions */
@@ -33,7 +35,10 @@ static gboolean prompt_m4v_options(AppWidgets *w, M4VOptions *opts);
 static void populate_codec_combo(AppWidgets *w);
 static gboolean codec_uses_software_prores(const char *codec);
 static gboolean codec_uses_linux_vaapi(const char *codec);
+static gboolean codec_uses_vulkan_prores(const char *codec);
 static gboolean codec_is_mux(const char *codec);
+static void populate_vulkan_device_combo(AppWidgets *w);
+static int get_selected_vulkan_device_index(AppWidgets *w);
 
 static gboolean codec_uses_software_prores(const char *codec)
 {
@@ -47,9 +52,77 @@ static gboolean codec_uses_linux_vaapi(const char *codec)
            g_strcmp0(codec, "hevc_vaapi") == 0;
 }
 
+static gboolean codec_uses_vulkan_prores(const char *codec)
+{
+    return g_strcmp0(codec, "prores_ks_vulkan") == 0;
+}
+
 static gboolean codec_is_mux(const char *codec)
 {
     return g_strcmp0(codec, "mux") == 0;
+}
+
+static void populate_vulkan_device_combo(AppWidgets *w)
+{
+    int i;
+    int added = 0;
+    char auto_label[64];
+
+    if (!w || !w->vulkan_device_combo)
+        return;
+
+    gtk_combo_box_text_remove_all(GTK_COMBO_BOX_TEXT(w->vulkan_device_combo));
+
+    if (w->linux_codec_support.vulkan_device_index >= 0) {
+        snprintf(auto_label,
+                 sizeof(auto_label),
+                 "auto (recommended: vk:%d)",
+                 w->linux_codec_support.vulkan_device_index);
+    } else {
+        g_strlcpy(auto_label, "auto", sizeof(auto_label));
+    }
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(w->vulkan_device_combo), "auto", auto_label);
+
+    for (i = 0; i < 32; i++) {
+        if ((((unsigned int)w->linux_codec_support.vulkan_working_mask) & (1u << i)) != 0u) {
+            char id[16];
+            char label[32];
+            snprintf(id, sizeof(id), "%d", i);
+            snprintf(label, sizeof(label), "vk:%d", i);
+            gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(w->vulkan_device_combo), id, label);
+            added++;
+        }
+    }
+
+    if (added == 0 && w->linux_codec_support.vulkan_device_index >= 0) {
+        char id[16];
+        char label[32];
+        snprintf(id, sizeof(id), "%d", w->linux_codec_support.vulkan_device_index);
+        snprintf(label, sizeof(label), "vk:%d", w->linux_codec_support.vulkan_device_index);
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(w->vulkan_device_combo), id, label);
+    }
+
+    gtk_combo_box_set_active_id(GTK_COMBO_BOX(w->vulkan_device_combo), "auto");
+}
+
+static int get_selected_vulkan_device_index(AppWidgets *w)
+{
+    const char *id;
+    char *endptr = NULL;
+    long parsed;
+
+    if (!w || !w->vulkan_device_combo)
+        return -1;
+
+    id = gtk_combo_box_get_active_id(GTK_COMBO_BOX(w->vulkan_device_combo));
+    if (!id || g_strcmp0(id, "auto") == 0)
+        return -1;
+
+    parsed = strtol(id, &endptr, 10);
+    if (!endptr || *endptr != '\0' || parsed < 0 || parsed > INT_MAX)
+        return -1;
+
+    return (int)parsed;
 }
 
 static void populate_codec_combo(AppWidgets *w)
@@ -63,6 +136,20 @@ static void populate_codec_combo(AppWidgets *w)
         gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h264_vaapi");
     if (w->linux_codec_support.has_hevc_vaapi)
         gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "hevc_vaapi");
+    if (w->linux_codec_support.has_h264_nvenc)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h264_nvenc");
+    if (w->linux_codec_support.has_hevc_nvenc)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "hevc_nvenc");
+    if (w->linux_codec_support.has_h264_amf)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h264_amf");
+    if (w->linux_codec_support.has_hevc_amf)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "hevc_amf");
+    if (w->linux_codec_support.has_h264_qsv)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h264_qsv");
+    if (w->linux_codec_support.has_hevc_qsv)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "hevc_qsv");
+    if (w->linux_codec_support.has_prores_ks_vulkan)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores_ks_vulkan");
 
     gtk_combo_box_set_active(GTK_COMBO_BOX(w->codec_combo), 0);
 }
@@ -76,6 +163,7 @@ void set_running_ui_state(AppWidgets *w, gboolean running)
     gtk_widget_set_sensitive(w->stop_btn, running);
 
     gtk_widget_set_sensitive(w->codec_combo, !running);
+    gtk_widget_set_sensitive(w->vulkan_device_combo, !running);
     gtk_widget_set_sensitive(w->audio_norm_combo, !running);
     gtk_widget_set_sensitive(w->audio_output_combo, !running);
     gtk_widget_set_sensitive(w->overwrite_check, !running);
@@ -117,6 +205,14 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         populate_codec_combo(w);
         g_signal_connect(w->codec_combo, "changed", G_CALLBACK(on_codec_changed), w);
     }
+
+    /* ---------- Vulkan device selector ---------- */
+    w->vulkan_device_label = gtk_label_new("Vulkan dev:");
+    gtk_widget_set_halign(w->vulkan_device_label, GTK_ALIGN_END);
+    w->vulkan_device_combo = gtk_combo_box_text_new();
+    populate_vulkan_device_combo(w);
+    gtk_widget_set_visible(w->vulkan_device_label, FALSE);
+    gtk_widget_set_visible(w->vulkan_device_combo, FALSE);
 
     /* ---------- Profile combo ---------- */
     {
@@ -263,6 +359,10 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), w->audio_output_combo, 5, r, 1, 1);
     r++;
 
+    gtk_grid_attach(GTK_GRID(grid), w->vulkan_device_label, 0, r, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), w->vulkan_device_combo, 1, r, 2, 1);
+    r++;
+
     gtk_grid_attach(GTK_GRID(grid), w->overwrite_check, 0, r, 2, 1);
 
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Output dir:"), 2, r, 1, 1);
@@ -337,6 +437,14 @@ static void update_dependent_widgets(AppWidgets *w)
     char *audio_norm = get_dropdown_text(w->audio_norm_combo);
     gboolean genre_sensitive = g_strcmp0(audio_norm, "loudness_norm_2pass") == 0;
     gtk_widget_set_sensitive(w->genre_combo, genre_sensitive);
+
+    {
+        gboolean show_vulkan_device =
+            codec_uses_vulkan_prores(codec) &&
+            w->linux_codec_support.has_prores_ks_vulkan;
+        gtk_widget_set_visible(w->vulkan_device_label, show_vulkan_device);
+        gtk_widget_set_visible(w->vulkan_device_combo, show_vulkan_device);
+    }
 
     g_free(audio_norm);
     g_free(codec);
@@ -761,6 +869,19 @@ void collect_options_from_gui(AppWidgets *w,
         g_strlcpy(opts->hw_device,
                   w->linux_codec_support.default_render_node,
                   sizeof(opts->hw_device));
+    }
+
+    if (codec_uses_vulkan_prores(opts->codec)) {
+        int selected_device = get_selected_vulkan_device_index(w);
+        if (selected_device >= 0) {
+            opts->vulkan_device = selected_device;
+        } else {
+            opts->vulkan_device = (w->linux_codec_support.vulkan_device_index >= 0)
+                                      ? w->linux_codec_support.vulkan_device_index
+                                      : 1;
+        }
+    } else {
+        opts->vulkan_device = 0;
     }
 
     /* ----- file list ----- */

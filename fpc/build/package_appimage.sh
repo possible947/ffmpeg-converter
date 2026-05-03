@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BIN_DIR="${REPO_ROOT}/fpc/bin"
 GUI_BIN="${BIN_DIR}/ffmpeg_converter_gui"
 PROJECT_TOOLS_DIR="${REPO_ROOT}/src/platform/linux/bin"
+BUILD_BIN_DIR="${REPO_ROOT}/build/bin"
 OUTPUT_DIR="${1:-${BIN_DIR}}"
 APPDIR="${SCRIPT_DIR}/AppDir-fpc"
 APPIMAGE_PATH="${OUTPUT_DIR}/ffmpeg_converter_gui_fpc-$(uname -m).AppImage"
@@ -53,6 +54,10 @@ for tool in mkvmerge MP4Box; do
     cp "${PROJECT_TOOLS_DIR}/${tool}" "${APPDIR}/usr/bin/${tool}"
     chmod +x "${APPDIR}/usr/bin/${tool}"
     echo "Bundled ${tool} from project"
+  elif [ -x "${BUILD_BIN_DIR}/${tool}" ]; then
+    cp "${BUILD_BIN_DIR}/${tool}" "${APPDIR}/usr/bin/${tool}"
+    chmod +x "${APPDIR}/usr/bin/${tool}"
+    echo "Bundled ${tool} from build/bin"
   elif command -v "${tool}" >/dev/null 2>&1; then
     cp "$(command -v "${tool}")" "${APPDIR}/usr/bin/${tool}"
     chmod +x "${APPDIR}/usr/bin/${tool}"
@@ -94,8 +99,25 @@ done
 cat > "${APPDIR}/AppRun" << 'EOF'
 #!/usr/bin/env bash
 APPDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export APPDIR
 export PATH="${APPDIR}/usr/bin:${PATH}"
 export LD_LIBRARY_PATH="${APPDIR}/usr/lib:${LD_LIBRARY_PATH:-}"
+if [ -x "${APPDIR}/usr/bin/ffmpeg" ]; then
+  export FFMPEG="${APPDIR}/usr/bin/ffmpeg"
+  export FFMPEG_BIN="${APPDIR}/usr/bin/ffmpeg"
+fi
+if [ -x "${APPDIR}/usr/bin/ffprobe" ]; then
+  export FFPROBE="${APPDIR}/usr/bin/ffprobe"
+  export FFPROBE_BIN="${APPDIR}/usr/bin/ffprobe"
+fi
+if [ -x "${APPDIR}/usr/bin/mkvmerge" ]; then
+  export MKVMERGE="${APPDIR}/usr/bin/mkvmerge"
+  export MKVMERGE_BIN="${APPDIR}/usr/bin/mkvmerge"
+fi
+if [ -x "${APPDIR}/usr/bin/MP4Box" ]; then
+  export MP4BOX="${APPDIR}/usr/bin/MP4Box"
+  export MP4BOX_BIN="${APPDIR}/usr/bin/MP4Box"
+fi
 exec "${APPDIR}/usr/bin/ffmpeg_converter_gui" "$@"
 EOF
 chmod +x "${APPDIR}/AppRun"

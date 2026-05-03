@@ -102,10 +102,19 @@ static int try_bundled_candidate(const char *base_dir,
 
 static int resolve_bundled_binary(const char *name, char *out_path, size_t out_path_sz)
 {
+    const char *appdir_env;
     char process_dir[PATH_MAX];
 
     if (!name || !out_path || out_path_sz == 0)
         return 0;
+
+    appdir_env = getenv("APPDIR");
+    if (appdir_env && appdir_env[0] != '\0') {
+        if (try_bundled_candidate(appdir_env, "usr/bin", name, out_path, out_path_sz))
+            return 1;
+        if (try_bundled_candidate(appdir_env, "bin", name, out_path, out_path_sz))
+            return 1;
+    }
 
     if (get_process_dir(process_dir, sizeof(process_dir))) {
         if (try_bundled_candidate(process_dir, "", name, out_path, out_path_sz))

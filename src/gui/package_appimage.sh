@@ -155,11 +155,29 @@ cat > "${APPDIR}/AppRun" << 'APPEOF'
 
 # Resolve AppDir (location of this script within the mounted image)
 APPDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export APPDIR
 
 # Prefer bundled ffmpeg/ffprobe if they exist next to our binary
 export PATH="${APPDIR}/usr/bin:${PATH}"
 # Ensure bundled libs are found first
 export LD_LIBRARY_PATH="${APPDIR}/usr/lib:${LD_LIBRARY_PATH}"
+
+if [ -x "${APPDIR}/usr/bin/ffmpeg" ]; then
+    export FFMPEG="${APPDIR}/usr/bin/ffmpeg"
+    export FFMPEG_BIN="${APPDIR}/usr/bin/ffmpeg"
+fi
+if [ -x "${APPDIR}/usr/bin/ffprobe" ]; then
+    export FFPROBE="${APPDIR}/usr/bin/ffprobe"
+    export FFPROBE_BIN="${APPDIR}/usr/bin/ffprobe"
+fi
+if [ -x "${APPDIR}/usr/bin/mkvmerge" ]; then
+    export MKVMERGE="${APPDIR}/usr/bin/mkvmerge"
+    export MKVMERGE_BIN="${APPDIR}/usr/bin/mkvmerge"
+fi
+if [ -x "${APPDIR}/usr/bin/MP4Box" ]; then
+    export MP4BOX="${APPDIR}/usr/bin/MP4Box"
+    export MP4BOX_BIN="${APPDIR}/usr/bin/MP4Box"
+fi
 
 # Run GUI with bundled libraries
 exec "${APPDIR}/usr/bin/ffmpeg_converter_gui" "$@"
@@ -202,5 +220,4 @@ else
     echo "ERROR: appimagetool failed"
     exit 1
 fi
-
 

@@ -37,6 +37,8 @@ begin
 
   if Codec = 'hevc_videotoolbox' then
     Ext := '.mp4'
+  else if Codec = 'm4v' then
+    Ext := '.m4v'
   else if (Codec = 'prores') or (Codec = 'prores_ks') or
           (Codec = 'prores_videotoolbox') or (Codec = 'prores_ks_vulkan') then
     Ext := '.mov'

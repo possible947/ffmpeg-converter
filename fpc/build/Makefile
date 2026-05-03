@@ -142,6 +142,20 @@ copy-binaries:
 	@if [ -d "$(ROOT)/src/platform/linux/bin" ]; then \
 		cp -f "$(ROOT)/src/platform/linux/bin/"* "$(BIN_DIR)/"; \
 	fi
+	@for tool in mkvmerge MP4Box; do \
+		src=""; \
+		if [ -x "$(ROOT)/src/platform/linux/bin/$$tool" ]; then \
+			src="$(ROOT)/src/platform/linux/bin/$$tool"; \
+		elif [ -x "$(ROOT)/build/bin/$$tool" ]; then \
+			src="$(ROOT)/build/bin/$$tool"; \
+		elif command -v "$$tool" >/dev/null 2>&1; then \
+			src="$$(command -v "$$tool")"; \
+		fi; \
+		if [ -n "$$src" ]; then \
+			cp -f "$$src" "$(BIN_DIR)/$$tool"; \
+			chmod +x "$(BIN_DIR)/$$tool"; \
+		fi; \
+	done
 
 gui-app: $(GUI_BIN)
 	@echo "Skipping gui-app packaging (macOS Pascal build is not supported)."

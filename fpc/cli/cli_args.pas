@@ -231,11 +231,11 @@ begin
   WriteLn('  -o, --output <directory> set output directory');
 {$IFDEF Windows}
   if WinCaps.HasVulkan then
-    WriteLn('      --vk_device <0..7> Select Vulkan adapter index for prores_ks_vulkan');
+    WriteLn('      --vk-device <0..7> Select Vulkan adapter index for prores_ks_vulkan');
   {$ELSE}
   {$IFDEF Linux}
   if LinuxCaps.HasVulkan then
-    WriteLn('      --vk_device <0..7>  Select Vulkan adapter index for prores_ks_vulkan');
+    WriteLn('      --vk-device <0..7>  Select Vulkan adapter index for prores_ks_vulkan');
   if LinuxCaps.HasVaapiH264 or LinuxCaps.HasVaapiHEVC then
     WriteLn('      --hw_device <path>  Override VAAPI device path (default: ', LinuxCaps.VaapiRenderNode, ')');
   {$ENDIF}
@@ -436,7 +436,7 @@ begin
       Continue;
     end;
 
-    if S = '--vk_device' then
+    if (S = '--vk-device') or (S = '--vk_device') then
     begin
       if I + 1 > High(Args) then
         Exit(False);
