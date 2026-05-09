@@ -118,6 +118,19 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
     return YES;
 }
 
+static NSString *formatEtaHMS(double etaSeconds) {
+    if (etaSeconds < 0.0) {
+        etaSeconds = 0.0;
+    }
+
+    long total = (long)(etaSeconds + 0.5);
+    long hours = total / 3600;
+    long minutes = (total % 3600) / 60;
+    long seconds = total % 60;
+
+    return [NSString stringWithFormat:@"%02ld:%02ld:%02ld", hours, minutes, seconds];
+}
+
 - (void)setRunningUIState:(BOOL)running {
     [self.startButton setEnabled:!running];
     [self.stopButton setEnabled:running];
@@ -487,10 +500,11 @@ static BOOL parseStrictInteger(NSString *text, NSInteger *outValue) {
                                        }
                                     progress:^(double percent, double fps, double etaSeconds, BOOL analysisMode) {
                                         [weakSelf.progress setDoubleValue:percent];
+                                        NSString *etaText = formatEtaHMS(etaSeconds);
                                         if (analysisMode) {
-                                            [weakSelf.statusLabel setStringValue:[NSString stringWithFormat:@"Analysis %.0f%% ETA %.0fs", percent, etaSeconds]];
+                                            [weakSelf.statusLabel setStringValue:[NSString stringWithFormat:@"Analysis %.0f%% ETA %@", percent, etaText]];
                                         } else {
-                                            [weakSelf.statusLabel setStringValue:[NSString stringWithFormat:@"Encoding %.0f%% %.0f fps ETA %.0fs", percent, fps, etaSeconds]];
+                                            [weakSelf.statusLabel setStringValue:[NSString stringWithFormat:@"Encoding %.0f%% %.0f fps ETA %@", percent, fps, etaText]];
                                         }
                                     }
                                       status:^(NSString *status) {
