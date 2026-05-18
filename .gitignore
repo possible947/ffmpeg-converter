@@ -47,6 +47,10 @@ fpc/test/run_*
 fpc/gui/form.app/
 fpc/gui/ffmpeg_converter_gui.app/
 
+# AppImage work directories
+src/gui/AppDir
+fpc/build/AppDir-fpc
+
 # Generated dylib dependency/queue files and bundled libs (produced by package_macos_app.sh)
 src/platform/macos/bin/.deps_ffmpeg7.txt
 src/platform/macos/bin/.queue_ffmpeg7.txt
