@@ -29,7 +29,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - Runtime tool discovery (ffmpeg, ffprobe, mkvmerge, MP4Box) now unified across
   implementations.
 - VAAPI codec runtime probing in both implementations.
-- AppImage packaging support (C only).
+- AppImage packaging support (C and FPC).
 
 ### Windows (C CLI primary, C/Pascal GUI options)
 - **C CLI is the most complete version** — full functionality, MSVC build, bundled
@@ -56,7 +56,9 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **Audio filter multithreading**: 2-pass analysis uses `-filter_threads N` (N = CPU/2) for parallel audio processing.
 - Encode progress: percent, FPS, ETA.
 - CLI with argument parsing and interactive menu.
-- **Linux GUI** — GTK4 (C implementation). Build produces `linux_gui` binary; optional AppImage packaging available via `ENABLE_APPIMAGE=ON` and `package_appimage` target (produces single-file portable AppImage).
+- **Linux GUI** — GTK4 (C implementation). Build produces `linux_gui` binary; optional AppImage packaging 
+  available via `ENABLE_APPIMAGE=ON` and `package_appimage` target (produces single-file portable AppImage).
+  Pascal GUI also supports AppImage packaging: `make -C fpc/build appimage`.
 - **macOS GUI** — native Cocoa/AppKit, self-contained `.app` bundle with bundled
   `ffmpeg`, `ffprobe`, and `MP4Box` (C native implementation).
 - Linux GTK Apple M4V creator: dedicated GUI-only workflow matching the macOS direct M4V path.
@@ -111,12 +113,13 @@ cmake --build . --target linux_gui
 
 **AppImage package (optional):**
 ```bash
-cmake -DENABLE_APPIMAGE=ON ..
-cmake --build . --target package_appimage
-# Output: src/gui/ffmpeg_converter_gui-x86_64.AppImage
+cmake -S . -B build -DENABLE_APPIMAGE=ON
+cmake --build build --target linux_gui
+cmake --build build --target package_appimage
+# Output: build/bin/ffmpeg_converter_gui-x86_64.AppImage (~71 MB)
 ```
 Requires `appimagetool` in PATH. The script `src/gui/package_appimage.sh` can
-also be invoked directly.
+also be invoked directly with custom output directory.
 
 ### C/CMake — macOS (native Cocoa GUI)
 
@@ -216,8 +219,8 @@ CLI notes:
   and creates it if missing.
 
 GUI:
-- **Linux (C)**: `./build/bin/ffmpeg_converter_gui` or AppImage: `src/gui/ffmpeg_converter_gui-x86_64.AppImage`
-- **Linux (Pascal)**: `open fpc/gui/form.app`
+- **Linux (C)**: `./build/bin/ffmpeg_converter_gui` or AppImage: `./build/bin/ffmpeg_converter_gui-x86_64.AppImage`
+- **Linux (Pascal)**: `./fpc/bin/ffmpeg_converter_gui` or AppImage: `./fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage`
 - **macOS (C)**: `open build/install/ffmpeg_converter_gui_macos.app`
 - **Windows (C CLI)**: `build-msvc/src/cli/Release/ffmpeg_converter.exe` (CLI only, most complete)
 - **Windows (Pascal)**: GUI: `fpc/gui/ffmpeg_converter_gui.exe` or CLI: `fpc/cli/ffmpeg_converter_windows.exe`

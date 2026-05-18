@@ -74,7 +74,11 @@ The script:
 - Requires project-built `ffmpeg`/`ffprobe` in `src/platform/linux/bin/` (mandatory)
 - Copies optional tools (`mkvmerge`, `MP4Box`) from project dir, `build/bin`, or system PATH
 - Resolves shared library dependencies via `ldd`, excluding system libraries (`/lib`, `/usr/lib` paths)
-- Generates `AppRun` wrapper that sets `PATH` and `LD_LIBRARY_PATH`
+- Generates `AppRun` wrapper that:
+  - Sets `PATH` and `LD_LIBRARY_PATH` to include bundled libraries
+  - Exports tool-specific environment variables (`FFMPEG_BIN`, `FFPROBE_BIN`, `MKVMERGE_BIN`, `MP4BOX_BIN`)
+    for each bundled tool (only if present in the AppImage)
+  - Ensures bundled tools are discovered first by the converter application
 - Creates a desktop entry with icon
 - Invokes `appimagetool.AppImage` (or `appimagetool`) to produce the final `.AppImage`
 
@@ -129,8 +133,10 @@ bash fpc/build/package_appimage.sh
 
 Bundling behaviour (same as C variant):
 - `ffmpeg`/`ffprobe` — mandatory, taken from `src/platform/linux/bin/`
-- `mkvmerge`, `MP4Box` — optional, taken from project dir or system PATH
+- `mkvmerge`, `MP4Box` — optional, checked in order: project dir (`src/platform/linux/bin/`), 
+  `build/bin`, system PATH
 - Shared libraries resolved via `ldd`, system paths excluded
+- AppRun wrapper exports tool-specific environment variables for each bundled tool
 
 ## 3. Runtime Notes
 
@@ -141,6 +147,13 @@ Bundling behaviour (same as C variant):
   - `FFPROBE` / `FFPROBE_BIN` → ffprobe binary path
   - `MKVMERGE_BIN` → mkvmerge path (for mux mode)
   - `MP4BOX_BIN` → MP4Box path (for Apple M4V workflow)
+
+### AppImage-specific behavior
+When running the application via AppImage (`.AppImage` file):
+- The `AppRun` wrapper sets `PATH` and `LD_LIBRARY_PATH` to include bundled resources first
+- Tool environment variables are automatically set for each bundled tool (e.g., `FFMPEG_BIN` is set 
+  to the bundled ffmpeg path if it exists within the AppImage)
+- This ensures the converter finds and uses bundled tools without requiring user configuration
 
 ### CLI Behavior (both C and Pascal)
 - Inputs are positional arguments (`ffmpeg_converter [options] file1 file2 ...`).
@@ -166,10 +179,16 @@ Bundling behaviour (same as C variant):
   has compatible GPAC runtime libraries.
 - **AppImage (C GUI):** `cmake -S . -B build -DENABLE_APPIMAGE=ON && cmake --build build --target package_appimage`
   — output: `build/bin/ffmpeg_converter_gui-x86_64.AppImage` (~71 MB).
+  - Usage: `./ffmpeg_converter_gui-x86_64.AppImage` (may require `chmod +x` first)
+  - Contains all bundled ffmpeg, ffprobe, and optional mkvmerge/MP4Box
+  - Single-file deployment: copy to any Linux x86_64 system
 - **AppImage (FPC GUI):** `make -C fpc/build appimage`
   — output: `fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage`.
-- Both AppImage builds require `appimagetool.AppImage` in PATH and project-built `ffmpeg`/`ffprobe`
-  in `src/platform/linux/bin/`.
+  - Usage and deployment same as C variant
+- Both AppImage builds require:
+  - `appimagetool.AppImage` (or `appimagetool`) in PATH for building
+  - Project-built `ffmpeg`/`ffprobe` in `src/platform/linux/bin/` before packaging
+  - Linux x86_64 host for execution (not compatible with other architectures)
 
 ## 4. Validation and Testing
 
