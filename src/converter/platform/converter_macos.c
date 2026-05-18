@@ -318,32 +318,50 @@ int platform_validate_audio_filters(void) {
     const char* ffmpeg = platform_get_ffmpeg_bin();
     if (!ffmpeg || ffmpeg[0] == '\0') return 0;
 
-    /* Verify that the bundled ffmpeg was built with libsoxr support.
-     * Without libsoxr the aresample=resampler=soxr filter will fail.
-     * Use popen() to avoid shell metacharacter concerns with system(). */
+    /* Verify that ffmpeg supports libsoxr for
+     * aresample=resampler=soxr. Many FFmpeg builds do not print "soxr"
+     * in `-filters` output, so this cannot rely on plain filter list text. */
     char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg);
     if (!esc_ffmpeg) return 0;
 
-    char cmd[2048];
-    snprintf(cmd, sizeof(cmd),
-             "%s -hide_banner -filters 2>/dev/null",
-             esc_ffmpeg);
-    free(esc_ffmpeg);
+    {
+        char cmd[2048];
+        FILE* fp;
+        char line[512];
+        int found_soxr = 0;
 
-    FILE* fp = popen(cmd, "r");
-    if (!fp) return 0;
+        snprintf(cmd, sizeof(cmd),
+                 "%s -hide_banner -h filter=aresample 2>/dev/null",
+                 esc_ffmpeg);
 
-    char line[256];
-    int found = 0;
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, "soxr")) {
-            found = 1;
-            break;
+        fp = popen(cmd, "r");
+        if (fp) {
+            while (fgets(line, sizeof(line), fp)) {
+                if (strstr(line, "soxr")) {
+                    found_soxr = 1;
+                    break;
+                }
+            }
+            pclose(fp);
+        }
+
+        if (found_soxr) {
+            free(esc_ffmpeg);
+            return 1;
         }
     }
-    pclose(fp);
 
-    return found;
+    /* Fallback probe: execute a tiny graph that requires soxr. */
+    {
+        char cmd[2048];
+        snprintf(cmd, sizeof(cmd),
+                 "%s -hide_banner -v error -f lavfi -i anullsrc=r=48000:cl=stereo "
+                 "-t 0.01 -af aresample=resampler=soxr -f null - 2>/dev/null",
+                 esc_ffmpeg);
+        int result = (system(cmd) == 0) ? 1 : 0;
+        free(esc_ffmpeg);
+        return result;
+    }
 }
 
 int platform_supports_codec(const char* codec) {
