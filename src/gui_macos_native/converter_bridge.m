@@ -185,6 +185,16 @@ static BOOL wasFileProducedAfter(NSString *path, NSDate *threshold) {
     return [modDate compare:threshold] != NSOrderedAscending;
 }
 
+static int locale_is_utf8(const char *value) {
+    if (!value || value[0] == '\0') {
+        return 0;
+    }
+    return strstr(value, "UTF-8") != NULL ||
+           strstr(value, "utf-8") != NULL ||
+           strstr(value, "UTF8") != NULL ||
+           strstr(value, "utf8") != NULL;
+}
+
 - (void)configureBundledToolsEnvironment {
     NSString *resourcePath = [[NSBundle mainBundle] resourcePath];
     if (resourcePath.length == 0) {
@@ -225,6 +235,23 @@ static BOOL wasFileProducedAfter(NSString *path, NSDate *threshold) {
             NSString *updated = currentPath.length > 0 ? [NSString stringWithFormat:@"%@:%@", binDir, currentPath]
                                                       : binDir;
             setenv("PATH", updated.UTF8String, 1);
+        }
+    }
+
+    /* Finder-launched apps often inherit C locale; force UTF-8 for tool paths. */
+    {
+        const char *lcAll = getenv("LC_ALL");
+        const char *lcCType = getenv("LC_CTYPE");
+        const char *lang = getenv("LANG");
+
+        if (lcAll && !locale_is_utf8(lcAll)) {
+            setenv("LC_ALL", "en_US.UTF-8", 1);
+        }
+        if (!locale_is_utf8(getenv("LC_ALL")) &&
+            !locale_is_utf8(lcCType) &&
+            !locale_is_utf8(lang)) {
+            setenv("LANG", "en_US.UTF-8", 1);
+            setenv("LC_CTYPE", "en_US.UTF-8", 1);
         }
     }
 }

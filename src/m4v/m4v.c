@@ -2,7 +2,6 @@
 #include "m4v_platform.h"
 #include "converter_platform.h"
 
-#include <jansson.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -140,99 +139,6 @@ static double probe_fps_for_input(const char *ffprobe_bin, const char *input_fil
     return 25.0;
 }
 
-static void make_chapter_timestamp(double seconds, char *out, size_t out_sz)
-{
-    int hours;
-    int minutes;
-    int whole_seconds;
-    int millis;
-
-    if (!out || out_sz == 0)
-        return;
-
-    if (seconds < 0.0)
-        seconds = 0.0;
-
-    hours = (int)(seconds / 3600.0);
-    seconds -= (double)hours * 3600.0;
-    minutes = (int)(seconds / 60.0);
-    seconds -= (double)minutes * 60.0;
-    whole_seconds = (int)seconds;
-    millis = (int)((seconds - (double)whole_seconds) * 1000.0 + 0.5);
-    if (millis == 1000) {
-        whole_seconds += 1;
-        millis = 0;
-    }
-
-    snprintf(out, out_sz, "%d:%02d:%02d.%03d", hours, minutes, whole_seconds, millis);
-}
-
-static int build_chapter_text_from_json(const char *json_text, const char *chapters_txt)
-{
-    json_error_t err;
-    json_t *root;
-    json_t *chapters;
-    FILE *fp;
-    size_t index;
-    json_t *item;
-    int wrote = 0;
-
-    if (!json_text || !chapters_txt)
-        return 0;
-
-    root = json_loads(json_text, 0, &err);
-    if (!root)
-        return 0;
-
-    chapters = json_object_get(root, "chapters");
-    if (!json_is_array(chapters) || json_array_size(chapters) == 0) {
-        json_decref(root);
-        return 0;
-    }
-
-    fp = fopen(chapters_txt, "w");
-    if (!fp) {
-        json_decref(root);
-        return 0;
-    }
-
-    json_array_foreach(chapters, index, item) {
-        json_t *start_time;
-        json_t *tags;
-        json_t *title_obj;
-        const char *title = NULL;
-        char timestamp[64];
-        double start_seconds = 0.0;
-
-        if (!json_is_object(item))
-            continue;
-
-        start_time = json_object_get(item, "start_time");
-        if (json_is_string(start_time))
-            start_seconds = strtod(json_string_value(start_time), NULL);
-        else if (json_is_number(start_time))
-            start_seconds = json_number_value(start_time);
-
-        tags = json_object_get(item, "tags");
-        if (json_is_object(tags)) {
-            title_obj = json_object_get(tags, "title");
-            if (json_is_string(title_obj))
-                title = json_string_value(title_obj);
-        }
-
-        if (!title || title[0] == '\0')
-            title = "Chapter";
-
-        make_chapter_timestamp(start_seconds, timestamp, sizeof(timestamp));
-        fprintf(fp, "%s %s\n", timestamp, title);
-        wrote = 1;
-    }
-
-    fclose(fp);
-    json_decref(root);
-    return wrote;
-}
-
 void m4v_default_options(M4VOptions *opts)
 {
     if (!opts)
@@ -347,15 +253,14 @@ ConverterError m4v_create_from_input(const char *input_file,
     char video_mp4[1200];
     char aac_m4a[1200];
     char ac3_mp4[1200];
-    char chapters_json[1200];
-    char chapters_txt[1200];
+    char chapters_m4v[1200];
     char quoted_tool[2048];
     char quoted_input[2048];
     char quoted_output[2048];
     char quoted_video[2048];
     char quoted_aac[2048];
     char quoted_ac3[2048];
-    char quoted_chapters[2048];
+    char quoted_chapters_m4v[2048];
     char quoted_video_add[4096];
     char quoted_aac_add[4096];
     char quoted_ac3_add[4096];
@@ -363,7 +268,6 @@ ConverterError m4v_create_from_input(const char *input_file,
     char aac_add[3072];
     char ac3_add[3072];
     char cmd[20480];
-    char chapter_json[65536];
     char detail[256];
     int rc;
     double fps;
@@ -406,8 +310,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     snprintf(video_mp4, sizeof(video_mp4), "%s/video_only.mp4", work_dir);
     snprintf(aac_m4a, sizeof(aac_m4a), "%s/audio_aac.m4a", work_dir);
     snprintf(ac3_mp4, sizeof(ac3_mp4), "%s/audio_ac3.mp4", work_dir);
-    snprintf(chapters_json, sizeof(chapters_json), "%s/chapters.json", work_dir);
-    snprintf(chapters_txt, sizeof(chapters_txt), "%s/chapters.txt", work_dir);
+    snprintf(chapters_m4v, sizeof(chapters_m4v), "%s/with_chapters.m4v", work_dir);
 
     fps = probe_fps_for_input(ffprobe_bin, input_file);
     lang = local_opts.audio_lang[0] != '\0' ? local_opts.audio_lang : "rus";
@@ -502,38 +405,27 @@ ConverterError m4v_create_from_input(const char *input_file,
     }
 
     if (local_opts.add_chapters) {
-        m4v_platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
+        m4v_platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
+        m4v_platform_shell_quote(chapters_m4v, quoted_chapters_m4v, sizeof(quoted_chapters_m4v));
         emit_stage(callbacks, "Apple M4V step 5/5: chapters");
         snprintf(cmd,
                  sizeof(cmd),
-                 "%s -v error -print_format json -show_chapters %s %s",
+                 "%s -y -nostdin -i %s -i %s -map 0 -map_chapters 1 -c copy %s 2>&1",
                  quoted_tool,
+                 quoted_output,
                  quoted_input,
-                 m4v_platform_null_redirect());
-        rc = run_command_capture(cmd, chapter_json, sizeof(chapter_json), NULL, stop_flag);
+                 quoted_chapters_m4v);
+        rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
         if (rc == 0) {
-            FILE *json_fp = fopen(chapters_json, "w");
-            if (json_fp) {
-                fputs(chapter_json, json_fp);
-                fclose(json_fp);
-            }
-            if (build_chapter_text_from_json(chapter_json, chapters_txt)) {
-                m4v_platform_shell_quote(mp4box_bin, quoted_tool, sizeof(quoted_tool));
-                m4v_platform_shell_quote(chapters_txt, quoted_chapters, sizeof(quoted_chapters));
-                snprintf(cmd,
-                         sizeof(cmd),
-                         "%s -chap %s %s 2>&1",
-                         quoted_tool,
-                         quoted_chapters,
-                         quoted_output);
-                rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
-                if (rc != 0 && rc != -2)
-                    emit_message(callbacks, "Apple M4V chapters warning: chapter import failed");
-            } else {
-                emit_message(callbacks, "Apple M4V: no chapters found in source");
+            if (m4v_platform_file_exists(output_file))
+                (void)m4v_platform_unlink(output_file);
+            if (rename(chapters_m4v, output_file) != 0) {
+                m4v_platform_unlink(chapters_m4v);
+                emit_message(callbacks, "Apple M4V chapters warning: could not finalize chaptered output");
             }
         } else if (rc != -2) {
-            emit_message(callbacks, "Apple M4V chapter probe warning: could not read chapters");
+            m4v_platform_unlink(chapters_m4v);
+            emit_message(callbacks, "Apple M4V chapters warning: chapter import failed");
         }
     }
 

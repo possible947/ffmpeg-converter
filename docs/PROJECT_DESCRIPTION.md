@@ -82,7 +82,8 @@ Implemented in both C and Pascal (where available):
 2. Encode AAC audio (`libfdk_aac -vbr 5`)
 3. Encode AC3 audio (configurable bitrate: 384/448/640 kbps)
 4. Mux tracks into `.m4v` via `MP4Box`
-5. Embed chapter markers (optional)
+5. Embed chapter markers (optional) by transferring chapter metadata from source
+   with `ffmpeg -map_chapters 1 -c copy`
 
 **Supported video codecs (preflight check):**
 - `h264`, `hevc`, `prores` (others rejected with clear error)

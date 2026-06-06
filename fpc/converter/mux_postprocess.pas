@@ -45,6 +45,25 @@ begin
   end;
 end;
 
+function BuildUniqueTempOutputPath(const OutputFile: string): string;
+var
+  I: Integer;
+  Candidate: string;
+begin
+  Result := '';
+  if OutputFile = '' then
+    Exit;
+
+  Randomize;
+  for I := 0 to 31 do
+  begin
+    Candidate := OutputFile + '.postmux.' + IntToStr(GetProcessID) + '.' +
+      IntToStr(Random(1000000)) + '.' + IntToStr(I) + '.tmp.mkv';
+    if not FileExists(Candidate) then
+      Exit(Candidate);
+  end;
+end;
+
 function RunMuxPostprocess(const Opts: TConvertOptions;
                            const InputFile: string): TConverterError;
 var
@@ -101,7 +120,12 @@ begin
   end;
 
   { Use a temp output file to avoid modifying the intermediate file in-place }
-  TempOutputFile := IntermediateFile + '.postmux.tmp.mkv';
+  TempOutputFile := BuildUniqueTempOutputPath(IntermediateFile);
+  if TempOutputFile = '' then
+  begin
+    SafeWriteErr('Error: could not allocate temporary mux output path');
+    Exit(ERR_INVALID_OPTIONS);
+  end;
   RunCommandCapture('rm -f ' + QuoteForShell(TempOutputFile));
 
   { Probe source frame rate for raw HEVC/H264 tracks (needed for --default-duration) }
@@ -134,6 +158,8 @@ begin
   MuxCmd := QuoteForShell(Tools.MkvmergeBin) + ' -o ' + QuoteForShell(TempOutputFile) +
             ' --no-audio --no-subtitles --no-buttons --no-attachments' +
             ' --no-chapters --no-global-tags --no-track-tags ';
+  if Opts.overwrite <> 0 then
+    MuxCmd += '--overwrite ';
   if MuxRate <> '' then
     MuxCmd += '--default-duration 0:' + MuxRate + 'fps ';
   MuxCmd += '--video-tracks 0 ' + QuoteForShell(VideoTrack) +
@@ -212,7 +238,12 @@ begin
     Exit(ERR_INVALID_OPTIONS);
   end;
 
-  TempOutputFile := IntermediateFile + '.postmux.tmp.mkv';
+  TempOutputFile := BuildUniqueTempOutputPath(IntermediateFile);
+  if TempOutputFile = '' then
+  begin
+    SafeWriteErr('Error: could not allocate temporary mux output path');
+    Exit(ERR_INVALID_OPTIONS);
+  end;
   if FileExists(TempOutputFile) then
     SysUtils.DeleteFile(TempOutputFile);
 
@@ -247,6 +278,8 @@ begin
   MuxCmd := '"' + MkvmergePath + '" -o "' + TempOutputFile + '"' +
             ' --no-audio --no-subtitles --no-buttons --no-attachments' +
             ' --no-chapters --no-global-tags --no-track-tags';
+  if Opts.overwrite <> 0 then
+    MuxCmd := MuxCmd + ' --overwrite';
   if MuxRate <> '' then
     MuxCmd := MuxCmd + ' --default-duration 0:' + MuxRate + 'fps';
   MuxCmd := MuxCmd + ' --video-tracks 0 "' + VideoTrack + '"' +

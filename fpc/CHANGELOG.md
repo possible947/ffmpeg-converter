@@ -47,6 +47,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   Windows-safe cleanup calls and platform-conditional stderr redirection.
 
 ### Fixed
+- **Mux postprocess temporary output collisions (`codec=mux`, Linux/Windows Pascal).**
+  `fpc/converter/mux_postprocess.pas` now allocates unique post-mux temp file names and passes
+  `--overwrite` to `mkvmerge` when overwrite mode is enabled.
+- **Apple M4V chapter import reliability (Pascal Linux/Windows).**
+  Pascal Apple M4V workflow now transfers chapters with
+  `ffmpeg -map 0 -map_chapters 1 -c copy` onto the muxed M4V output instead of relying on
+  `MP4Box -chap chapters.txt`, avoiding text-parser import failures on complex chapter titles.
 - **Critical: loudness normalization 2-pass producing wrong gain (~10–14 LUFS error).**
   FFmpeg `loudnorm` filter always outputs measurement values as JSON strings
   (e.g. `"input_i" : "-12.88"`), not JSON numbers. `JsonNumToFloat` in

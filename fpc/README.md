@@ -16,7 +16,8 @@ available for **Linux and Windows only**. macOS support was discontinued in vers
 - Lazarus/LCL GUI with threaded conversion and progress display
 - GUI parity updates: audio output selector, mux video-track workflow, platform-aware codec list and widget gating
 - Windows GUI polish: no console popups for subprocesses (`poNoConsole`), Vulkan encoder/device probing, and Vulkan device selector in the action row
-- Apple M4V creator with multi-step mux pipeline (video copy + AAC + AC3 + MP4Box)
+- Apple M4V creator with multi-step mux pipeline
+  (video copy + AAC + AC3 + MP4Box, optional chapter transfer via `ffmpeg -map_chapters`)
 - 2-pass peak and loudnorm (EBU R128) audio analysis
 - Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`)
 - Audio output modes: `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`

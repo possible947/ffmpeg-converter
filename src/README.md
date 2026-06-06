@@ -100,7 +100,7 @@ Linux Apple M4V creator behavior:
   - AAC encode
   - AC3 encode
   - MP4Box mux
-  - optional chapters import
+  - optional chapter transfer from source metadata (`ffmpeg -map_chapters`)
 - Input preflight currently allows only `h264`, `hevc`, or `prores` video streams.
 
 ## macOS Native GUI Notes

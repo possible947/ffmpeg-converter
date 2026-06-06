@@ -27,8 +27,6 @@ implementation
 
 uses
   Classes,
-  fpjson,
-  jsonparser,
   fs_utils,
   path_utils,
   process_utils,
@@ -225,112 +223,6 @@ begin
   Result := True;
 end;
 
-function ParseFloatDot(const S: string; out V: Double): Boolean;
-var
-  Fmt: TFormatSettings;
-begin
-  Fmt := DefaultFormatSettings;
-  Fmt.DecimalSeparator := '.';
-  Result := TryStrToFloat(Trim(S), V, Fmt);
-end;
-
-function BuildChapterText(const ChaptersJsonFile, ChapterFile: string): Boolean;
-var
-  JsonText: string;
-  J: TJSONData;
-  Chapters: TJSONArray;
-  I: Integer;
-  ChObj, TagsObj: TJSONObject;
-  StartTime: Double;
-  Title: string;
-  Lines: TStringList;
-  H, M, S, Ms: Integer;
-  T: Double;
-
-  function ToHmsMs(const Seconds: Double): string;
-  var
-    Tmp: Double;
-  begin
-    Tmp := Seconds;
-    if Tmp < 0 then
-      Tmp := 0;
-
-    H := Trunc(Tmp / 3600.0);
-    Tmp := Tmp - H * 3600.0;
-    M := Trunc(Tmp / 60.0);
-    Tmp := Tmp - M * 60.0;
-    S := Trunc(Tmp);
-    Ms := Round((Tmp - S) * 1000.0);
-    if Ms = 1000 then
-    begin
-      Inc(S);
-      Ms := 0;
-    end;
-    Result := Format('%d:%.2d:%.2d.%.3d', [H, M, S, Ms]);
-  end;
-begin
-  Result := False;
-  J := nil;
-  Lines := TStringList.Create;
-  try
-    if not FileExists(ChaptersJsonFile) then
-      Exit(False);
-
-    with TStringList.Create do
-    try
-      LoadFromFile(ChaptersJsonFile);
-      JsonText := Text;
-    finally
-      Free;
-    end;
-
-    if Trim(JsonText) = '' then
-      Exit(False);
-
-    J := GetJSON(JsonText);
-    if not (J is TJSONObject) then
-      Exit(False);
-
-    Chapters := TJSONObject(J).Arrays['chapters'];
-    if (Chapters = nil) or (Chapters.Count = 0) then
-      Exit(False);
-
-    for I := 0 to Chapters.Count - 1 do
-    begin
-      if not (Chapters[I] is TJSONObject) then
-        Continue;
-      ChObj := TJSONObject(Chapters[I]);
-
-      StartTime := 0.0;
-      if ChObj.Find('start_time') <> nil then
-      begin
-        if not ParseFloatDot(ChObj.Get('start_time', '0'), T) then
-          T := 0.0;
-        StartTime := T;
-      end;
-
-      Title := Format('Chapter %d', [I + 1]);
-      if (ChObj.Find('tags') <> nil) and (ChObj.Objects['tags'] <> nil) then
-      begin
-        TagsObj := ChObj.Objects['tags'];
-        if TagsObj.Find('title') <> nil then
-          Title := TagsObj.Get('title', Title);
-      end;
-
-      Lines.Add(ToHmsMs(StartTime) + ' ' + Title);
-    end;
-
-    if Lines.Count = 0 then
-      Exit(False);
-
-    Lines.SaveToFile(ChapterFile);
-    Result := True;
-  finally
-    J.Free;
-    Lines.Free;
-  end;
-end;
-
 function CreateAppleM4V(const InputFile, OutputFile: string; const Opts: TAppleM4VOptions; out ErrorText: string): Boolean;
 var
   FfmpegBin: string;
@@ -345,8 +237,7 @@ var
   VideoMp4: string;
   AacM4a: string;
   Ac3Mp4: string;
-  ChaptersJson: string;
-  ChaptersTxt: string;
+  ChapteredM4V: string;
   Cmd: string;
   EffectiveOutputDir: string;
   EffectiveOutputFile: string;
@@ -402,8 +293,7 @@ begin
     VideoMp4 := IncludeTrailingPathDelimiter(WorkDir) + 'video_only.mp4';
     AacM4a := IncludeTrailingPathDelimiter(WorkDir) + 'audio_aac.m4a';
     Ac3Mp4 := IncludeTrailingPathDelimiter(WorkDir) + 'audio_ac3.mp4';
-    ChaptersJson := IncludeTrailingPathDelimiter(WorkDir) + 'chapters.json';
-    ChaptersTxt := IncludeTrailingPathDelimiter(WorkDir) + 'chapters.txt';
+    ChapteredM4V := IncludeTrailingPathDelimiter(WorkDir) + 'with_chapters.m4v';
 
     Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
       Format(' -map 0:v:%d -c:v copy -an -sn -dn -f mp4 ', [Opts.VideoTrackIndex]) +
@@ -433,20 +323,29 @@ begin
 
     if Opts.AddChapters then
     begin
-      Cmd := QuoteForShell(FfprobeBin) + ' -v error -print_format json -show_chapters ' +
-        QuoteForShell(InputFile) + ' > ' + QuoteForShell(ChaptersJson);
+      Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(EffectiveOutputFile) +
+        ' -i ' + QuoteForShell(InputFile) + ' -map 0 -map_chapters 1 -c copy ' +
+        QuoteForShell(ChapteredM4V);
       R := RunCommandCapture(Cmd);
       if R.ExitCode = 0 then
       begin
-        if BuildChapterText(ChaptersJson, ChaptersTxt) and (FileExists(ChaptersTxt)) then
+        if FileExists(EffectiveOutputFile) then
+          SysUtils.DeleteFile(EffectiveOutputFile);
+        if not RenameFile(ChapteredM4V, EffectiveOutputFile) then
         begin
-          Cmd := QuoteForShell(Mp4BoxBin) + ' -chap ' + QuoteForShell(ChaptersTxt) + ' ' + QuoteForShell(EffectiveOutputFile);
-          RunCommandCapture(Cmd);
+          if FileExists(ChapteredM4V) then
+            SysUtils.DeleteFile(ChapteredM4V);
+          WriteLn('Warning: Apple M4V chapters import completed but could not finalize output.');
         end;
-      end;
-      if R.ExitCode <> 0 then
+      end
+      else
+      begin
+        if FileExists(ChapteredM4V) then
+          SysUtils.DeleteFile(ChapteredM4V);
+        WriteLn('Warning: Apple M4V chapters import failed');
         LogFailedCommand(Cmd, R, FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir,
-          'ffprobe chapter extraction failed');
+          'Apple M4V chapters transfer failed');
+      end;
     end;
 
     Result := True;

@@ -87,6 +87,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   to prevent NVDEC negotiation failure on AV1 input during audio analysis.
 
 ### Fixed
+- **Mux postprocess temporary output collisions (`codec=mux`).**
+  `src/mux/mux.c` now generates unique temp output names for post-mux files instead of
+  a single fixed `<output>.postmux.tmp.mkv` name, preventing false "file exists" failures
+  on repeated runs and concurrent jobs.
+- **macOS native GUI locale-sensitive mux failures with Unicode filenames.**
+  Finder-launched GUI sessions could inherit non-UTF-8 locale settings (`LC_ALL=C`), causing
+  `mkvmerge` to truncate Unicode paths and mis-detect output/source file equality. GUI startup
+  now forces UTF-8 locale variables when needed.
+- **Apple M4V chapter import reliability (C path).**
+  M4V chapter import no longer relies on `MP4Box -chap chapters.txt` text parsing in C paths.
+  Chapter transfer now uses `ffmpeg` metadata mapping (`-map 0 -map_chapters 1 -c copy`) on the
+  produced M4V, eliminating failures on long chapter lists and chapter-title parsing edge cases.
 - **Critical: loudness normalization 2-pass producing wrong gain (~10–14 LUFS error).**
   FFmpeg `loudnorm` filter always outputs measurement values as JSON strings
   (e.g. `"input_i" : "-12.88"`), not JSON numbers. `json_number_value()` from

@@ -3,9 +3,16 @@
 #include "converter_platform.h"
 
 #include <ctype.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 static void emit_message(const ConverterCallbacks* callbacks, const char* text)
 {
@@ -190,6 +197,55 @@ static int run_mux_command(const char* cmd, const ConverterCallbacks* callbacks)
     return platform_pclose_exitcode(fp);
 }
 
+static unsigned long current_process_id(void)
+{
+#if defined(_WIN32)
+    return (unsigned long)_getpid();
+#else
+    return (unsigned long)getpid();
+#endif
+}
+
+static int build_unique_temp_output_path(const char* output_file,
+                                         char* temp_output,
+                                         size_t temp_output_sz)
+{
+    static int seeded = 0;
+    unsigned long pid;
+    int i;
+
+    if (!output_file || !temp_output || temp_output_sz == 0)
+        return 0;
+
+    pid = current_process_id();
+    if (!seeded) {
+        unsigned int seed = (unsigned int)time(NULL) ^
+                            (unsigned int)pid ^
+                            (unsigned int)(uintptr_t)temp_output;
+        srand(seed);
+        seeded = 1;
+    }
+
+    for (i = 0; i < 32; ++i) {
+        unsigned int token = (unsigned int)rand();
+        int written = snprintf(temp_output,
+                               temp_output_sz,
+                               "%s.postmux.%lu.%u.%d.tmp.mkv",
+                               output_file,
+                               pid,
+                               token,
+                               i);
+        if (written <= 0 || (size_t)written >= temp_output_sz)
+            continue;
+        if (strcmp(temp_output, output_file) == 0)
+            continue;
+        if (!platform_file_is_regular(temp_output))
+            return 1;
+    }
+
+    return 0;
+}
+
 ConverterError mux_run_postprocess(
     const MuxOptions* opts,
     const ConvertOptions* convert_opts,
@@ -228,7 +284,10 @@ ConverterError mux_run_postprocess(
         return ERR_INVALID_OPTIONS;
     }
 
-    snprintf(temp_output, sizeof(temp_output), "%s.postmux.tmp.mkv", opts->output_file);
+    if (!build_unique_temp_output_path(opts->output_file, temp_output, sizeof(temp_output))) {
+        emit_error(callbacks, "post-mux failed: could not generate temporary output path", ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
     platform_unlink(temp_output);
 
     timing_arg[0] = '\0';
@@ -248,7 +307,7 @@ ConverterError mux_run_postprocess(
     snprintf(cmd,
              sizeof(cmd),
              "%s -o %s --no-audio --no-subtitles --no-buttons --no-attachments "
-             "--no-chapters --no-global-tags --no-track-tags %s%s --no-video %s 2>&1",
+             "--no-chapters --no-global-tags --no-track-tags %s--video-tracks 0 %s --no-video %s 2>&1",
              quoted_tool,
              quoted_output,
              timing_arg,

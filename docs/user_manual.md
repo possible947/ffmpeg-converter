@@ -176,7 +176,9 @@ For command-line conversion on macOS:
   - Must include fdk_aac and soxr support (verify: `ffmpeg -codecs | grep fdk_aac` and `ffmpeg -filters | grep soxr`)
 - **No console window**: GUI applications run without terminal windows
 - **Apple Silicon**: Intel binaries run transparently via Rosetta 2
-- **Chapters support**: M4V creator can import chapter markers from source files
+- **Chapters support**: M4V creator imports chapter markers from source files using a
+  metadata-transfer step (`ffmpeg -map_chapters`), which is stable for long chapter lists
+  and filenames/titles containing Unicode characters
 
 ---
 

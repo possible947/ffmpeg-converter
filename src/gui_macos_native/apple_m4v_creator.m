@@ -425,8 +425,7 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
         NSString *videoMp4 = [workDir stringByAppendingPathComponent:@"video_only.mp4"];
         NSString *aacM4a = [workDir stringByAppendingPathComponent:@"audio_aac.m4a"];
         NSString *ac3Mp4 = [workDir stringByAppendingPathComponent:@"audio_ac3.mp4"];
-        NSString *chaptersJson = [workDir stringByAppendingPathComponent:@"chapters.json"];
-        NSString *chaptersTxt = [workDir stringByAppendingPathComponent:@"chapters.txt"];
+        NSString *chapteredM4V = [workDir stringByAppendingPathComponent:@"with_chapters.m4v"];
 
         double fps = [self probeFpsForInput:inputFile];
         NSString *fpsStr = [NSString stringWithFormat:@"%.6f", fps];
@@ -522,36 +521,35 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
             if (stageHandler) {
                 stageHandler(@"Apple M4V step 5/5: chapters");
             }
-
-            NSString *jsonOutput = @"";
-            int chapterCode = 0;
-            NSString *chapterError = nil;
-            NSArray<NSString *> *chapterProbeArgs = @[
-                @"-v", @"error",
-                @"-print_format", @"json",
-                @"-show_chapters",
-                inputFile
+            NSArray<NSString *> *chapterTransferArgs = @[
+                @"-y", @"-nostdin",
+                @"-i", outputFile,
+                @"-i", inputFile,
+                @"-map", @"0",
+                @"-map_chapters", @"1",
+                @"-c", @"copy",
+                chapteredM4V
             ];
-
-            if (runTaskCapture(self.ffprobeBin, chapterProbeArgs, &jsonOutput, &chapterCode, &chapterError) && chapterCode == 0) {
-                NSError *writeError = nil;
-                [jsonOutput writeToFile:chaptersJson atomically:YES encoding:NSUTF8StringEncoding error:&writeError];
-                if (!writeError) {
-                    NSData *jsonData = [jsonOutput dataUsingEncoding:NSUTF8StringEncoding];
-                    if ([self buildChapterTextFromJsonData:jsonData outputPath:chaptersTxt]) {
-                        NSArray<NSString *> *chapArgs = @[@"-chap", chaptersTxt, outputFile];
-                        NSString *chapterApplyError = nil;
-                        if (![self runStepWithExecutable:self.mp4BoxBin arguments:chapArgs stopFlag:stopFlag stepName:@"Apple M4V chapters import" log:logHandler stage:nil error:&chapterApplyError]) {
-                            if (logHandler && chapterApplyError.length > 0) {
-                                logHandler([NSString stringWithFormat:@"Apple M4V chapters warning: %@", chapterApplyError]);
-                            }
-                        }
-                    } else if (logHandler) {
-                        logHandler(@"Apple M4V: no chapters found in source");
+            NSString *chapterTransferError = nil;
+            if ([self runStepWithExecutable:self.ffmpegBin
+                                  arguments:chapterTransferArgs
+                                   stopFlag:stopFlag
+                                   stepName:@"Apple M4V chapters import"
+                                        log:logHandler
+                                      stage:nil
+                                      error:&chapterTransferError]) {
+                NSFileManager *fm = [NSFileManager defaultManager];
+                NSError *replaceError = nil;
+                [fm removeItemAtPath:outputFile error:nil];
+                if (![fm moveItemAtPath:chapteredM4V toPath:outputFile error:&replaceError]) {
+                    if (logHandler) {
+                        logHandler([NSString stringWithFormat:@"Apple M4V chapters warning: failed to finalize chaptered output (%@)",
+                                    replaceError.localizedDescription ?: @"unknown"]);
                     }
+                    [fm removeItemAtPath:chapteredM4V error:nil];
                 }
-            } else if (logHandler) {
-                logHandler([NSString stringWithFormat:@"Apple M4V chapter probe warning: %@", chapterError ?: @"unknown"]);
+            } else if (logHandler && chapterTransferError.length > 0) {
+                logHandler([NSString stringWithFormat:@"Apple M4V chapters warning: %@", chapterTransferError]);
             }
         }
 
