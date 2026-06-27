@@ -60,7 +60,7 @@ typedef struct {
     // AUDIO NORMALIZATION
     char audio_norm[32]; // "none", "peak_norm", "peak_norm_2pass",
                          // "loudness_norm", "loudness_norm_2pass"
-    char audio_output_mode[32]; // "pcm", "fdk_aac_q5", "fdk_aac_q5_ac3_640"
+    char audio_output_mode[32]; // "pcm", "fdk_aac_320", "fdk_aac_320_ac3_640"
 
     // LOUDNORM 2-PASS GENRE
     int genre;          // 0=none, 1..5

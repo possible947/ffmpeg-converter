@@ -215,8 +215,8 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
 int platform_audio_mode_is_available(const char* mode) {
     return mode &&
            (!strcmp(mode, "pcm")                 ||
-            !strcmp(mode, "fdk_aac_q5")           ||
-            !strcmp(mode, "fdk_aac_q5_ac3_640")   ||
+            !strcmp(mode, "fdk_aac_320")           ||
+            !strcmp(mode, "fdk_aac_320_ac3_640")   ||
             !strcmp(mode, "fdk_aac_q2")           ||
             !strcmp(mode, "fdk_aac_q2_ac3_640"));
 }

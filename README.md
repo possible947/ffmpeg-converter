@@ -29,7 +29,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 
 ### Standard Encoding Improvements
 - **All converter modes (not just M4V)** now use CBR 320k AAC encoding:
-  `fdk_aac_q5`, `fdk_aac_q5_ac3_640`, and `use_aac_for_h265` modes across
+  `fdk_aac_320`, `fdk_aac_320_ac3_640`, and `use_aac_for_h265` modes across
   C and Pascal implementations.
 - **Removed `--m4v-aac-quality` CLI option and GUI controls**: AAC bitrate is
   now fixed at 320k (no longer user-configurable VBR quality). The deprecated

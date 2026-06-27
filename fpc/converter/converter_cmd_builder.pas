@@ -47,9 +47,9 @@ begin
   AudioNorm := ArrToStr(Opts.audio_norm);
   AudioOut := ArrToStr(Opts.audio_output_mode);
   if AudioOut = 'fdk_aac_q2' then
-    AudioOut := 'fdk_aac_q5'
+    AudioOut := 'fdk_aac_320'
   else if AudioOut = 'fdk_aac_q2_ac3_640' then
-    AudioOut := 'fdk_aac_q5_ac3_640';
+    AudioOut := 'fdk_aac_320_ac3_640';
   Tools := ResolveToolPaths;
   FfmpegBin := Tools.FfmpegBin;
   Fmt := InvariantFmt;
@@ -107,7 +107,7 @@ begin
   Result += '-i ' + QuoteForShell(InputFile) + ' ';
 
   Result += '-map 0:v:0 ';
-  if AudioOut <> 'fdk_aac_q5_ac3_640' then
+  if AudioOut <> 'fdk_aac_320_ac3_640' then
     Result += '-map 0:a:0 ';
   Result += '-map_metadata 0 ';
 
@@ -172,13 +172,13 @@ begin
       Result += '-vf "deblock=filter=strong:block=4:alpha=0.12:beta=0.07:gamma=0.06:delta=0.05:planes=1" ';
   end;
 
-  if (AudioOut = 'fdk_aac_q5_ac3_640') then
+  if (AudioOut = 'fdk_aac_320_ac3_640') then
     Result += '-filter_complex "[0:a:0]aresample=resampler=soxr:precision=28:cheby=1,asplit=2[aout0][aout1]" -map [aout0] -map [aout1] ';
 
   { --- Audio codec ---
     Windows and Linux: require libfdk_aac (validated upstream in converter_set_options).
     macOS and other Unix-like systems: fall back to native aac encoder. }
-  if AudioOut = 'fdk_aac_q5_ac3_640' then
+  if AudioOut = 'fdk_aac_320_ac3_640' then
   {$IFDEF Linux}
     Result += '-c:a:0 libfdk_aac -b:a:0 320k -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
   {$ELSE}
@@ -188,7 +188,7 @@ begin
     Result += '-c:a:0 aac -b:a:0 320k -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 '
   {$ENDIF}
   {$ENDIF}
-  else if AudioOut = 'fdk_aac_q5' then
+  else if AudioOut = 'fdk_aac_320' then
   {$IFDEF Linux}
     Result += '-c:a libfdk_aac -b:a 320k -ar 48000 '
   {$ELSE}
@@ -203,7 +203,7 @@ begin
   else
     Result += '-c:a pcm_s16le -ar 48000 ';
 
-  if AudioOut <> 'fdk_aac_q5_ac3_640' then
+  if AudioOut <> 'fdk_aac_320_ac3_640' then
   begin
     if AudioNorm = 'none' then
       Result += '-af "aresample=resampler=soxr:precision=28:cheby=1" '

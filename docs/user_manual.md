@@ -96,8 +96,8 @@ Select from available codecs in the dropdown:
 
 **Audio Output Mode:**
 - **pcm** — uncompressed audio
-- **fdk_aac_q5** — AAC audio via FDK AAC encoder (high quality; **requires ffmpeg 8.1 compiled with fdk_aac support**)
-- **fdk_aac_q5_ac3_640** — AAC (FDK) + Dolby Digital AC3 (**requires ffmpeg 8.1 with fdk_aac support**)
+- **fdk_aac_320** — AAC audio via FDK AAC encoder (high quality; **requires ffmpeg 8.1 compiled with fdk_aac support**)
+- **fdk_aac_320_ac3_640** — AAC (FDK) + Dolby Digital AC3 (**requires ffmpeg 8.1 with fdk_aac support**)
 
 #### Step 4: Video Options (for ProRes codecs)
 

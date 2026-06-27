@@ -94,7 +94,7 @@ void print_usage(const CliPlatformHandle* h) {
     printf("  -p, --profile <lt|standard|hq|4444>\n");
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
-    printf("      --audio-output <pcm|fdk_aac_q5|fdk_aac_q5_ac3_640>\n");
+    printf("      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>\n");
     if (platform_mux_is_supported())
         printf("      --video-track <file>  replacement video track for mux mode\n");
     printf("  -g, --genre <edm|rock|hiphop|classical|podcast>\n");
@@ -1009,8 +1009,8 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             printf("select audio output\n");
             printf("----------------------------------\n");
             printf("  1. pcm (default)\n");
-            printf("  2. fdk_aac_q5\n");
-            printf("  3. fdk_aac_q5 + ac3_b640\n");
+            printf("  2. fdk_aac_320\n");
+            printf("  3. fdk_aac_320 + ac3_b640\n");
             printf("----------------------------------\n");
             printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
             ch = read_choice();
@@ -1142,8 +1142,8 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
 
             switch (audio_output) {
                 case 1: strcpy(opts->audio_output_mode, "pcm");                  break;
-                case 2: strcpy(opts->audio_output_mode, "fdk_aac_q5");           break;
-                case 3: strcpy(opts->audio_output_mode, "fdk_aac_q5_ac3_640");   break;
+                case 2: strcpy(opts->audio_output_mode, "fdk_aac_320");           break;
+                case 3: strcpy(opts->audio_output_mode, "fdk_aac_320_ac3_640");   break;
                 default: strcpy(opts->audio_output_mode, "pcm");                  break;
             }
 

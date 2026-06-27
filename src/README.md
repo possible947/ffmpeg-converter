@@ -49,7 +49,7 @@ Supported options:
 - `-p, --profile <lt|standard|hq|4444>`
 - `-d, --deblock <none|weak|strong>`
 - `-a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>`
-- `--audio-output <pcm|fdk_aac_q5|fdk_aac_q5_ac3_640>`
+- `--audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>`
 - `--video-track <file>` for `codec=mux`
 - `-g, --genre <edm|rock|hiphop|classical|podcast>`
 - `--overwrite`

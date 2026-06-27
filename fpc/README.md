@@ -20,7 +20,7 @@ available for **Linux and Windows only**. macOS support was discontinued in vers
   (video copy + AAC + AC3 + MP4Box, optional chapter transfer via `ffmpeg -map_chapters`)
 - 2-pass peak and loudnorm (EBU R128) audio analysis
 - Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`)
-- Audio output modes: `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`
+- Audio output modes: `pcm`, `fdk_aac_320`, `fdk_aac_320_ac3_640`
 - Mux mode parity: `-c mux --video-track <file>` with mkvmerge post-process pipeline
 
 ## Folder Layout

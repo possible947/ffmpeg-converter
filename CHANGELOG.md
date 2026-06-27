@@ -20,7 +20,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 - **AAC encoding standardized to CBR 320k** across all converter modes
-  (`fdk_aac_q5`, `fdk_aac_q5_ac3_640`, `use_aac_for_h265`, Apple M4V creator)
+  (`fdk_aac_320`, `fdk_aac_320_ac3_640`, `use_aac_for_h265`, Apple M4V creator)
   in both C and Pascal implementations. The `aac_at` and native `aac` fallback
   encoders also use CBR 320k.
 - **Apple M4V AAC step** now uses `libfdk_aac -b:a 320k` (CBR) instead of

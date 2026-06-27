@@ -164,7 +164,7 @@ When running the application via AppImage (`.AppImage` file):
 
 ### GUI-only Features (C GTK on Linux)
 - Apple M4V creator button (available alongside standard conversion and mux workflows).
-- Audio output selector with modes: `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`.
+- Audio output selector with modes: `pcm`, `fdk_aac_320`, `fdk_aac_320_ac3_640`.
 - Runtime VAAPI codec probing: `h264_vaapi` and `hevc_vaapi` appear only on compatible hardware.
 
 ### Hardware Codecs (Runtime Detected)

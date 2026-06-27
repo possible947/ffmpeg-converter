@@ -628,8 +628,8 @@ begin
           WriteLn('select audio output');
           WriteLn('----------------------------------');
           WriteLn('  1. pcm (default)');
-          WriteLn('  2. fdk_aac_q5');
-          WriteLn('  3. fdk_aac_q5 + ac3_b640');
+          WriteLn('  2. fdk_aac_320');
+          WriteLn('  3. fdk_aac_320 + ac3_b640');
           WriteLn('----------------------------------');
           Write('select: number->choice,Enter->(default),c->cancel,b->back');
           WriteLn;
@@ -799,8 +799,8 @@ begin
 
           case AudioOutput of
             1: SetAnsiField(Opts.audio_output_mode, 'pcm');
-            2: SetAnsiField(Opts.audio_output_mode, 'fdk_aac_q5');
-            3: SetAnsiField(Opts.audio_output_mode, 'fdk_aac_q5_ac3_640');
+            2: SetAnsiField(Opts.audio_output_mode, 'fdk_aac_320');
+            3: SetAnsiField(Opts.audio_output_mode, 'fdk_aac_320_ac3_640');
           end;
 
           Opts.genre := Genre;

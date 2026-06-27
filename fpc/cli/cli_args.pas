@@ -218,7 +218,7 @@ begin
   WriteLn('  -p, --profile <lt|standard|hq|4444>');
   WriteLn('  -d, --deblock <none|weak|strong>');
   WriteLn('  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>');
-  WriteLn('      --audio-output <pcm|fdk_aac_q5|fdk_aac_q5_ac3_640>');
+  WriteLn('      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>');
 {$IFDEF Windows}
   if WinCaps.HasMkvmerge then
     WriteLn('      --video-track <file> replacement video track for mux mode');
@@ -387,11 +387,11 @@ begin
       Inc(I);
       S := Args[I];
       if S = 'fdk_aac_q2' then
-        S := 'fdk_aac_q5'
+        S := 'fdk_aac_320'
       else if S = 'fdk_aac_q2_ac3_640' then
-        S := 'fdk_aac_q5_ac3_640';
+        S := 'fdk_aac_320_ac3_640';
 
-      if (S = 'pcm') or (S = 'fdk_aac_q5') or (S = 'fdk_aac_q5_ac3_640') then
+      if (S = 'pcm') or (S = 'fdk_aac_320') or (S = 'fdk_aac_320_ac3_640') then
         SetAnsiField(Opts.audio_output_mode, S)
       else
         Exit(False);

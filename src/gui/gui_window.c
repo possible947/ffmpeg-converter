@@ -264,8 +264,8 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     {
         w->audio_output_combo = gtk_combo_box_text_new();
         gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "pcm");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "fdk_aac_q5");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "fdk_aac_q5_ac3_640");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "fdk_aac_320");
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "fdk_aac_320_ac3_640");
         gtk_combo_box_set_active(GTK_COMBO_BOX(w->audio_output_combo), 0);
     }
 

@@ -84,8 +84,8 @@ open build/install/ffmpeg_converter_gui_macos.app
 - Final mux output is `.mkv` and is produced through `mkvmerge`.
 - Audio output modes now match Linux C GUI behavior:
    - `pcm`
-   - `fdk_aac_q5`
-   - `fdk_aac_q5_ac3_640`
+   - `fdk_aac_320`
+   - `fdk_aac_320_ac3_640`
 - Apple M4V creator (native C macOS path) now validates source video codec
    before packaging. Allowed video codecs are:
     - `h264`
@@ -131,7 +131,7 @@ export FFPROBE=/path/to/ffprobe
 For C CLI (`build/src/cli/ffmpeg_converter`):
 - Inputs are positional (`ffmpeg_converter [options] file1 file2 ...`).
 - `-o/--output` sets output directory.
-- `--audio-output` supports `pcm`, `fdk_aac_q5`, `fdk_aac_q5_ac3_640`.
+- `--audio-output` supports `pcm`, `fdk_aac_320`, `fdk_aac_320_ac3_640`.
 - If `-o` is not specified, default output directory is `$HOME/ffmpeg_converter` and it is created automatically when missing.
 - Codec list includes: `copy`, `prores`, `prores_ks`, `prores_videotoolbox`, `hevc_videotoolbox`, `mux`.
 - Mux mode requires exactly one source file and `--video-track <replacement>`.

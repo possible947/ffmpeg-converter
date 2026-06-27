@@ -272,7 +272,7 @@ static NSString *formatEtaHMS(double etaSeconds) {
     [content addSubview:audioOutLabel];
 
     self.audioOutputPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(592, 520, 190, 28) pullsDown:NO];
-    [self.audioOutputPopup addItemsWithTitles:@[@"pcm", @"fdk_aac_q5", @"fdk_aac_q5_ac3_640"]];
+    [self.audioOutputPopup addItemsWithTitles:@[@"pcm", @"fdk_aac_320", @"fdk_aac_320_ac3_640"]];
     [self.audioOutputPopup selectItemAtIndex:0];
     [content addSubview:self.audioOutputPopup];
 

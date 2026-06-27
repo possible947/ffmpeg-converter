@@ -936,8 +936,8 @@ begin
 
   cmbAudioOutput.Items.Clear;
   cmbAudioOutput.Items.Add('pcm');
-  cmbAudioOutput.Items.Add('fdk_aac_q5');
-  cmbAudioOutput.Items.Add('fdk_aac_q5_ac3_640');
+  cmbAudioOutput.Items.Add('fdk_aac_320');
+  cmbAudioOutput.Items.Add('fdk_aac_320_ac3_640');
   cmbAudioOutput.ItemIndex := 0;
 
   if FOutputDir <> '' then

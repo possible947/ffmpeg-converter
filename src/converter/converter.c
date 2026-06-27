@@ -44,8 +44,8 @@ static int audio_output_mode_is(const char* mode, const char* expected) {
 static int audio_output_mode_valid(const char* mode) {
     return mode[0] == '\0' ||
            audio_output_mode_is(mode, "pcm") ||
-           audio_output_mode_is(mode, "fdk_aac_q5") ||
-           audio_output_mode_is(mode, "fdk_aac_q5_ac3_640") ||
+           audio_output_mode_is(mode, "fdk_aac_320") ||
+           audio_output_mode_is(mode, "fdk_aac_320_ac3_640") ||
            audio_output_mode_is(mode, "fdk_aac_q2") ||
            audio_output_mode_is(mode, "fdk_aac_q2_ac3_640");
 }
@@ -797,10 +797,10 @@ static void build_ffmpeg_cmd(
     const ConvertOptions* opts = &c->opts;
     const char* ffmpeg_bin = get_ffmpeg_bin();
     int is_dual_audio_output =
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q5_ac3_640") ||
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320_ac3_640") ||
         audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2_ac3_640");
     int is_fdk_single_audio_output =
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q5") ||
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320") ||
         audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2");
     int prefer_fdk_q2 =
         audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2") ||
