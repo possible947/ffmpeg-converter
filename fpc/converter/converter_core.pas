@@ -101,7 +101,7 @@ end;
 function AudioOutputModeValid(const Mode: string): Boolean;
 begin
   Result := (Mode = '') or (Mode = 'pcm') or (Mode = 'fdk_aac_320') or
-    (Mode = 'fdk_aac_320_ac3_640') or (Mode = 'fdk_aac_q2') or (Mode = 'fdk_aac_q2_ac3_640');
+    (Mode = 'fdk_aac_320_ac3_640') or (Mode = 'fdk_aac_320') or (Mode = 'fdk_aac_320_ac3_640');
 end;
 
 procedure EmitMessage(Ctx: PConverterObj; const Msg: string);
@@ -322,8 +322,8 @@ begin
   { On Linux, libfdk_aac is the only supported AAC encoder.
     Fail early when an fdk_aac output mode is requested but libfdk_aac is
     not compiled into the bundled ffmpeg binary. }
-  if (AudioOut = 'fdk_aac_320') or (AudioOut = 'fdk_aac_q2') or
-     (AudioOut = 'fdk_aac_320_ac3_640') or (AudioOut = 'fdk_aac_q2_ac3_640') then
+  if (AudioOut = 'fdk_aac_320') or (AudioOut = 'fdk_aac_320') or
+     (AudioOut = 'fdk_aac_320_ac3_640') or (AudioOut = 'fdk_aac_320_ac3_640') then
   begin
     if not ProbeFdkAacEncoder(ResolveFfmpegBin) then
     begin

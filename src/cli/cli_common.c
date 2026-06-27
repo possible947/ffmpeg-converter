@@ -1010,7 +1010,7 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             printf("----------------------------------\n");
             printf("  1. pcm (default)\n");
             printf("  2. fdk_aac_320\n");
-            printf("  3. fdk_aac_320 + ac3_b640\n");
+            printf("  3. fdk_aac_320_ac3_640\n");
             printf("----------------------------------\n");
             printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
             ch = read_choice();

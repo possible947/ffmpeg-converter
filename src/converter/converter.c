@@ -46,8 +46,8 @@ static int audio_output_mode_valid(const char* mode) {
            audio_output_mode_is(mode, "pcm") ||
            audio_output_mode_is(mode, "fdk_aac_320") ||
            audio_output_mode_is(mode, "fdk_aac_320_ac3_640") ||
-           audio_output_mode_is(mode, "fdk_aac_q2") ||
-           audio_output_mode_is(mode, "fdk_aac_q2_ac3_640");
+           audio_output_mode_is(mode, "fdk_aac_320") ||
+           audio_output_mode_is(mode, "fdk_aac_320_ac3_640");
 }
 
 static void build_audio_filter_expr(const ConvertOptions* opts, char* filter, size_t filter_sz) {
@@ -798,13 +798,13 @@ static void build_ffmpeg_cmd(
     const char* ffmpeg_bin = get_ffmpeg_bin();
     int is_dual_audio_output =
         audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320_ac3_640") ||
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2_ac3_640");
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320_ac3_640");
     int is_fdk_single_audio_output =
         audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320") ||
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2");
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320");
     int prefer_fdk_q2 =
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2") ||
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_q2_ac3_640");
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320") ||
+        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320_ac3_640");
     int fdk_vbr = prefer_fdk_q2 ? 2 : 5;
     int has_aac_at = ffmpeg_encoder_available("aac_at");
     int has_libfdk_aac = ffmpeg_encoder_available("libfdk_aac");

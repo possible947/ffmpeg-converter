@@ -46,9 +46,9 @@ begin
   Codec := ArrToStr(Opts.codec);
   AudioNorm := ArrToStr(Opts.audio_norm);
   AudioOut := ArrToStr(Opts.audio_output_mode);
-  if AudioOut = 'fdk_aac_q2' then
+  if AudioOut = 'fdk_aac_320' then
     AudioOut := 'fdk_aac_320'
-  else if AudioOut = 'fdk_aac_q2_ac3_640' then
+  else if AudioOut = 'fdk_aac_320_ac3_640' then
     AudioOut := 'fdk_aac_320_ac3_640';
   Tools := ResolveToolPaths;
   FfmpegBin := Tools.FfmpegBin;

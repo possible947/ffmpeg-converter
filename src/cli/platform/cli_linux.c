@@ -190,8 +190,8 @@ int platform_audio_mode_is_available(const char* mode) {
            (!strcmp(mode, "pcm")                 ||
             !strcmp(mode, "fdk_aac_320")           ||
             !strcmp(mode, "fdk_aac_320_ac3_640")   ||
-            !strcmp(mode, "fdk_aac_q2")           ||
-            !strcmp(mode, "fdk_aac_q2_ac3_640"));
+            !strcmp(mode, "fdk_aac_320")           ||
+            !strcmp(mode, "fdk_aac_320_ac3_640"));
 }
 
 int platform_mux_is_supported(void) {

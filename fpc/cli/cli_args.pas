@@ -386,9 +386,9 @@ begin
         Exit(False);
       Inc(I);
       S := Args[I];
-      if S = 'fdk_aac_q2' then
+      if S = 'fdk_aac_320' then
         S := 'fdk_aac_320'
-      else if S = 'fdk_aac_q2_ac3_640' then
+      else if S = 'fdk_aac_320_ac3_640' then
         S := 'fdk_aac_320_ac3_640';
 
       if (S = 'pcm') or (S = 'fdk_aac_320') or (S = 'fdk_aac_320_ac3_640') then

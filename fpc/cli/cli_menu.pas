@@ -629,7 +629,7 @@ begin
           WriteLn('----------------------------------');
           WriteLn('  1. pcm (default)');
           WriteLn('  2. fdk_aac_320');
-          WriteLn('  3. fdk_aac_320 + ac3_b640');
+          WriteLn('  3. fdk_aac_320_ac3_640');
           WriteLn('----------------------------------');
           Write('select: number->choice,Enter->(default),c->cancel,b->back');
           WriteLn;
