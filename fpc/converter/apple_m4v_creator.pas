@@ -412,7 +412,7 @@ begin
 
     Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(EffectiveOutputFile) +
       ' -map 0:v:0 -map 0:a:0 -map 0:a:1 -c:v copy -c:a copy ' +
-      '-disposition:a:0 default -disposition:a:1 0 ' +
+      '-disposition:a:0 default -disposition:a:1 0 -f mp4 ' +
       QuoteForShell(DispositionM4V);
     if not RunStep(Cmd, 'Audio disposition step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
     begin
@@ -433,7 +433,7 @@ begin
     if Opts.AddChapters then
     begin
       Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(EffectiveOutputFile) +
-        ' -i ' + QuoteForShell(InputFile) + ' -map 0 -map_chapters 1 -c copy ' +
+        ' -i ' + QuoteForShell(InputFile) + ' -map 0 -map_chapters 1 -c copy -f mp4 ' +
         QuoteForShell(ChapteredM4V);
       R := RunCommandCapture(Cmd);
       if R.ExitCode = 0 then

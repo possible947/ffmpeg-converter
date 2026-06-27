@@ -581,6 +581,7 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
             @"-c:a", @"copy",
             @"-disposition:a:0", @"default",
             @"-disposition:a:1", @"0",
+            @"-f", @"mp4",
             dispositionM4V
         ];
         if (![self runStepWithExecutable:self.ffmpegBin arguments:dispositionArgs stopFlag:stopFlag stepName:@"Apple M4V step 5/6: set audio disposition" log:logHandler stage:stageHandler error:errorText]) {
@@ -610,6 +611,7 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
                 @"-map", @"0",
                 @"-map_chapters", @"1",
                 @"-c", @"copy",
+                @"-f", @"mp4",
                 chapteredM4V
             ];
             NSString *chapterTransferError = nil;

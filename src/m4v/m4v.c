@@ -508,7 +508,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     snprintf(cmd,
              sizeof(cmd),
              "%s -y -nostdin -i %s -map 0:v:0 -map 0:a:0 -map 0:a:1 -c:v copy -c:a copy "
-             "-disposition:a:0 default -disposition:a:1 0 %s 2>&1",
+             "-disposition:a:0 default -disposition:a:1 0 -f mp4 %s 2>&1",
              quoted_tool,
              quoted_output,
              quoted_disposition_m4v);
@@ -535,7 +535,7 @@ ConverterError m4v_create_from_input(const char *input_file,
         emit_stage(callbacks, "Apple M4V step 6/6: chapters");
         snprintf(cmd,
                  sizeof(cmd),
-                 "%s -y -nostdin -i %s -i %s -map 0 -map_chapters 1 -c copy %s 2>&1",
+                 "%s -y -nostdin -i %s -i %s -map 0 -map_chapters 1 -c copy -f mp4 %s 2>&1",
                  quoted_tool,
                  quoted_output,
                  quoted_input,
