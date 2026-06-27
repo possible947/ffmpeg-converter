@@ -143,7 +143,7 @@ static ConverterError run_gui_m4v_job(AppWidgets *w,
         if (cb->on_file_begin)
             cb->on_file_begin(file_list[i], i + 1, file_count);
 
-        err = m4v_validate_input_supported(file_list[i], detail, sizeof(detail));
+        err = m4v_validate_input_supported(file_list[i], detail, sizeof(detail), NULL, 0);
         if (err != ERR_OK) {
             LogUpdateData *data = g_new0(LogUpdateData, 1);
             data->w = w;

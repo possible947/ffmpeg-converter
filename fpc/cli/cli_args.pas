@@ -242,7 +242,6 @@ begin
 {$ENDIF}
   WriteLn('      --m4v-video-track <N>   video stream index for m4v (default: 0)');
   WriteLn('      --m4v-audio-track <N>   audio stream index for m4v (default: 0)');
-  WriteLn('      --m4v-aac-quality <1-5> AAC quality for m4v (default: 5)');
   WriteLn('      --m4v-ac3-bitrate <kbps> AC3 bitrate for m4v (default: 640)');
   WriteLn('      --m4v-lang <tag>        audio language for m4v (default: rus)');
   WriteLn('      --m4v-chapters / --no-m4v-chapters');
@@ -266,7 +265,6 @@ var
   OutputDirExplicitlySet: Boolean;
   M4VVideoTrackIdx: Integer;
   M4VAudioTrackIdx: Integer;
-  M4VAacQuality: Integer;
   M4VAc3Bitrate: Integer;
   M4VLang: string;
   M4VAddChapters: Boolean;
@@ -279,7 +277,6 @@ begin
   FileCount := 0;
   M4VVideoTrackIdx := 0;
   M4VAudioTrackIdx := 0;
-  M4VAacQuality := 5;
   M4VAc3Bitrate := 640;
   M4VLang := 'rus';
   M4VAddChapters := True;
@@ -479,20 +476,6 @@ begin
       Continue;
     end;
 
-    if S = '--m4v-aac-quality' then
-    begin
-      if I + 1 > High(Args) then
-        Exit(False);
-      Inc(I);
-      if not TryStrToInt(Args[I], ParsedInt) then
-        Exit(False);
-      if (ParsedInt < 1) or (ParsedInt > 5) then
-        Exit(False);
-      M4VAacQuality := ParsedInt;
-      Inc(I);
-      Continue;
-    end;
-
     if S = '--m4v-ac3-bitrate' then
     begin
       if I + 1 > High(Args) then
@@ -619,7 +602,6 @@ begin
       SetAnsiField(Opts.video_track_path,
         IntToStr(M4VVideoTrackIdx) + '|' +
         IntToStr(M4VAudioTrackIdx) + '|' +
-        IntToStr(M4VAacQuality) + '|' +
         IntToStr(M4VAc3Bitrate) + '|' +
         M4VLang + '|' +
         IntToStr(Ord(M4VAddChapters)));

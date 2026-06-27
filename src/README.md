@@ -1,4 +1,4 @@
-# C Implementation (src) — Version 2.4
+# C Implementation (src) — Version 2.5
 
 This directory contains the C/CMake implementation of ffmpeg_converter, the primary
 implementation across all platforms.

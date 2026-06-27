@@ -5,6 +5,53 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.5.0] — 2026-06-27
+
+### Fixed
+- **Apple M4V HEVC playback on macOS/iOS**: the video copy step now passes
+  `-tag:v hvc1` when the source codec is HEVC, so Apple hardware decoders
+  recognize the stream (was `hev1`, which Apple devices reject).
+- **Apple M4V color metadata**: video color space, transfer, and primaries are
+  now probed from the source via `ffprobe` and passed through to the output,
+  producing a `colr` (nclx) box matching HandBrake/Apple Compressor etalons.
+- **Apple M4V audio track disposition**: the new step 5/6 runs an ffmpeg copy
+  that sets `-disposition:a:0 default -disposition:a:1 0`, making the AAC track
+  the primary audio and the AC3 track secondary — matching etalon files.
+
+### Changed
+- **AAC encoding standardized to CBR 320k** across all converter modes
+  (`fdk_aac_q5`, `fdk_aac_q5_ac3_640`, `use_aac_for_h265`, Apple M4V creator)
+  in both C and Pascal implementations. The `aac_at` and native `aac` fallback
+  encoders also use CBR 320k.
+- **Apple M4V AAC step** now uses `libfdk_aac -b:a 320k` (CBR) instead of
+  VBR quality 5, matching the bitrate of HandBrake/Apple etalon files (~320 kbps).
+- **M4V pipeline expanded to 6 steps** (was 5): new step 5/6 is the audio
+  disposition fix applied after MP4Box mux and before the chapter import step.
+- All converter encoder messages now include `(CBR 320k)` so users can see
+  the active bitrate in log output.
+
+### Removed
+- `--m4v-aac-quality` CLI option: AAC bitrate is now a fixed 320k CBR and no
+  longer user-configurable. Interactive menu step 13 (AAC quality selector)
+  removed from CLI.
+- `M4VOptions.aac_quality`, `CliM4VOptions.aac_quality`,
+  `AppleM4VOptions.aacQuality`, `TAppleM4VOptions.AacQuality` fields removed
+  from all M4V option structs (C and Pascal).
+- `FDK AAC VBR` spin button removed from Linux GTK4 M4V options dialog.
+- `AAC quality (1..9)` text field removed from macOS Cocoa M4V options dialog.
+- `AAC quality` dialog step removed from Pascal GUI M4V options.
+- `--m4v-aac-quality` argument parsing removed from Pascal CLI.
+- `opts.aac_quality` assignments removed from all bridge/option-copy code paths.
+
+### Documentation
+- CLI `--help` updated: removed `--m4v-aac-quality`, added note that AAC
+  encoding uses `libfdk_aac CBR 320k (fixed)`.
+- CLI summary output shows `M4V AAC: CBR 320k (libfdk_aac)` instead of the
+  old `M4V AAC qual: N` line.
+- All README and doc version references bumped from 2.4 to 2.5.
+
+---
+
 ## [2.4.0] — 2026-04-27
 
 ### Added

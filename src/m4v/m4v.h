@@ -10,7 +10,6 @@ extern "C" {
 typedef struct {
     int video_track_index;
     int audio_track_index;
-    int aac_quality;
     int ac3_bitrate_kbps;
     int add_chapters;
     char audio_lang[16];
@@ -25,7 +24,9 @@ ConverterError m4v_make_output_name(const char *input_file,
 
 ConverterError m4v_validate_input_supported(const char *input_file,
                                             char *detail,
-                                            size_t detail_sz);
+                                            size_t detail_sz,
+                                            char *codec_name_out,
+                                            size_t codec_name_sz);
 
 ConverterError m4v_create_from_input(const char *input_file,
                                      const char *output_file,

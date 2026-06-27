@@ -39,7 +39,6 @@ void cli_on_complete(void);
 typedef struct {
     int  video_track_index; /* 0-based index of the video stream to use */
     int  audio_track_index; /* 0-based index of the audio stream to use */
-    int  aac_quality;       /* libfdk_aac VBR quality 1-5 (default 5)  */
     int  ac3_bitrate_kbps;  /* AC3 bitrate in kbps (default 640)        */
     char audio_lang[16];    /* ISO 639 language tag (default "rus")      */
     int  add_chapters;      /* 1 = embed chapter markers (default 1)    */

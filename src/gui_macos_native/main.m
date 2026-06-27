@@ -661,12 +661,11 @@ static NSString *formatEtaHMS(double etaSeconds) {
     [alert addButtonWithTitle:@"Start"];
     [alert addButtonWithTitle:@"Cancel"];
 
-    NSView *container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 360, 170)];
+    NSView *container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 360, 142)];
 
     NSArray<NSString *> *labels = @[
         @"Video track index:",
         @"Audio track index:",
-        @"AAC quality (1..9):",
         @"AC3 bitrate kbps:",
         @"Audio language:",
     ];
@@ -675,7 +674,6 @@ static NSString *formatEtaHMS(double etaSeconds) {
     NSArray<NSString *> *defaults = @[
         [NSString stringWithFormat:@"%ld", (long)options->videoTrackIndex],
         [NSString stringWithFormat:@"%ld", (long)options->audioTrackIndex],
-        [NSString stringWithFormat:@"%ld", (long)options->aacQuality],
         [NSString stringWithFormat:@"%ld", (long)options->ac3BitrateKbps],
         options->audioLang[0] != '\0' ? [NSString stringWithUTF8String:options->audioLang] : @"rus"
     ];
@@ -712,7 +710,6 @@ static NSString *formatEtaHMS(double etaSeconds) {
 
     NSInteger vIndex = 0;
     NSInteger aIndex = 0;
-    NSInteger aacQ = 0;
     NSInteger ac3 = 0;
 
     if (!parseStrictInteger(fields[0].stringValue, &vIndex)) {
@@ -725,25 +722,15 @@ static NSString *formatEtaHMS(double etaSeconds) {
         [self.statusLabel setStringValue:@"Apple m4v options invalid"];
         return NO;
     }
-    if (!parseStrictInteger(fields[2].stringValue, &aacQ)) {
-        [self appendLogLine:@"Apple m4v options error: invalid AAC quality"];
-        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
-        return NO;
-    }
-    if (!parseStrictInteger(fields[3].stringValue, &ac3)) {
+    if (!parseStrictInteger(fields[2].stringValue, &ac3)) {
         [self appendLogLine:@"Apple m4v options error: invalid AC3 bitrate"];
         [self.statusLabel setStringValue:@"Apple m4v options invalid"];
         return NO;
     }
-    NSString *lang = [fields[4].stringValue.lowercaseString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *lang = [fields[3].stringValue.lowercaseString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 
     if (vIndex < 0 || aIndex < 0) {
         [self appendLogLine:@"Apple m4v options error: track index must be >= 0"];
-        [self.statusLabel setStringValue:@"Apple m4v options invalid"];
-        return NO;
-    }
-    if (aacQ < 1 || aacQ > 9) {
-        [self appendLogLine:@"Apple m4v options error: AAC quality must be 1..9"];
         [self.statusLabel setStringValue:@"Apple m4v options invalid"];
         return NO;
     }
@@ -760,7 +747,6 @@ static NSString *formatEtaHMS(double etaSeconds) {
 
     options->videoTrackIndex = vIndex;
     options->audioTrackIndex = aIndex;
-    options->aacQuality = aacQ;
     options->ac3BitrateKbps = ac3;
     memset(options->audioLang, 0, sizeof(options->audioLang));
     strncpy(options->audioLang, lang.UTF8String, sizeof(options->audioLang) - 1);

@@ -116,14 +116,13 @@ void print_usage(const CliPlatformHandle* h) {
         printf("Apple M4V options (only used with -c m4v):\n");
         printf("      --m4v-video-track <N>   video stream index (default: 0)\n");
         printf("      --m4v-audio-track <N>   audio stream index (default: 0)\n");
-        printf("      --m4v-aac-quality <1-5> libfdk_aac VBR quality (default: 5)\n");
         printf("      --m4v-ac3-bitrate <kbps> AC3 bitrate in kbps (default: 640)\n");
         printf("      --m4v-lang <tag>        audio language tag (default: rus)\n");
         printf("      --m4v-chapters          embed chapter markers (default: on)\n");
         printf("      --no-m4v-chapters       disable chapter markers\n\n");
         printf("Apple M4V mode:\n");
         printf("  - requires MP4Box (GPAC) on PATH\n");
-        printf("  - requires libfdk_aac support in bundled ffmpeg\n");
+        printf("  - uses libfdk_aac CBR 320k for AAC encoding (fixed)\n");
         printf("  - accepts input with h264, hevc, or prores video\n");
         printf("  - produces dual-audio .m4v (AAC + AC3) compatible with Apple TV\n\n");
     }
@@ -132,7 +131,7 @@ void print_usage(const CliPlatformHandle* h) {
     printf("  ffmpeg_converter -c prores_ks -p hq input.mov\n");
     printf("  ffmpeg_converter -a loudnorm2 -g rock input1.mov input2.mov\n");
     if (platform_m4v_is_supported())
-        printf("  ffmpeg_converter -c m4v --m4v-lang eng --m4v-aac-quality 4 input.mov\n");
+        printf("  ffmpeg_converter -c m4v --m4v-lang eng input.mov\n");
     printf("\n");
 }
 
@@ -197,7 +196,7 @@ void print_summary(const ConvertOptions* opts,
     if (!strcmp(opts->codec, "m4v") && m4v_opts) {
         printf("M4V video idx:%d\n", m4v_opts->video_track_index);
         printf("M4V audio idx:%d\n", m4v_opts->audio_track_index);
-        printf("M4V AAC qual: %d\n", m4v_opts->aac_quality);
+        printf("M4V AAC:      CBR 320k (libfdk_aac)\n");
         printf("M4V AC3 kbps: %d\n", m4v_opts->ac3_bitrate_kbps);
         printf("M4V lang:     %s\n", m4v_opts->audio_lang[0] != '\0'
                                         ? m4v_opts->audio_lang : "rus");
@@ -605,7 +604,6 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
     if (m4v_opts) {
         m4v_opts->video_track_index = 0;
         m4v_opts->audio_track_index = 0;
-        m4v_opts->aac_quality       = 5;
         m4v_opts->ac3_bitrate_kbps  = 640;
         strcpy(m4v_opts->audio_lang, "rus");
         m4v_opts->add_chapters      = 1;
@@ -712,16 +710,6 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             if (i + 1 >= argc) return 0;
             i++;
             if (m4v_opts) m4v_opts->audio_track_index = atoi(argv[i]);
-            continue;
-        }
-
-        if (!strcmp(argv[i], "--m4v-aac-quality")) {
-            int q;
-            if (i + 1 >= argc) return 0;
-            i++;
-            q = atoi(argv[i]);
-            if (q < 1 || q > 5) return 0;
-            if (m4v_opts) m4v_opts->aac_quality = q;
             continue;
         }
 
@@ -838,7 +826,6 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
     char video_track_path[CLI_BUFFER_SIZE];
 
     /* M4V interactive state */
-    int  m4v_aac_quality      = 5;
     int  m4v_ac3_bitrate_kbps = 640;
     char m4v_audio_lang[16];
     int  m4v_add_chapters     = 1;
@@ -1112,11 +1099,11 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
                 !strcmp(entries[codec_idx].name, "mux"))
                 step = 10;
             /* m4v codec → collect m4v-specific options */
-            else if (platform_m4v_is_supported() &&
-                     !strcmp(entries[codec_idx].name, "m4v"))
-                step = 13;
-            else
-                step = 11;
+             else if (platform_m4v_is_supported() &&
+                      !strcmp(entries[codec_idx].name, "m4v"))
+                 step = 14;
+             else
+                 step = 11;
             break;
         }
 
@@ -1179,7 +1166,6 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             if (m4v_opts && !strcmp(opts->codec, "m4v")) {
                 m4v_opts->video_track_index = m4v_video_track;
                 m4v_opts->audio_track_index = m4v_audio_track;
-                m4v_opts->aac_quality       = m4v_aac_quality;
                 m4v_opts->ac3_bitrate_kbps  = m4v_ac3_bitrate_kbps;
                 strncpy(m4v_opts->audio_lang, m4v_audio_lang,
                         sizeof(m4v_opts->audio_lang) - 1);
@@ -1199,35 +1185,6 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
 
         /* ---- Step 12: done (loop exit) ---- */
 
-        /* ---- Step 13: M4V — AAC quality ---- */
-        case 13: {
-            int ch;
-            clear_screen();
-            printf("----ffmpeg_converter_simple_gui----\n\n");
-            printf("Apple M4V: AAC quality (libfdk_aac VBR)\n");
-            printf("------------------------------------------\n");
-            printf("  1. quality 1  (lowest)\n");
-            printf("  2. quality 2\n");
-            printf("  3. quality 3\n");
-            printf("  4. quality 4\n");
-            printf("  5. quality 5  (highest, default)\n");
-            printf("------------------------------------------\n");
-            printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
-            ch = read_choice();
-            if      (ch == '\n') { m4v_aac_quality = 5; step = 14; }
-            else if (ch >= '1' && ch <= '5') { m4v_aac_quality = ch - '0'; step = 14; }
-            else if (ch == 'c' || ch == 'C') {
-                free_temp_files(temp_files, temp_file_count);
-                return -1;
-            } else if (ch == 'b' || ch == 'B') {
-                step = 9;
-            } else {
-                printf("Invalid choice\n");
-            }
-            break;
-        }
-
-        /* ---- Step 14: M4V — AC3 bitrate ---- */
         case 14: {
             int ch;
             clear_screen();
@@ -1247,8 +1204,8 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             else if (ch == 'c' || ch == 'C') {
                 free_temp_files(temp_files, temp_file_count);
                 return -1;
-            } else if (ch == 'b' || ch == 'B') {
-                step = 13;
+            }             else if (ch == 'b' || ch == 'B') {
+                step = 12;
             } else {
                 printf("Invalid choice\n");
             }

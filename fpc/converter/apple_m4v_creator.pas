@@ -13,7 +13,6 @@ type
   TAppleM4VOptions = record
     VideoTrackIndex: Integer;
     AudioTrackIndex: Integer;
-    AacQuality: Integer;
     Ac3BitrateKbps: Integer;
     AudioLang: string;
     AddChapters: Boolean;
@@ -36,7 +35,6 @@ function DefaultAppleM4VOptions: TAppleM4VOptions;
 begin
   Result.VideoTrackIndex := 0;
   Result.AudioTrackIndex := 0;
-  Result.AacQuality := 2;
   Result.Ac3BitrateKbps := 640;
   Result.AudioLang := 'rus';
   Result.AddChapters := True;
@@ -82,6 +80,36 @@ begin
     Exit;
 
   Result := N / D;
+end;
+
+function ExtractFfprobeValue(const Output, Key: string): string;
+var
+  Lines: TStringList;
+  I: Integer;
+  EqPos: SizeInt;
+  LineKey, LineValue: string;
+begin
+  Result := '';
+  Lines := TStringList.Create;
+  try
+    Lines.Text := Trim(Output);
+    for I := 0 to Lines.Count - 1 do
+    begin
+      EqPos := Pos('=', Lines[I]);
+      if EqPos > 0 then
+      begin
+        LineKey := Copy(Lines[I], 1, EqPos - 1);
+        LineValue := Copy(Lines[I], EqPos + 1, Length(Lines[I]) - EqPos);
+        if Trim(LineKey) = Key then
+        begin
+          Result := Trim(LineValue);
+          Break;
+        end;
+      end;
+    end;
+  finally
+    Lines.Free;
+  end;
 end;
 
 procedure LogFailedCommand(const Cmd: string; const R: TRunResult; const FfmpegBin, FfprobeBin,
@@ -237,11 +265,21 @@ var
   VideoMp4: string;
   AacM4a: string;
   Ac3Mp4: string;
+  DispositionM4V: string;
   ChapteredM4V: string;
   Cmd: string;
   EffectiveOutputDir: string;
   EffectiveOutputFile: string;
   OutDirError: string;
+  IsHevc: Boolean;
+  CodecResult: TRunResult;
+  CodecCmd: string;
+  CodecName: string;
+  ColorPrimaries: string;
+  ColorTrc: string;
+  ColorSpace: string;
+  ColorCmd: string;
+  ColorResult: TRunResult;
 begin
   Result := False;
   ErrorText := '';
@@ -293,16 +331,67 @@ begin
     VideoMp4 := IncludeTrailingPathDelimiter(WorkDir) + 'video_only.mp4';
     AacM4a := IncludeTrailingPathDelimiter(WorkDir) + 'audio_aac.m4a';
     Ac3Mp4 := IncludeTrailingPathDelimiter(WorkDir) + 'audio_ac3.mp4';
+    DispositionM4V := IncludeTrailingPathDelimiter(WorkDir) + 'with_disposition.m4v';
     ChapteredM4V := IncludeTrailingPathDelimiter(WorkDir) + 'with_chapters.m4v';
 
+    IsHevc := False;
+    CodecCmd := QuoteForShell(FfprobeBin) +
+      ' -v error -select_streams v:0 -show_entries stream=codec_name' +
+      ' -of default=noprint_wrappers=1:nokey=1 ' + QuoteForShell(InputFile) +
+{$IFDEF Windows}
+      ' 2>NUL';
+{$ELSE}
+      ' 2>/dev/null';
+{$ENDIF}
+    CodecResult := RunCommandCapture(CodecCmd);
+    if CodecResult.ExitCode = 0 then
+    begin
+      CodecName := Trim(CodecResult.OutputText);
+      if LowerCase(CodecName) = 'hevc' then
+        IsHevc := True;
+    end;
+
+    ColorPrimaries := '';
+    ColorTrc := '';
+    ColorSpace := '';
+
+    ColorCmd := QuoteForShell(FfprobeBin) +
+      ' -v error -select_streams v:0 -show_entries stream=color_primaries,color_transfer,color_space' +
+      ' -of default=noprint_wrappers=1 ' + QuoteForShell(InputFile) +
+  {$IFDEF Windows}
+      ' 2>NUL';
+  {$ELSE}
+      ' 2>/dev/null';
+  {$ENDIF}
+
+    ColorResult := RunCommandCapture(ColorCmd);
+    if ColorResult.ExitCode = 0 then
+    begin
+      ColorPrimaries := ExtractFfprobeValue(ColorResult.OutputText, 'color_primaries');
+      ColorTrc := ExtractFfprobeValue(ColorResult.OutputText, 'color_transfer');
+      ColorSpace := ExtractFfprobeValue(ColorResult.OutputText, 'color_space');
+    end;
+
+    if ColorPrimaries = '' then
+      ColorPrimaries := 'bt709';
+    if ColorTrc = '' then
+      ColorTrc := 'bt709';
+    if ColorSpace = '' then
+      ColorSpace := 'bt709';
+
     Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
-      Format(' -map 0:v:%d -c:v copy -an -sn -dn -f mp4 ', [Opts.VideoTrackIndex]) +
-      QuoteForShell(VideoMp4);
+      Format(' -map 0:v:%d -c:v copy', [Opts.VideoTrackIndex]);
+    if IsHevc then
+      Cmd := Cmd + ' -tag:v hvc1';
+    Cmd := Cmd + ' -color_primaries ' + ColorPrimaries +
+           ' -color_trc ' + ColorTrc +
+           ' -colorspace ' + ColorSpace +
+           ' -an -sn -dn -f mp4 ' + QuoteForShell(VideoMp4);
     if not RunStep(Cmd, 'Video copy step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
       Exit(False);
 
     Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
-      Format(' -map 0:a:%d -c:a aac -profile:a aac_low -q:a %d -f mp4 ', [Opts.AudioTrackIndex, Opts.AacQuality]) +
+      Format(' -map 0:a:%d -c:a libfdk_aac -b:a 320k -f mp4 ', [Opts.AudioTrackIndex]) +
       QuoteForShell(AacM4a);
     if not RunStep(Cmd, 'AAC encoding step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
       Exit(False);
@@ -320,6 +409,26 @@ begin
       QuoteForShell(EffectiveOutputFile);
     if not RunStep(Cmd, 'MP4Box mux step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
       Exit(False);
+
+    Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(EffectiveOutputFile) +
+      ' -map 0:v:0 -map 0:a:0 -map 0:a:1 -c:v copy -c:a copy ' +
+      '-disposition:a:0 default -disposition:a:1 0 ' +
+      QuoteForShell(DispositionM4V);
+    if not RunStep(Cmd, 'Audio disposition step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
+    begin
+      if FileExists(DispositionM4V) then
+        SysUtils.DeleteFile(DispositionM4V);
+      Exit(False);
+    end;
+    if FileExists(EffectiveOutputFile) then
+      SysUtils.DeleteFile(EffectiveOutputFile);
+    if not RenameFile(DispositionM4V, EffectiveOutputFile) then
+    begin
+      if FileExists(DispositionM4V) then
+        SysUtils.DeleteFile(DispositionM4V);
+      WriteLn('Warning: Apple M4V disposition completed but could not finalize output.');
+      Exit(False);
+    end;
 
     if Opts.AddChapters then
     begin

@@ -658,7 +658,7 @@ ffmpeg_converter -c copy -o ~/backup/ *.mkv
 ### m4v
 - **Description**: Apple M4V creator with dual audio (FDK AAC + AC3)
 - **Video**: Stream copy (h264, HEVC, ProRes)
-- **Audio**: AAC via FDK encoder (VBR) + AC3 (Dolby Digital)
+- **Audio**: AAC via FDK encoder (CBR 320k) + AC3 (Dolby Digital)
 - **Output**: `.m4v` compatible with Apple TV
 - **Use for**: Creating Apple TV-compatible files with high-quality audio
 - **Requires**: MP4Box installed + ffmpeg 8.1 compiled with fdk_aac support

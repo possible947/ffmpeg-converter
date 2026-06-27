@@ -64,7 +64,7 @@ var
   OutputFile: string;
   M4VParams: string;
   Remaining{%H-}: string;
-  VideoTrackIdx, AudioTrackIdx, AacQuality, Ac3Bitrate: Integer;
+  VideoTrackIdx, AudioTrackIdx, Ac3Bitrate: Integer;
   Lang: string;
   AddChapters: Boolean;
   M4VOpts: TAppleM4VOptions;
@@ -92,15 +92,14 @@ begin
     Exit(ERR_INVALID_OPTIONS);
   end;
 
-  { Parse parameters: video_idx|audio_idx|aac_quality|ac3_bitrate|lang|add_chapters }
+  { Parse parameters: video_idx|audio_idx|ac3_bitrate|lang|add_chapters }
   try
     VideoTrackIdx := StrToIntDef(ExtractM4VParam(M4VParams, 1, Remaining), 0);
     AudioTrackIdx := StrToIntDef(ExtractM4VParam(M4VParams, 2, Remaining), 0);
-    AacQuality := StrToIntDef(ExtractM4VParam(M4VParams, 3, Remaining), 5);
-    Ac3Bitrate := StrToIntDef(ExtractM4VParam(M4VParams, 4, Remaining), 640);
-    Lang := ExtractM4VParam(M4VParams, 5, Remaining);
+    Ac3Bitrate := StrToIntDef(ExtractM4VParam(M4VParams, 3, Remaining), 640);
+    Lang := ExtractM4VParam(M4VParams, 4, Remaining);
     if Lang = '' then Lang := 'rus';
-    AddChapters := StrToIntDef(ExtractM4VParam(M4VParams, 6, Remaining), 1) <> 0;
+    AddChapters := StrToIntDef(ExtractM4VParam(M4VParams, 5, Remaining), 1) <> 0;
   except
     WriteLn(StdErr, 'Error: invalid M4V parameters format');
     Exit(ERR_INVALID_OPTIONS);
@@ -109,7 +108,6 @@ begin
   { Set up M4V options }
   M4VOpts.VideoTrackIndex := VideoTrackIdx;
   M4VOpts.AudioTrackIndex := AudioTrackIdx;
-  M4VOpts.AacQuality := AacQuality;
   M4VOpts.Ac3BitrateKbps := Ac3Bitrate;
   M4VOpts.AudioLang := Lang;
   M4VOpts.AddChapters := AddChapters;

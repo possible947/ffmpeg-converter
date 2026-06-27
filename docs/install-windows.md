@@ -277,7 +277,7 @@ audio output steps (not applicable) and instead prompts for:
 - The `--audio-norm`, `--audio-output`, `--profile`, `--deblock`, and `--genre`
   flags are ignored when `-c m4v` is used (m4v manages its own audio pipeline).
 
-## 3. Free Pascal Path (v2.4: CLI and GUI, feature-complete)
+## 3. Free Pascal Path (v2.5: CLI and GUI, feature-complete)
 
 ### 3.1 Install dependencies
 - **FPC** (Free Pascal Compiler) — download from [www.freepascal.org](https://www.freepascal.org/)

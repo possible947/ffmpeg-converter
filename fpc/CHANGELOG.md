@@ -5,6 +5,37 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [2.5.0] — 2026-06-27
+
+### Fixed
+- **Apple M4V HEVC playback**: the Pascal M4V creator now probes the source
+  codec and passes `-tag:v hvc1` for HEVC input, so Apple hardware decoders
+  on macOS/iOS recognize and play the file (was `hev1`).
+- **Apple M4V color metadata**: `probe_video_color` calls `ffprobe` to extract
+  `color_primaries`, `color_transfer`, `color_space` from the source and passes
+  them through to the ffmpeg copy step, producing a proper `colr` box in output.
+- **Apple M4V audio disposition**: new step 5/6 applies
+  `-disposition:a:0 default -disposition:a:1 0` via an ffmpeg copy pass after
+  MP4Box mux, making the AAC track the primary audio and the AC3 track secondary.
+
+### Changed
+- **AAC encoding standardized to CBR 320k** across all Pascal converter modes
+  (`fdk_aac_q5`, `fdk_aac_q5_ac3_640`, `use_aac_for_h265`) in
+  `converter_cmd_builder.pas`.
+- **Apple M4V AAC step** now uses `libfdk_aac -b:a 320k` (CBR) instead of the
+  old `-c:a aac -q:a N` VBR path.
+- **M4V pipeline expanded to 6 steps** (was 5): new step 5/6 is the audio
+  disposition fix applied after MP4Box mux, before chapter import.
+
+### Removed
+- `--m4v-aac-quality` CLI flag and `M4VAacQuality` variable from `cli_args.pas`.
+- `TAppleM4VOptions.AacQuality` field from `apple_m4v_creator.pas`.
+- AAC quality prompt dialog from `gui/form.pas` M4V options.
+- `M4VOpts.AacQuality` parsing from `m4v_postprocess.pas` and
+  `ffmpeg_converter_windows.lpr`.
+
+---
+
 ## [2.4.0] — 2026-04-27
 
 ### Changed

@@ -980,15 +980,11 @@ static void build_ffmpeg_cmd(
     // audio codec
     if (is_dual_audio_output) {
         if (has_aac_at) {
-            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:0 aac_at -q:a:0 2 -ar:a:0 48000 ") < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:0 aac_at -b:a:0 320k -ar:a:0 48000 ") < 0) goto overflow;
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at (CBR 320k)");
         } else if (has_libfdk_aac) {
-            char aac0_opts[128];
-            snprintf(aac0_opts, sizeof(aac0_opts),
-                     "-c:a:0 libfdk_aac -vbr:a:0 %d -ar:a:0 48000 ",
-                     fdk_vbr);
-            if (cmd_cat(cmd, sizeof(cmd), &pos, aac0_opts) < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:0 libfdk_aac -b:a:0 320k -ar:a:0 48000 ") < 0) goto overflow;
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac (CBR 320k)");
         } else {
             if (c->cb.on_error)
                 c->cb.on_error("fdk_aac mode requires libfdk_aac but encoder is not available",
@@ -1000,13 +996,11 @@ static void build_ffmpeg_cmd(
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 ") < 0) goto overflow;
     } else if (is_fdk_single_audio_output) {
         if (has_aac_at) {
-            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac_at -q:a 2 -ar 48000 ") < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac_at -b:a 320k -ar 48000 ") < 0) goto overflow;
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at (CBR 320k)");
         } else if (has_libfdk_aac) {
-            char fdk_opts[128];
-            snprintf(fdk_opts, sizeof(fdk_opts), "-c:a libfdk_aac -vbr %d -ar 48000 ", fdk_vbr);
-            if (cmd_cat(cmd, sizeof(cmd), &pos, fdk_opts) < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a libfdk_aac -b:a 320k -ar 48000 ") < 0) goto overflow;
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac (CBR 320k)");
         } else {
             if (c->cb.on_error)
                 c->cb.on_error("fdk_aac mode requires libfdk_aac but encoder is not available",
@@ -1019,16 +1013,14 @@ static void build_ffmpeg_cmd(
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a pcm_s16le -ar 48000 ") < 0) goto overflow;
     } else if (c->opts.use_aac_for_h265) {
         if (has_aac_at) {
-            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac_at -q:a 2 -ar 48000 ") < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac_at -b:a 320k -ar 48000 ") < 0) goto overflow;
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: aac_at (CBR 320k)");
         } else if (has_libfdk_aac) {
-            char fdk_opts[128];
-            snprintf(fdk_opts, sizeof(fdk_opts), "-c:a libfdk_aac -vbr %d -ar 48000 ", fdk_vbr);
-            if (cmd_cat(cmd, sizeof(cmd), &pos, fdk_opts) < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a libfdk_aac -b:a 320k -ar 48000 ") < 0) goto overflow;
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: libfdk_aac (CBR 320k)");
         } else {
-            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac -q:a 2 -ar 48000 ") < 0) goto overflow;
-            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac");
+            if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a aac -b:a 320k -ar 48000 ") < 0) goto overflow;
+            if (c->cb.on_message) c->cb.on_message("AAC encoder selected: native aac (CBR 320k)");
         }
     } else {
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a pcm_s16le -ar 48000 ") < 0) goto overflow;

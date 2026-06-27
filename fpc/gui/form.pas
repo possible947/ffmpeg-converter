@@ -1474,15 +1474,6 @@ begin
     Exit;
   end;
 
-  S := IntToStr(Opts.AacQuality);
-  if not InputQuery('Apple m4v creator', 'AAC quality (q:a integer, default 2):', S) then
-    Exit;
-  if (not TryStrToInt(Trim(S), Opts.AacQuality)) or (Opts.AacQuality < 1) or (Opts.AacQuality > 9) then
-  begin
-    MessageDlg('Invalid AAC quality. Use integer 1..9.', mtError, [mbOK], 0);
-    Exit;
-  end;
-
   S := IntToStr(Opts.Ac3BitrateKbps);
   if not InputQuery('Apple m4v creator', 'AC3 bitrate kbps (example 640):', S) then
     Exit;

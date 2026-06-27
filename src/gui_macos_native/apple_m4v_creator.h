@@ -11,7 +11,6 @@ typedef void (^AppleM4VStageHandler)(NSString *stage);
 typedef struct {
     NSInteger videoTrackIndex;
     NSInteger audioTrackIndex;
-    NSInteger aacQuality;
     NSInteger ac3BitrateKbps;
     BOOL addChapters;
   char audioLang[16];

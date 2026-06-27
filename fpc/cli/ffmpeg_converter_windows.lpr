@@ -61,10 +61,6 @@ begin
     M4VOpts.AudioTrackIndex := V;
 
   Token := NextToken(Rest);
-  if TryStrToInt(Token, V) and (V >= 1) and (V <= 5) then
-    M4VOpts.AacQuality := V;
-
-  Token := NextToken(Rest);
   if TryStrToInt(Token, V) and (V > 0) then
     M4VOpts.Ac3BitrateKbps := V;
 

@@ -1,6 +1,6 @@
-# ffmpeg_converter — Developer Description (Version 2.4)
+# ffmpeg_converter — Developer Description (Version 2.5)
 
-This document describes the current, factual state of the repository as of v2.4.
+This document describes the current, factual state of the repository as of v2.5.
 It is intentionally concise and aligned with the code and build files.
 
 ## 1. Project Scope
@@ -13,7 +13,7 @@ independent implementations:
 
 Both paths provide conversion workflows around external `ffmpeg`/`ffprobe`.
 
-## 2. Implementations (v2.4)
+## 2. Implementations (v2.5)
 
 ### 2.1 C/CMake (`src/`)
 
@@ -88,7 +88,7 @@ Implemented in both C and Pascal (where available):
 **Supported video codecs (preflight check):**
 - `h264`, `hevc`, `prores` (others rejected with clear error)
 
-## 4. Build Targets (v2.4)
+## 4. Build Targets (v2.5)
 
 ### 4.1 C/CMake targets
 

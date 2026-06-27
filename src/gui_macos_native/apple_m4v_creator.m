@@ -136,7 +136,6 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
     AppleM4VOptions opts;
     opts.videoTrackIndex = 0;
     opts.audioTrackIndex = 0;
-    opts.aacQuality = 2;
     opts.ac3BitrateKbps = 640;
     opts.addChapters = YES;
     memset(opts.audioLang, 0, sizeof(opts.audioLang));
@@ -271,6 +270,47 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
     }
 
     return codec;
+}
+
+- (NSDictionary<NSString *, NSString *> *)probeVideoColorForInput:(NSString *)inputFile {
+    NSMutableDictionary<NSString *, NSString *> *result = [NSMutableDictionary dictionary];
+    NSString *output = @"";
+    int code = 0;
+    NSString *errorText = nil;
+
+    NSArray<NSString *> *args = @[
+        @"-v", @"error",
+        @"-select_streams", @"v:0",
+        @"-show_entries", @"stream=color_primaries,color_transfer,color_space",
+        @"-of", @"default=noprint_wrappers=1",
+        inputFile
+    ];
+
+    if (runTaskCapture(self.ffprobeBin, args, &output, &code, &errorText) && code == 0) {
+        NSArray<NSString *> *lines = [output componentsSeparatedByString:@"\n"];
+        for (NSString *line in lines) {
+            NSArray<NSString *> *parts = [line componentsSeparatedByString:@"="];
+            if (parts.count == 2) {
+                NSString *key = trimmed(parts[0]);
+                NSString *value = trimmed(parts[1]);
+                if (key.length > 0 && value.length > 0) {
+                    result[key] = value;
+                }
+            }
+        }
+    }
+
+    if (result[@"color_primaries"].length == 0) {
+        result[@"color_primaries"] = @"bt709";
+    }
+    if (result[@"color_transfer"].length == 0) {
+        result[@"color_transfer"] = @"bt709";
+    }
+    if (result[@"color_space"].length == 0) {
+        result[@"color_space"] = @"bt709";
+    }
+
+    return result;
 }
 
 - (BOOL)runStepWithExecutable:(NSString *)executable
@@ -425,21 +465,35 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
         NSString *videoMp4 = [workDir stringByAppendingPathComponent:@"video_only.mp4"];
         NSString *aacM4a = [workDir stringByAppendingPathComponent:@"audio_aac.m4a"];
         NSString *ac3Mp4 = [workDir stringByAppendingPathComponent:@"audio_ac3.mp4"];
+        NSString *dispositionM4V = [workDir stringByAppendingPathComponent:@"with_disposition.m4v"];
         NSString *chapteredM4V = [workDir stringByAppendingPathComponent:@"with_chapters.m4v"];
 
         double fps = [self probeFpsForInput:inputFile];
         NSString *fpsStr = [NSString stringWithFormat:@"%.6f", fps];
 
-        NSArray<NSString *> *videoArgs = @[
+        NSString *codecLower = [videoCodec lowercaseString];
+        BOOL isHevc = [codecLower isEqualToString:@"hevc"];
+
+        NSDictionary<NSString *, NSString *> *colorParams = [self probeVideoColorForInput:inputFile];
+
+        NSMutableArray<NSString *> *videoArgs = [NSMutableArray arrayWithArray:@[
             @"-y", @"-nostdin",
             @"-i", inputFile,
             @"-map", [NSString stringWithFormat:@"0:v:%ld", (long)options.videoTrackIndex],
             @"-c:v", @"copy",
+        ]];
+        if (isHevc) {
+            [videoArgs addObjectsFromArray:@[@"-tag:v", @"hvc1"]];
+        }
+        [videoArgs addObjectsFromArray:@[
+            @"-color_primaries", colorParams[@"color_primaries"] ?: @"bt709",
+            @"-color_trc", colorParams[@"color_transfer"] ?: @"bt709",
+            @"-colorspace", colorParams[@"color_space"] ?: @"bt709",
             @"-an", @"-sn", @"-dn",
             @"-f", @"mp4",
             videoMp4
-        ];
-        if (![self runStepWithExecutable:self.ffmpegBin arguments:videoArgs stopFlag:stopFlag stepName:@"Apple M4V step 1/5: video copy" log:logHandler stage:stageHandler error:errorText]) {
+        ]];
+        if (![self runStepWithExecutable:self.ffmpegBin arguments:videoArgs stopFlag:stopFlag stepName:@"Apple M4V step 1/6: video copy" log:logHandler stage:stageHandler error:errorText]) {
             return NO;
         }
 
@@ -452,16 +506,16 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
         NSArray<NSString *> *aacCodecArgs = nil;
         if (hasAacAt) {
             aacEncoder = @"aac_at";
-            aacCodecArgs = @[@"-c:a", @"aac_at", @"-q:a", @"2", @"-ar", @"48000"];
+            aacCodecArgs = @[@"-c:a", @"aac_at", @"-b:a", @"320k", @"-ar", @"48000"];
         } else if (hasLibfdk) {
             aacEncoder = @"libfdk_aac";
-            aacCodecArgs = @[@"-c:a", @"libfdk_aac", @"-vbr", @"5", @"-ar", @"48000"];
+            aacCodecArgs = @[@"-c:a", @"libfdk_aac", @"-b:a", @"320k", @"-ar", @"48000"];
         } else if (hasNativeAac) {
             aacEncoder = @"aac";
-            aacCodecArgs = @[@"-c:a", @"aac", @"-profile:a", @"aac_low", @"-q:a", [NSString stringWithFormat:@"%ld", (long)options.aacQuality], @"-ar", @"48000"];
+            aacCodecArgs = @[@"-c:a", @"aac", @"-profile:a", @"aac_low", @"-b:a", @"320k", @"-ar", @"48000"];
         } else {
             aacEncoder = @"aac";
-            aacCodecArgs = @[@"-c:a", @"aac", @"-q:a", @"2", @"-ar", @"48000"];
+            aacCodecArgs = @[@"-c:a", @"aac", @"-b:a", @"320k", @"-ar", @"48000"];
         }
 
         if (logHandler) {
@@ -475,7 +529,7 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
         ]];
         [aacArgs addObjectsFromArray:aacCodecArgs];
         [aacArgs addObjectsFromArray:@[@"-f", @"mp4", aacM4a]];
-        if (![self runStepWithExecutable:self.ffmpegBin arguments:aacArgs stopFlag:stopFlag stepName:@"Apple M4V step 2/5: AAC encode" log:logHandler stage:stageHandler error:errorText]) {
+        if (![self runStepWithExecutable:self.ffmpegBin arguments:aacArgs stopFlag:stopFlag stepName:@"Apple M4V step 2/6: AAC encode" log:logHandler stage:stageHandler error:errorText]) {
             return NO;
         }
 
@@ -488,7 +542,7 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
             @"-f", @"mp4",
             ac3Mp4
         ];
-        if (![self runStepWithExecutable:self.ffmpegBin arguments:ac3Args stopFlag:stopFlag stepName:@"Apple M4V step 3/5: AC3 encode" log:logHandler stage:stageHandler error:errorText]) {
+        if (![self runStepWithExecutable:self.ffmpegBin arguments:ac3Args stopFlag:stopFlag stepName:@"Apple M4V step 3/6: AC3 encode" log:logHandler stage:stageHandler error:errorText]) {
             return NO;
         }
 
@@ -513,13 +567,41 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
             @"-add", ac3Add,
             outputFile
         ];
-        if (![self runStepWithExecutable:self.mp4BoxBin arguments:muxArgs stopFlag:stopFlag stepName:@"Apple M4V step 4/5: MP4Box mux" log:logHandler stage:stageHandler error:errorText]) {
+        if (![self runStepWithExecutable:self.mp4BoxBin arguments:muxArgs stopFlag:stopFlag stepName:@"Apple M4V step 4/6: MP4Box mux" log:logHandler stage:stageHandler error:errorText]) {
+            return NO;
+        }
+
+        NSArray<NSString *> *dispositionArgs = @[
+            @"-y", @"-nostdin",
+            @"-i", outputFile,
+            @"-map", @"0:v:0",
+            @"-map", @"0:a:0",
+            @"-map", @"0:a:1",
+            @"-c:v", @"copy",
+            @"-c:a", @"copy",
+            @"-disposition:a:0", @"default",
+            @"-disposition:a:1", @"0",
+            dispositionM4V
+        ];
+        if (![self runStepWithExecutable:self.ffmpegBin arguments:dispositionArgs stopFlag:stopFlag stepName:@"Apple M4V step 5/6: set audio disposition" log:logHandler stage:stageHandler error:errorText]) {
+            [[NSFileManager defaultManager] removeItemAtPath:dispositionM4V error:nil];
+            return NO;
+        }
+        NSFileManager *fm_disp = [NSFileManager defaultManager];
+        [fm_disp removeItemAtPath:outputFile error:nil];
+        NSError *dispRenameError = nil;
+        if (![fm_disp moveItemAtPath:dispositionM4V toPath:outputFile error:&dispRenameError]) {
+            if (logHandler) {
+                logHandler([NSString stringWithFormat:@"Apple M4V disposition warning: failed to finalize output (%@)",
+                            dispRenameError.localizedDescription ?: @"unknown"]);
+            }
+            [fm_disp removeItemAtPath:dispositionM4V error:nil];
             return NO;
         }
 
         if (options.addChapters) {
             if (stageHandler) {
-                stageHandler(@"Apple M4V step 5/5: chapters");
+                stageHandler(@"Apple M4V step 6/6: chapters");
             }
             NSArray<NSString *> *chapterTransferArgs = @[
                 @"-y", @"-nostdin",

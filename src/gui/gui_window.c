@@ -573,7 +573,6 @@ typedef struct {
     gboolean accepted;
     GtkWidget *video_spin;
     GtkWidget *audio_spin;
-    GtkWidget *aac_spin;
     GtkWidget *ac3_spin;
     GtkWidget *chapters_check;
     GtkWidget *lang_entry;
@@ -587,7 +586,6 @@ static void on_m4v_dialog_response(GtkDialog *dialog, gint response_id, gpointer
         const char *lang;
         data->opts->video_track_index = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->video_spin));
         data->opts->audio_track_index = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->audio_spin));
-        data->opts->aac_quality = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->aac_spin));
         data->opts->ac3_bitrate_kbps = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->ac3_spin));
         data->opts->add_chapters = gtk_check_button_get_active(GTK_CHECK_BUTTON(data->chapters_check));
 
@@ -609,7 +607,6 @@ static gboolean prompt_m4v_options(AppWidgets *w, M4VOptions *opts)
     GtkWidget *grid;
     GtkWidget *video_spin;
     GtkWidget *audio_spin;
-    GtkWidget *aac_spin;
     GtkWidget *ac3_spin;
     GtkWidget *chapters_check;
     GtkWidget *lang_entry;
@@ -635,8 +632,6 @@ static gboolean prompt_m4v_options(AppWidgets *w, M4VOptions *opts)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(video_spin), opts->video_track_index);
     audio_spin = gtk_spin_button_new_with_range(0, 16, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(audio_spin), opts->audio_track_index);
-    aac_spin = gtk_spin_button_new_with_range(1, 5, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(aac_spin), opts->aac_quality);
     ac3_spin = gtk_spin_button_new_with_range(96, 1536, 32);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(ac3_spin), opts->ac3_bitrate_kbps);
     chapters_check = gtk_check_button_new_with_label("Add chapters");
@@ -648,13 +643,11 @@ static gboolean prompt_m4v_options(AppWidgets *w, M4VOptions *opts)
     gtk_grid_attach(GTK_GRID(grid), video_spin, 1, 0, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio track index:"), 0, 1, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), audio_spin, 1, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("FDK AAC VBR:"), 0, 2, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), aac_spin, 1, 2, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("AC3 bitrate kbps:"), 0, 3, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), ac3_spin, 1, 3, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio language:"), 0, 4, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), lang_entry, 1, 4, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), chapters_check, 0, 5, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("AC3 bitrate kbps:"), 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), ac3_spin, 1, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio language:"), 0, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), lang_entry, 1, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), chapters_check, 0, 4, 2, 1);
 
     gtk_box_append(GTK_BOX(content), grid);
 
@@ -664,7 +657,6 @@ static gboolean prompt_m4v_options(AppWidgets *w, M4VOptions *opts)
     data.opts = opts;
     data.video_spin = video_spin;
     data.audio_spin = audio_spin;
-    data.aac_spin = aac_spin;
     data.ac3_spin = ac3_spin;
     data.chapters_check = chapters_check;
     data.lang_entry = lang_entry;

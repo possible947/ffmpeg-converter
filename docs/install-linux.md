@@ -82,7 +82,7 @@ The script:
 - Creates a desktop entry with icon
 - Invokes `appimagetool.AppImage` (or `appimagetool`) to produce the final `.AppImage`
 
-## 2. Free Pascal Path (v2.4: Feature-complete, tested)
+## 2. Free Pascal Path (v2.5: Feature-complete, tested)
 
 ### 2.1 Install dependencies
 ```bash

@@ -1,9 +1,9 @@
-# ffmpeg_converter 2.4
+# ffmpeg_converter 2.5
 
 Cross-platform media conversion and mux tool with CLI and GUI for building and
-running optimized `ffmpeg` workflows. Version 2.4 unifies feature sets across
-platforms, stabilizes macOS (C-only), and completes Linux and Windows implementations
-with full feature parity.
+running optimized `ffmpeg` workflows. Version 2.5 improves Apple M4V creator
+output quality and compatibility, and standardizes AAC encoding across all
+codecs.
 
 Two independent implementations share the same conversion logic and CLI behavior:
 
@@ -11,6 +11,45 @@ Two independent implementations share the same conversion logic and CLI behavior
   Windows CLI (MSVC build).
 - **Free Pascal** (`fpc/`) — complete port with CLI and GUI; available for Linux
   and Windows (macOS version discontinued).
+
+## Version 2.5 Updates
+
+### Apple M4V Creator — Full Pipeline Fixes (All Platforms)
+- **Fix HEVC codec tag**: M4V mux now uses `-tag:v hvc1` for HEVC source video,
+  ensuring Apple hardware decoders on macOS/iOS recognize and play back the file
+  (previously used `hev1`, which Apple devices reject).
+- **Preserve color metadata**: video color space/transfer/primaries are probed
+  from the source via ffprobe and passed through to the output, matching the
+  behavior of HandBrake and Apple Compressor.
+- **Audio disposition**: AAC track is now set as `default` and AC3 track as
+  non-default (hidden from Apple TV audio selector), matching etalon files.
+- **Audio quality upgraded**: AAC encoding now uses `libfdk_aac` with CBR 320k
+  (previously VBR quality 5), matching the bitrate of HandBrake/Apple reference
+  files and eliminating quality inconsistency across the output.
+
+### Standard Encoding Improvements
+- **All converter modes (not just M4V)** now use CBR 320k AAC encoding:
+  `fdk_aac_q5`, `fdk_aac_q5_ac3_640`, and `use_aac_for_h265` modes across
+  C and Pascal implementations.
+- **Removed `--m4v-aac-quality` CLI option and GUI controls**: AAC bitrate is
+  now fixed at 320k (no longer user-configurable VBR quality). The deprecated
+  `aac_quality` field was removed from `M4VOptions`, `CliM4VOptions`,
+  `AppleM4VOptions`, and `TAppleM4VOptions` structs.
+
+### Platform-Specific Improvements
+- **Linux CLI/GUI** (`src/m4v/m4v.c`, `src/gui/`): full M4V fixes; removed
+  AAC quality widget from GTK4 dialog.
+- **macOS CLI/GUI** (`src/gui_macos_native/`): full M4V fixes; removed
+  AAC quality field from Cocoa GUI dialog.
+- **Pascal Linux/Windows** (`fpc/converter/`): full M4V fixes; converter
+  command builder updated to CBR 320k; removed AAC quality from CLI args
+  and GUI dialogs.
+
+### Documentation
+- Updated CLI `--help` output to reflect new M4V encoding behavior (CBR 320k
+  AAC, removed `--m4v-aac-quality`).
+- Updated summary output: shows "M4V AAC: CBR 320k (libfdk_aac)" instead of
+  the old quality value.
 
 ## Version 2.4 Updates
 
@@ -277,8 +316,8 @@ third_party/   Vendored jansson (C path)
 - Windows `mux` mode uses the same `mkvmerge`-based pipeline. The `mux` codec
   appears in the menu and is accepted on the command line only when `mkvmerge`
   is detected at startup (PATH, env var `MKVMERGE`/`MKVMERGE_BIN`, or bundled).
-- Linux GTK Apple M4V creator is GUI-only and now uses `libfdk_aac -vbr 5`
-  by default for the AAC track.
+- Linux GTK Apple M4V creator is GUI-only and now uses `libfdk_aac -b:a 320k`
+  (CBR) for the AAC track.
 - `prores_videotoolbox` uses Apple's proprietary ProRes encoder (hardware on
   Apple Silicon, software fallback on Intel via `-allow_sw 1`).
 - Loudness 2-pass requires `ffmpeg` and `jansson`.

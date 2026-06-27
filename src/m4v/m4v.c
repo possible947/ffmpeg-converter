@@ -139,6 +139,71 @@ static double probe_fps_for_input(const char *ffprobe_bin, const char *input_fil
     return 25.0;
 }
 
+typedef struct {
+    char color_primaries[32];
+    char color_trc[32];
+    char colorspace[32];
+} VideoColorParams;
+
+static void probe_video_color_params(const char *ffprobe_bin,
+                                     const char *input_file,
+                                     VideoColorParams *params)
+{
+    char quoted_tool[2048];
+    char quoted_input[2048];
+    char cmd[8192];
+    char output[1024];
+    int rc;
+    char *line;
+    char *eq;
+
+    if (!params)
+        return;
+
+    params->color_primaries[0] = '\0';
+    params->color_trc[0] = '\0';
+    params->colorspace[0] = '\0';
+
+    m4v_platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
+    m4v_platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
+
+    snprintf(cmd,
+             sizeof(cmd),
+             "%s -v error -select_streams v:0 -show_entries stream=color_primaries,color_transfer,color_space -of default=noprint_wrappers=1 %s %s",
+             quoted_tool,
+             quoted_input,
+             m4v_platform_null_redirect());
+
+    rc = run_command_capture(cmd, output, sizeof(output), NULL, NULL);
+    if (rc != 0)
+        return;
+
+    line = strtok(output, "\n");
+    while (line) {
+        eq = strchr(line, '=');
+        if (eq) {
+            *eq = '\0';
+            const char *key = line;
+            const char *value = eq + 1;
+
+            if (strcmp(key, "color_primaries") == 0 && value[0] != '\0')
+                copy_string(params->color_primaries, sizeof(params->color_primaries), value);
+            else if (strcmp(key, "color_transfer") == 0 && value[0] != '\0')
+                copy_string(params->color_trc, sizeof(params->color_trc), value);
+            else if (strcmp(key, "color_space") == 0 && value[0] != '\0')
+                copy_string(params->colorspace, sizeof(params->colorspace), value);
+        }
+        line = strtok(NULL, "\n");
+    }
+
+    if (params->color_primaries[0] == '\0')
+        copy_string(params->color_primaries, sizeof(params->color_primaries), "bt709");
+    if (params->color_trc[0] == '\0')
+        copy_string(params->color_trc, sizeof(params->color_trc), "bt709");
+    if (params->colorspace[0] == '\0')
+        copy_string(params->colorspace, sizeof(params->colorspace), "bt709");
+}
+
 void m4v_default_options(M4VOptions *opts)
 {
     if (!opts)
@@ -147,7 +212,6 @@ void m4v_default_options(M4VOptions *opts)
     memset(opts, 0, sizeof(*opts));
     opts->video_track_index = 0;
     opts->audio_track_index = 0;
-    opts->aac_quality = 5;
     opts->ac3_bitrate_kbps = 640;
     opts->add_chapters = 1;
     copy_string(opts->audio_lang, sizeof(opts->audio_lang), "rus");
@@ -181,7 +245,9 @@ ConverterError m4v_make_output_name(const char *input_file,
 
 ConverterError m4v_validate_input_supported(const char *input_file,
                                             char *detail,
-                                            size_t detail_sz)
+                                            size_t detail_sz,
+                                            char *codec_name_out,
+                                            size_t codec_name_sz)
 {
     const char *ffprobe_bin;
     char quoted_tool[2048];
@@ -215,6 +281,8 @@ ConverterError m4v_validate_input_supported(const char *input_file,
     }
 
     output[strcspn(output, "\r\n")] = '\0';
+    if (codec_name_out && codec_name_sz > 0)
+        copy_string(codec_name_out, codec_name_sz, output);
     if (strcmp(output, "h264") != 0 && strcmp(output, "hevc") != 0 &&
         strcmp(output, "prores") != 0 && strcmp(output, "prores_ks") != 0) {
         snprintf(detail, detail_sz, "unsupported video codec for M4V: %s", output[0] != '\0' ? output : "unknown");
@@ -253,6 +321,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     char video_mp4[1200];
     char aac_m4a[1200];
     char ac3_mp4[1200];
+    char disposition_m4v[1200];
     char chapters_m4v[1200];
     char quoted_tool[2048];
     char quoted_input[2048];
@@ -260,6 +329,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     char quoted_video[2048];
     char quoted_aac[2048];
     char quoted_ac3[2048];
+    char quoted_disposition_m4v[2048];
     char quoted_chapters_m4v[2048];
     char quoted_video_add[4096];
     char quoted_aac_add[4096];
@@ -269,6 +339,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     char ac3_add[3072];
     char cmd[20480];
     char detail[256];
+    char video_codec[64];
     int rc;
     double fps;
     const char *lang;
@@ -284,7 +355,8 @@ ConverterError m4v_create_from_input(const char *input_file,
     else
         m4v_default_options(&local_opts);
 
-    rc = m4v_validate_input_supported(input_file, detail, sizeof(detail));
+    video_codec[0] = '\0';
+    rc = m4v_validate_input_supported(input_file, detail, sizeof(detail), video_codec, sizeof(video_codec));
     if (rc != ERR_OK) {
         copy_string(error_text, error_text_sz, detail);
         emit_error(callbacks, detail, (ConverterError)rc);
@@ -310,23 +382,51 @@ ConverterError m4v_create_from_input(const char *input_file,
     snprintf(video_mp4, sizeof(video_mp4), "%s/video_only.mp4", work_dir);
     snprintf(aac_m4a, sizeof(aac_m4a), "%s/audio_aac.m4a", work_dir);
     snprintf(ac3_mp4, sizeof(ac3_mp4), "%s/audio_ac3.mp4", work_dir);
+    snprintf(disposition_m4v, sizeof(disposition_m4v), "%s/with_disposition.m4v", work_dir);
     snprintf(chapters_m4v, sizeof(chapters_m4v), "%s/with_chapters.m4v", work_dir);
 
     fps = probe_fps_for_input(ffprobe_bin, input_file);
     lang = local_opts.audio_lang[0] != '\0' ? local_opts.audio_lang : "rus";
 
-    m4v_platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
-    m4v_platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
-    m4v_platform_shell_quote(video_mp4, quoted_video, sizeof(quoted_video));
+    {
+        VideoColorParams color;
+        probe_video_color_params(ffprobe_bin, input_file, &color);
 
-    emit_stage(callbacks, "Apple M4V step 1/5: video copy");
-    snprintf(cmd,
-             sizeof(cmd),
-             "%s -y -nostdin -i %s -map 0:v:%d -c:v copy -an -sn -dn -f mp4 %s 2>&1",
-             quoted_tool,
-             quoted_input,
-             local_opts.video_track_index,
-             quoted_video);
+        m4v_platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
+        m4v_platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
+        m4v_platform_shell_quote(video_mp4, quoted_video, sizeof(quoted_video));
+
+        emit_stage(callbacks, "Apple M4V step 1/6: video copy");
+        {
+            int is_hevc = strcmp(video_codec, "hevc") == 0;
+
+            if (is_hevc) {
+                snprintf(cmd,
+                         sizeof(cmd),
+                         "%s -y -nostdin -i %s -map 0:v:%d -c:v copy -tag:v hvc1 "
+                         "-color_primaries %s -color_trc %s -colorspace %s -an -sn -dn -f mp4 %s 2>&1",
+                         quoted_tool,
+                         quoted_input,
+                         local_opts.video_track_index,
+                         color.color_primaries,
+                         color.color_trc,
+                         color.colorspace,
+                         quoted_video);
+            } else {
+                snprintf(cmd,
+                         sizeof(cmd),
+                         "%s -y -nostdin -i %s -map 0:v:%d -c:v copy "
+                         "-color_primaries %s -color_trc %s -colorspace %s -an -sn -dn -f mp4 %s 2>&1",
+                         quoted_tool,
+                         quoted_input,
+                         local_opts.video_track_index,
+                         color.color_primaries,
+                         color.color_trc,
+                         color.colorspace,
+                         quoted_video);
+            }
+        }
+    }
     rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
     if (rc != 0) {
         copy_string(error_text, error_text_sz, rc == -2 ? "Stopped" : "Apple M4V video copy failed");
@@ -335,14 +435,13 @@ ConverterError m4v_create_from_input(const char *input_file,
     }
 
     m4v_platform_shell_quote(aac_m4a, quoted_aac, sizeof(quoted_aac));
-    emit_stage(callbacks, "Apple M4V step 2/5: AAC encode");
+    emit_stage(callbacks, "Apple M4V step 2/6: AAC encode");
     snprintf(cmd,
              sizeof(cmd),
-             "%s -y -nostdin -i %s -map 0:a:%d -c:a libfdk_aac -vbr %d -ar 48000 -f mp4 %s 2>&1",
+             "%s -y -nostdin -i %s -map 0:a:%d -c:a libfdk_aac -b:a 320k -ar 48000 -f mp4 %s 2>&1",
              quoted_tool,
              quoted_input,
              local_opts.audio_track_index,
-             local_opts.aac_quality,
              quoted_aac);
     rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
     if (rc != 0) {
@@ -352,7 +451,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     }
 
     m4v_platform_shell_quote(ac3_mp4, quoted_ac3, sizeof(quoted_ac3));
-    emit_stage(callbacks, "Apple M4V step 3/5: AC3 encode");
+    emit_stage(callbacks, "Apple M4V step 3/6: AC3 encode");
     snprintf(cmd,
              sizeof(cmd),
              "%s -y -nostdin -i %s -map 0:a:%d -c:a ac3 -b:a %dk -f mp4 %s 2>&1",
@@ -370,7 +469,7 @@ ConverterError m4v_create_from_input(const char *input_file,
 
     m4v_platform_shell_quote(mp4box_bin, quoted_tool, sizeof(quoted_tool));
     m4v_platform_shell_quote(output_file, quoted_output, sizeof(quoted_output));
-    emit_stage(callbacks, "Apple M4V step 4/5: MP4Box mux");
+    emit_stage(callbacks, "Apple M4V step 4/6: MP4Box mux");
     snprintf(video_add, sizeof(video_add), "%s#video:fps=%.6f:name=Video", video_mp4, fps);
     snprintf(aac_add, sizeof(aac_add), "%s#audio:name=AAC:lang=%s", aac_m4a, lang);
     snprintf(ac3_add, sizeof(ac3_add), "%s#audio:name=AC3 %dk:lang=%s", ac3_mp4, local_opts.ac3_bitrate_kbps, lang);
@@ -404,10 +503,36 @@ ConverterError m4v_create_from_input(const char *input_file,
         return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
     }
 
+    emit_stage(callbacks, "Apple M4V step 5/6: set audio disposition");
+    m4v_platform_shell_quote(disposition_m4v, quoted_disposition_m4v, sizeof(quoted_disposition_m4v));
+    snprintf(cmd,
+             sizeof(cmd),
+             "%s -y -nostdin -i %s -map 0:v:0 -map 0:a:0 -map 0:a:1 -c:v copy -c:a copy "
+             "-disposition:a:0 default -disposition:a:1 0 %s 2>&1",
+             quoted_tool,
+             quoted_output,
+             quoted_disposition_m4v);
+    rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
+    if (rc != 0) {
+        m4v_platform_unlink(disposition_m4v);
+        copy_string(error_text, error_text_sz, rc == -2 ? "Stopped" : "Apple M4V audio disposition failed");
+        m4v_platform_remove_temp_dir(work_dir);
+        return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
+    }
+    if (m4v_platform_file_exists(output_file))
+        (void)m4v_platform_unlink(output_file);
+    if (rename(disposition_m4v, output_file) != 0) {
+        m4v_platform_unlink(disposition_m4v);
+        copy_string(error_text, error_text_sz, "Apple M4V disposition: could not finalize output");
+        emit_error(callbacks, "Apple M4V disposition: could not finalize output", ERR_UNKNOWN);
+        m4v_platform_remove_temp_dir(work_dir);
+        return ERR_UNKNOWN;
+    }
+
     if (local_opts.add_chapters) {
         m4v_platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
         m4v_platform_shell_quote(chapters_m4v, quoted_chapters_m4v, sizeof(quoted_chapters_m4v));
-        emit_stage(callbacks, "Apple M4V step 5/5: chapters");
+        emit_stage(callbacks, "Apple M4V step 6/6: chapters");
         snprintf(cmd,
                  sizeof(cmd),
                  "%s -y -nostdin -i %s -i %s -map 0 -map_chapters 1 -c copy %s 2>&1",

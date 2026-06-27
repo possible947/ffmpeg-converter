@@ -1,4 +1,4 @@
-# Free Pascal Port — ffmpeg_converter (Version 2.4)
+# Free Pascal Port — ffmpeg_converter (Version 2.5)
 
 This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-converter` project,
 available for **Linux and Windows only**. macOS support was discontinued in version 2.4.

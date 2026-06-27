@@ -158,7 +158,6 @@ int main(int argc, char** argv) {
 
                 m4v_opts.video_track_index = m4v_cli_opts.video_track_index;
                 m4v_opts.audio_track_index = m4v_cli_opts.audio_track_index;
-                m4v_opts.aac_quality       = m4v_cli_opts.aac_quality;
                 m4v_opts.ac3_bitrate_kbps  = m4v_cli_opts.ac3_bitrate_kbps;
                 strncpy(m4v_opts.audio_lang, m4v_cli_opts.audio_lang,
                         sizeof(m4v_opts.audio_lang) - 1);
