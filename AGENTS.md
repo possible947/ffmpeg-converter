@@ -1,134 +1,110 @@
-# AGENTS
+# ffmpeg-converter
 
-## Scope
+Two independent implementations coexist:
+- `src/`: C/CMake — macOS native GUI, Linux GTK4 GUI, Windows CLI (MSVC)
+- `fpc/`: Free Pascal — Linux & Windows GUI/CLI (macOS discontinued v2.4)
 
-These instructions apply to the whole repository.
+## Build Commands
 
-## Project Shape
-
-- This repo contains two implementations that intentionally coexist:
-  - `src/`: primary C/CMake implementation for Linux, macOS, and Windows CLI.
-  - `fpc/`: Free Pascal implementation for Linux and Windows only.
-- Do not assume every feature or platform path exists in both trees.
-- macOS work should stay in the C path. Pascal macOS support was removed in v2.4.
-- **No Windows GUI in C path** — only CLI; Pascal has Windows GUI.
-- **Linux GTK4 GUI is C-only** — Pascal has separate Lazarus GUI.
-
-## First Places To Read
-
-- Project overview: [README.md](README.md)
-- C architecture and targets: [src/README.md](src/README.md)
-- Pascal architecture and build flow: [fpc/README.md](fpc/README.md)
-- Platform setup details: [docs/install-linux.md](docs/install-linux.md), [docs/install-macos.md](docs/install-macos.md), [docs/install-windows.md](docs/install-windows.md)
-- Product and feature detail: [docs/PROJECT_DESCRIPTION.md](docs/PROJECT_DESCRIPTION.md)
-
-## Working Areas
-
-- `src/converter/`, `src/ffmpeg_cmd/`, `src/progress/`: shared C conversion engine and ffmpeg command/progress handling.
-- `src/gui/`: Linux GTK GUI (C-only).
-- `src/gui_macos_native/`: macOS native Cocoa GUI (C-only).
-- `src/m4v/`, `src/mux/`: Apple M4V and MKV mux workflows.
-- `src/platform/`: platform-specific binaries and bundling scripts.
-- `src/cli/`: CLI entry points per platform (main.c is unified, platform subdirs).
-- `fpc/converter/`, `fpc/cli/`, `fpc/gui/`: Pascal engine, CLI, and GUI.
-- `third_party/jansson/`: vendored dependency; avoid unrelated edits.
-- `build/`, `fpc/bin/`: generated output; do not hand-edit build artifacts.
-
-## Build And Validation — Exact Commands
-
-### C/CMake Linux
+### C/CMake (Linux)
 ```bash
 cmake -S . -B build
 cmake --build build --target linux_cli
 cmake --build build --target linux_gui
-# Binaries: build/bin/ffmpeg_converter, build/bin/ffmpeg_converter_gui
+# AppImage: cmake -S . -B build -DENABLE_APPIMAGE=ON && cmake --build build --target package_appimage
+# Outputs: build/bin/ffmpeg_converter, build/bin/ffmpeg_converter_gui[-x86_64.AppImage]
 ```
 
-### C/CMake macOS
+### C/CMake (macOS)
 ```bash
 cmake -S . -B build
 cmake --build build --target macos_cli
 cmake --build build --target macos_gui_native
-cmake --install build
-# App: build/install/ffmpeg_converter_gui_macos.app
+cmake --install build  # → build/install/ffmpeg_converter_gui_macos.app
 ```
-- Requires Xcode command-line tools. CMake must find MacPorts libraries (ffmpeg, jansson) at `/opt/local` typically.
 
-### C/CMake Windows (MSVC)
-```bash
-# Preferred — uses PowerShell, auto-detects VS:
-.\scripts\windows_build.ps1
-# Or clean build:
-.\scripts\windows_build.ps1 -Clean
+### C/CMake (Windows MSVC)
+```powershell
+# Requires ffmpeg.exe, ffprobe.exe, DLLs in src/platform/windows/bin/ first
+.\scripts\windows_build.ps1              # incremental
+.\scripts\windows_build.ps1 -Clean       # clean
+.\scripts\windows_build.ps1 -BuildFPC    # C + Pascal CLI
+.\scripts\windows_build.ps1 -BuildGUI    # C + Pascal GUI
+.\scripts\windows_build.ps1 -FPCOnly     # Pascal CLI only
+.\scripts\windows_build.ps1 -GUIOnly     # Pascal GUI only (lazbuild)
 ```
-- **Bundled binaries required BEFORE build**: `src/platform/windows/bin/` must contain `ffmpeg.exe`, `ffprobe.exe`, and all required DLLs. Build copies these next to `ffmpeg_converter.exe`.
-- Manual: `cmake -S . -B build-msvc -G "Visual Studio 17 2022" -A x64` then `cmake --build build-msvc --target windows_cli --config Release`.
-- Output: `build-msvc/src/cli/Release/ffmpeg_converter.exe`.
 
-### Free Pascal Linux
+### Free Pascal (Linux)
 ```bash
 make -C fpc/build cli        # → fpc/bin/ffmpeg_converter
 make -C fpc/build lib        # → fpc/converter/libconverter_pas.so
-make -C fpc/build gui-app    # → fpc/gui/form.app (self-contained bundle)
+make -C fpc/build gui-app    # → fpc/gui/form.app (self-contained)
+make -C fpc/build appimage   # → fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage
 make -C fpc/build tests      # → test binaries in fpc/test/
+make -C fpc/build            # all: cli + lib + tests + copy-binaries
 ```
 
-### Free Pascal Windows
+### Free Pascal (Windows)
 ```bash
-# Compile CLI:
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli -Fu./fpc/platform ./fpc/cli/ffmpeg_converter_windows.lpr -offmpeg_converter_windows.exe
-# Or via Makefile (WSL/cross): see fpc/build/Makefile
-lazbuild fpc/gui/form.lpi   # → fpc/gui/ffmpeg_converter_gui.exe
+# CLI: fpc -Fu../converter -Fu../common -Fu../json -Fu../cli -Fu../platform cli/ffmpeg_converter_windows.lpr
+# GUI: lazbuild gui/form.lpi
+# Or via CMake: cmake --build build-msvc --target fpc_converter_windows / fpc_gui_windows
 ```
 
-## Key Repo Conventions That Agents Must Know
+## CLI Conventions (both implementations)
 
-- **CLI `-o/--output` is a directory, never a filename**. Default output is `$HOME/ffmpeg_converter` (created if missing).
-- **CLI inputs are positional arguments**, not `--input` pairs.
-- **`codec=mux` is a special workflow**: one source file + `--video-track <replacement>` → `mkvmerge` → `.mkv` output. `mkvmerge` must be present.
-- **`m4v` is a GUI-only workflow** in CLI it is a separate codec choice that triggers Apple M4V creator (multi-step: video copy → AAC → AC3 → MP4Box). Requires `MP4Box` and accepts only `h264`/`hevc`/`prores` input video tracks.
-- **Bundled tools matter**. Runtime expects `ffmpeg`/`ffprobe` staged in platform-specific `src/platform/*/bin/` or adjacent to the binary. Without bundled ffmpeg/ffprobe, many platform builds will fail or behave incorrectly.
-- **Linux hardware codec availability is runtime-probed**, not compile-time. Agents should not modify source to hardcode VAAPI availability.
-- **macOS Pascal is discontinued**. All macOS work uses C/Cocoa path.
-- **Windows C GUI is not implemented**. Use C CLI (most complete) or Pascal GUI.
-- **CMake feature switches**: `ENABLE_LINUX_GUI` (Linux), `ENABLE_MACOS_NATIVE_GUI` (macOS); both default ON on their platforms.
+- Inputs are **positional arguments**, not `--input` pairs
+- `-o/--output` sets an **output directory**, never a filename
+- Default output: `$HOME/ffmpeg_converter` (created if missing)
+- Hardware codecs (VAAPI/Vulkan/VideoToolbox/QSV) probed at runtime — never hardcode availability
 
-## Cross-Implementation Parity Notes
+## Special Workflows & Dependencies
 
-- C and Pascal implementations share conversion options/behavior. Changes intended to be cross-platform should be mirrored where both implementations exist (Linux/Windows). macOS features are C-only.
-- Tool discovery order (both C and Pascal): 1) executable-adjacent, 2) env vars (`FFMPEG_BIN`, `FFPROBE_BIN`, `MKVMERGE_BIN`, `MP4BOX_BIN`), 3) `PATH`.
-- C path uses `src/platform/<platform>/bin/` for bundled tools. Pascal GUI packaging also uses `src/platform/linux/bin/` for ffmpeg/ffprobe when creating AppImages.
+| Codec/Mode | Requires | Notes |
+|------------|----------|-------|
+| `codec=mux` | `mkvmerge` | 1 source + `--video-track <file>` → `.mkv`. Silently disabled if missing |
+| `codec=m4v` | `MP4Box` | Apple M4V: video copy → AAC → AC3 → MP4Box. Input: h264/hevc/prores only |
+| AV1 decode | ffmpeg + `libdav1d` | Requires ffmpeg built with `--enable-libdav1d` |
 
-## Easy-To-Miss Pitfalls
+**Tool discovery order:** 1) adjacent to binary, 2) env vars (`FFMPEG_BIN`, `FFPROBE_BIN`, `MKVMERGE_BIN`, `MP4BOX_BIN`), 3) `PATH`
 
-- **AV1 input decoding**: requires ffmpeg built with `--enable-libdav1d`. Default bundled ffmpeg on Linux includes it; some distro packages do not.
-- **`mkvmerge` required for mux mode** on all platforms. If absent, mux codec is silently disabled or errors early.
-- **`MP4Box` required for Apple M4V creator** on macOS (C) and Linux (GTK C and Pascal).
-- **Windows MSVC build requires pre-staged binaries** in `src/platform/windows/bin/` (ffmpeg.exe, ffprobe.exe, DLLs) before building.
-- **Linux AppImage packaging** requires `ffmpeg`/`ffprobe` in `src/platform/linux/bin/` before running `package_appimage`.
-- **macOS native GUI .app bundling** will attempt to bundle MP4Box and dependent dylibs at build time (from platform/macos/bin).
-- **Pascal GUI builds require `lazbuild` (Lazarus IDE)**. CLI builds only need `fpc`.
-- **Do not edit vendored `third_party/jansson`** unless you intend to maintain the forked copy.
-- **`prores_ks` (C) and Pascal may have different quality curves** — validate side-by-side when touching encoder parameters.
+## Testing
 
-## Build Validation Shortcuts
+- **Pascal unit tests**: `make -C fpc/build tests` → binaries in `fpc/test/`
+- Targeted runs: `make -C fpc/build tests TEST_PROGRAMS="test_cmd_builder test_cli_mode_matrix"`
+- Integration scripts: `bash fpc/test/test_cli_args_matrix.sh`, `bash fpc/test/check_gui_cli_issues.sh`
+- Full regression: `./fpc/test/run_all_regression_and_capture.sh` → report in `/tmp/ffc_regression_<ts>/`
+- Hardware codec tests (VAAPI, Vulkan, VideoToolbox, QSV) skip silently if unavailable
 
-- C Linux CLI test: `./build/bin/ffmpeg_converter --help`
-- Pascal Linux CLI test: `./fpc/bin/ffmpeg_converter --help`
-- Pascal unit tests: `make -C fpc/build tests` (or run individual `./fpc/test/test_*`)
-- Confirm both implementations produce compatible results for a given conversion by comparing CLI help and codec lists.
+## Platform Gotchas
 
-## Testing Quirks
+- **Linux**: Hardware codecs probed at runtime (VAAPI); never hardcode availability. GTK4 dev pkg needed for GUI.
+- **macOS**: Native Cocoa GUI only (C). App bundles `ffmpeg`, `ffprobe`, `MP4Box`. Pascal support dropped v2.4.
+- **Windows MSVC**: Must pre-stage `ffmpeg.exe`, `ffprobe.exe`, all DLLs in `src/platform/windows/bin/` before build.
+- **Windows Pascal**: GUI needs `lazbuild` (Lazarus); CLI only needs `fpc`. Vulkan ProRes encoder probed at runtime.
+- **AppImage (Linux)**: Requires `appimagetool` in PATH.
+- **Vendored**: `third_party/jansson/` — avoid unrelated edits.
+- **mkvmerge/MP4Box**: Required for mux/M4V modes on all platforms; silently disabled if absent.
 
-- Pascal integration tests may require `test.mp4` sample in repo or test data directory.
-- Mux tests require `mkvmerge` present in `PATH` or bundled location.
-- Apple M4V creator tests require `MP4Box` and compatible input files (h264/hevc/prores).
-- Hardware codec tests (VAAPI, Vulkan) require compatible hardware/drivers and will be skipped silently if unavailable.
+## Key Entry Points
 
-## Useful References
+| Implementation | CLI Entry | GUI Entry |
+|----------------|-----------|-----------|
+| C/Linux | `src/cli/cli_linux.c` | `src/gui/main.c` (GTK4) |
+| C/macOS | `src/cli/cli_macos.c` | `src/gui_macos_native/main.m` (Cocoa) |
+| C/Windows | `src/cli/cli_windows.c` | — (no C GUI) |
+| Pascal/Linux | `fpc/cli/ffmpeg_converter.lpr` | `fpc/gui/main.lpr` (LCL) |
+| Pascal/Windows | `fpc/cli/ffmpeg_converter_windows.lpr` | `fpc/gui/form.lpi` (LCL) |
 
-- User-facing behavior: [docs/user_manual.md](docs/user_manual.md)
-- Cross-platform build notes: [INSTALL_BUILD_ALL_PLATFORMS.md](INSTALL_BUILD_ALL_PLATFORMS.md)
-- Pascal converter library API: [fpc/converter/CONVERTER_LIBRARY_DETAIL.md](fpc/converter/CONVERTER_LIBRARY_DETAIL.md), [fpc/converter/API_MAP.md](fpc/converter/API_MAP.md)
-- C architecture: [docs/PROJECT_DESCRIPTION.md](docs/PROJECT_DESCRIPTION.md)
-- Install guides: [docs/install-linux.md](docs/install-linux.md), [docs/install-macos.md](docs/install-macos.md), [docs/install-windows.md](docs/install-windows.md)
+## Core Converter Logic
+
+- C: `src/converter/converter.c` — validation, 2-pass analysis, ffmpeg cmd building, progress parsing, output dir preflight
+- Pascal: `fpc/converter/converter_pas.pas` — C ABI compatible, exports 8 symbols via `converter_pas.h`
+
+## References
+
+- Install guides: `docs/install-linux.md`, `docs/install-macos.md`, `docs/install-windows.md`
+- Dependencies reference: `docs/DEPENDENCIES_ANALYSIS.md`
+- C architecture: `docs/PROJECT_DESCRIPTION.md`
+- Pascal converter lib: `fpc/converter/CONVERTER_LIBRARY_DETAIL.md`
+- Changelogs: `CHANGELOG.md`, `fpc/CHANGELOG.md`
