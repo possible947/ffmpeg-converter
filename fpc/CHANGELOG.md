@@ -5,6 +5,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Windows mux failure with `mkvmerge` argument parsing (`codec=mux`).**
+  Removed `--overwrite` from the Pascal post-mux command line in
+  `fpc/converter/mux_postprocess.pas`. On current MKVToolNix builds this token
+  is treated as an input filename, causing failures like `file "--overwrite"
+  could not be opened for reading`.
+- **Windows `mkvmerge` resolution for release/deployed builds.**
+  `fpc/platform/windows_mkvmerge.pas` now checks `MKVMERGE` /
+  `MKVMERGE_BIN` first and also searches `src\platform\windows\bin\mkvmerge.exe`
+  relative to the executable path, improving tool discovery outside dev shells.
+
+---
+
 ## [2.5.0] — 2026-06-27
 
 ### Fixed

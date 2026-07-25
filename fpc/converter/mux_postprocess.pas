@@ -158,8 +158,6 @@ begin
   MuxCmd := QuoteForShell(Tools.MkvmergeBin) + ' -o ' + QuoteForShell(TempOutputFile) +
             ' --no-audio --no-subtitles --no-buttons --no-attachments' +
             ' --no-chapters --no-global-tags --no-track-tags ';
-  if Opts.overwrite <> 0 then
-    MuxCmd += '--overwrite ';
   if MuxRate <> '' then
     MuxCmd += '--default-duration 0:' + MuxRate + 'fps ';
   MuxCmd += '--video-tracks 0 ' + QuoteForShell(VideoTrack) +
@@ -231,7 +229,9 @@ begin
 
   { Locate tools }
   Tools := ResolveToolPaths;
-  MkvmergePath := FindMkvmergeBin;
+  MkvmergePath := Tools.MkvmergeBin;
+  if (MkvmergePath = '') or (LowerCase(MkvmergePath) = 'mkvmerge') then
+    MkvmergePath := FindMkvmergeBin;
   if MkvmergePath = '' then
   begin
     SafeWriteErr('Error: mkvmerge not found');
@@ -278,8 +278,6 @@ begin
   MuxCmd := '"' + MkvmergePath + '" -o "' + TempOutputFile + '"' +
             ' --no-audio --no-subtitles --no-buttons --no-attachments' +
             ' --no-chapters --no-global-tags --no-track-tags';
-  if Opts.overwrite <> 0 then
-    MuxCmd := MuxCmd + ' --overwrite';
   if MuxRate <> '' then
     MuxCmd := MuxCmd + ' --default-duration 0:' + MuxRate + 'fps';
   MuxCmd := MuxCmd + ' --video-tracks 0 "' + VideoTrack + '"' +

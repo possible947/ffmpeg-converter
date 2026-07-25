@@ -20,13 +20,27 @@ function FindMkvmergeBin: string;
 var
   CmdRes: TRunResult;
 {$IFDEF Windows}
+  EnvPath: string;
   SearchPath: string;
+  BaseDir: string;
+  Candidate: string;
+  I: Integer;
   ExePathW: array[0..MAX_PATH] of WideChar;
 {$ENDIF}
 begin
   Result := '';
 
 {$IFDEF Windows}
+  { Explicit env override }
+  EnvPath := Trim(SysUtils.GetEnvironmentVariable('MKVMERGE'));
+  if (EnvPath = '') then
+    EnvPath := Trim(SysUtils.GetEnvironmentVariable('MKVMERGE_BIN'));
+  if (EnvPath <> '') and FileExists(EnvPath) then
+  begin
+    Result := EnvPath;
+    Exit;
+  end;
+
   { Check if mkvmerge.exe is in PATH using where.exe }
   CmdRes := RunCommandCapture('where mkvmerge.exe 2>nul');
   if CmdRes.ExitCode = 0 then
@@ -50,6 +64,20 @@ begin
   begin
     Result := SearchPath;
     Exit;
+  end;
+
+  { Check repository bundled directory relative to executable path:
+    ..\..\src\platform\windows\bin\mkvmerge.exe (up to several levels). }
+  BaseDir := ExpandFileName(ExtractFilePath(WideToAnsi(WideString(ExePathW))));
+  for I := 1 to 8 do
+  begin
+    Candidate := IncludeTrailingPathDelimiter(BaseDir) + 'src\platform\windows\bin\mkvmerge.exe';
+    if FileExists(Candidate) then
+    begin
+      Result := Candidate;
+      Exit;
+    end;
+    BaseDir := ExpandFileName(IncludeTrailingPathDelimiter(BaseDir) + '..');
   end;
 {$ELSE}
   { On non-Windows, use command -v to find mkvmerge }
