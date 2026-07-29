@@ -1,9 +1,9 @@
-# ffmpeg_converter 2.5
+# ffmpeg_converter 2.6
 
 Cross-platform media conversion and mux tool with CLI and GUI for building and
-running optimized `ffmpeg` workflows. Version 2.5 improves Apple M4V creator
-output quality and compatibility, and standardizes AAC encoding across all
-codecs.
+running optimized `ffmpeg` workflows. Version 2.6 delivers a complete overhaul
+of the Linux GTK4 GUI: eliminates startup freezes, adds drag-and-drop and keyboard
+shortcuts, modernizes all deprecated GTK APIs, and polishes layout and usability.
 
 Two independent implementations share the same conversion logic and CLI behavior:
 
@@ -12,7 +12,34 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **Free Pascal** (`fpc/`) — complete port with CLI and GUI; available for Linux
   and Windows (macOS version discontinued).
 
-## Version 2.5 Updates
+## Version 2.6 Updates
+
+### Linux GTK4 GUI — Full Overhaul
+
+#### Stability & Freeze Fixes
+- **Startup freeze eliminated**: hardware codec probe (`h264_vaapi`, `hevc_vaapi`,
+  NVENC, AMF, QSV, Vulkan) now runs in a background thread; the window opens instantly
+  and the codec dropdown is updated when detection completes.
+- **GPU renderer freeze fixed**: `GSK_RENDERER=cairo` is set as default on Linux,
+  preventing freezes on Mesa/Nvidia driver combinations that break the NGL/GL renderer.
+  Override with `GSK_RENDERER=ngl` to use GPU acceleration.
+- **M4V dialog hang fixed**: nested `g_main_loop_run()` replaced with a fully async
+  `GtkWindow + GtkHeaderBar` dialog.
+
+#### New Capabilities
+- **Drag-and-drop**: drop files from any file manager onto the file queue.
+- **Keyboard shortcuts**: Ctrl+O, Delete, Ctrl+L, Ctrl+Return, Escape.
+- **Application icon**: embedded via GResource, displayed in taskbar and window.
+- **Resizable paned layout**: drag the divider between file queue and log area.
+- **Tooltips** on all 15 interactive controls.
+- **File deduplication**: re-adding the same file is silently ignored.
+- **Light/dark theme**: all custom CSS adapts correctly to system theme.
+
+#### API Modernization (no deprecated APIs remain)
+- `GtkFileDialog` (async) replaces `GtkFileChooserDialog`.
+- `GtkDropDown + GtkStringList` replaces all `GtkComboBoxText` widgets.
+- App ID corrected to `io.github.possible947.ffmpeg_converter`.
+
 
 ### Apple M4V Creator — Full Pipeline Fixes (All Platforms)
 - **Fix HEVC codec tag**: M4V mux now uses `-tag:v hvc1` for HEVC source video,
@@ -95,8 +122,10 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **Audio filter multithreading**: 2-pass analysis uses `-filter_threads N` (N = CPU/2) for parallel audio processing.
 - Encode progress: percent, FPS, ETA.
 - CLI with argument parsing and interactive menu.
-- **Linux GUI** — GTK4 (C implementation). Build produces `linux_gui` binary; optional AppImage packaging 
-  available via `ENABLE_APPIMAGE=ON` and `package_appimage` target (produces single-file portable AppImage).
+- **Linux GUI** — GTK4 (C implementation, v2.6: drag-and-drop, keyboard shortcuts, resizable paned
+  layout, hardware codec detection in background, application icon, tooltips on all controls, no
+  startup freeze). Build produces `linux_gui` binary; optional AppImage packaging available via
+  `ENABLE_APPIMAGE=ON` and `package_appimage` target (produces single-file portable AppImage).
   Pascal GUI also supports AppImage packaging: `make -C fpc/build appimage`.
 - **macOS GUI** — native Cocoa/AppKit, self-contained `.app` bundle with bundled
   `ffmpeg`, `ffprobe`, and `MP4Box` (C native implementation).
@@ -125,7 +154,8 @@ Two independent implementations share the same conversion logic and CLI behavior
     or place `mkvmerge.exe` next to `ffmpeg_converter.exe`.
   - Environment variables: `MKVMERGE` or `MKVMERGE_BIN` override binary path.
   - Mux mode silently disabled if mkvmerge not found.
-- Linux GUI only: `libgtk-4-dev` (or distro equivalent).
+- Linux GUI only: `libgtk-4-dev` (or distro equivalent) and `glib-compile-resources`
+  (part of `libglib2.0-dev-bin` on Debian/Ubuntu, included with `gtk4-devel` on Fedora).
 - macOS GUI only: Xcode command-line tools (includes clang, libtool).
 - Optional AppImage packaging (Linux): `appimagetool` (https://github.com/AppImage/AppImageKit).
 
@@ -144,15 +174,14 @@ Two independent implementations share the same conversion logic and CLI behavior
 ### C/CMake — Linux
 
 ```bash
-mkdir build && cd build
-cmake ..
-cmake --build . --target linux_cli
-cmake --build . --target linux_gui
+cmake -B build
+cmake --build build --target linux_cli
+cmake --build build --target linux_gui
 ```
 
 **AppImage package (optional):**
 ```bash
-cmake -S . -B build -DENABLE_APPIMAGE=ON
+cmake -B build -DENABLE_APPIMAGE=ON
 cmake --build build --target linux_gui
 cmake --build build --target package_appimage
 # Output: build/bin/ffmpeg_converter_gui-x86_64.AppImage (~71 MB)

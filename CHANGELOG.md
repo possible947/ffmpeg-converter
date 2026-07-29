@@ -119,6 +119,97 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-07-30
+
+### Fixed — Linux GTK4 GUI
+- **Critical: startup freeze** — `linux_probe_codec_support()` (10–25 serial
+  ffmpeg probes for VAAPI/NVENC/AMF/QSV/Vulkan) was called synchronously on
+  the main thread, blocking the GTK event loop for several seconds before the
+  window appeared. Moved to a `GThread`; codec combo is repopulated from the
+  main thread via `g_idle_add` when the probe finishes. Window now opens
+  instantly.
+- **Critical: GPU renderer freeze** — the NGL/GL/Vulkan GSK renderers freeze
+  on some Mesa and Nvidia driver combinations. `main()` now sets
+  `GSK_RENDERER=cairo` before GTK init when the variable is not already set.
+  Users who want GPU acceleration can override with `GSK_RENDERER=ngl`.
+- **M4V dialog nested event loop** — the Apple M4V options dialog used a
+  nested `g_main_loop_run()` inside a signal handler, which is forbidden in
+  GTK4 and caused re-entrancy hangs. Replaced with a fully asynchronous
+  `GtkWindow + GtkHeaderBar` dialog; state is passed via
+  `g_object_set_data_full`.
+- **UAF on file removal** — `on_remove_file_clicked()` called
+  `g_object_get_data()` to get the path pointer, then passed it to
+  `g_ptr_array_remove()` which freed it via the array's destroy function,
+  leaving the widget holding a dangling pointer. Fixed with
+  `g_object_steal_data()` to atomically clear the widget association before
+  the free.
+- **g_widgets race on shutdown** — `shutdown_conversion()` cleared the global
+  `g_widgets` pointer while the worker thread was still inside the
+  `ConverterCallbacks` functions that read it. The pointer is now cleared by
+  the worker thread itself at the end of `run_converter()` cleanup; the main
+  thread clears it again after `g_thread_join` as a safety net.
+
+### Added — Linux GTK4 GUI
+- **Drag-and-drop** — `GtkDropTarget(GDK_TYPE_FILE_LIST)` installed on the
+  file listbox; accepts file drops from any file manager. A blue dashed border
+  + tinted background CSS highlight shows while dragging. Duplicates are
+  silently ignored.
+- **Light/dark theme adaptation** — subscribes to
+  `notify::gtk-application-prefer-dark-theme` on `GtkSettings`; all custom
+  CSS uses `rgba()` values that render correctly in both themes.
+- **Application icon** — `icon.png` embedded as a `GResource` bundle (compiled
+  at build time via `glib-compile-resources`); registered with
+  `gtk_icon_theme_add_resource_path` so `gtk_window_set_icon_name` resolves it.
+- **Keyboard shortcuts** — five `GSimpleAction`s registered on the
+  `GtkApplication` with system-level accelerators:
+  | Action | Shortcut |
+  |--------|----------|
+  | Add files | Ctrl+O |
+  | Remove selected | Delete |
+  | Clear list | Ctrl+L |
+  | Start conversion | Ctrl+Return |
+  | Stop conversion | Escape |
+- **Resizable file list / log pane** — replaced two competing `vexpand=TRUE`
+  scrolled windows with a `GtkPaned(VERTICAL)` widget; the user can drag the
+  divider between the file queue and the log area.
+- **Tooltips** — 15 `gtk_widget_set_tooltip_text()` calls covering every
+  interactive control (codec combo, profile, deblock, audio norm, genre,
+  audio output, overwrite checkbox, output dir, all file buttons, start/stop).
+- **File deduplication** — adding the same file twice silently skips it.
+- **Persistent log autoscroll mark** — replaced per-message
+  `create_mark/delete_mark` calls with a single persistent `GtkTextMark`
+  (`log_end_mark`), eliminating a heap allocation per log line.
+
+### Changed — Linux GTK4 GUI
+- Migrated all deprecated GTK APIs to their GTK 4.6+ equivalents:
+  - `GtkFileChooserDialog` → `GtkFileDialog` (async open-multiple / open /
+    select-folder).
+  - All 7 `GtkComboBoxText` widgets → `GtkDropDown + GtkStringList`.
+  - `GtkDialog` (M4V options) → `GtkWindow + GtkHeaderBar`.
+  - `"changed"` signal on combos → `"notify::selected"`.
+  - `G_APPLICATION_FLAGS_NONE` → `G_APPLICATION_DEFAULT_FLAGS`.
+- App ID corrected from `com.example.*` to
+  `io.github.possible947.ffmpeg_converter` (required for portal and taskbar
+  integration; also updated in `.desktop` file `StartupWMClass`).
+- All 7 combo boxes set `hexpand=TRUE` so they fill their grid cells.
+- Path labels (`output_dir_label`, `video_track_label`, `status_label`) use
+  `PANGO_ELLIPSIZE_MIDDLE` — long paths show `…` in the middle, preserving
+  both root and filename.
+- Section separators added between Video/Audio, Output, and Files control
+  groups.
+- Log view CSS class `"log"` with monospace font (`9pt`).
+
+### Internal — Linux GTK4 GUI
+- Extracted `src/gui/gui_codec_utils.h` with 4 `static inline` codec
+  predicates shared between `gui_window.c` and `gui_callbacks.c`, removing
+  duplicate definitions and a return-type mismatch (`gboolean` vs `int`).
+- Removed `-Wno-deprecated-declarations` from CMake compile options (no longer
+  needed after API migration).
+
+### Build — Linux GTK4 GUI
+- `src/gui/CMakeLists.txt` now requires `glib-compile-resources` and generates
+  `resources.c` from `resources.gresource.xml` at configure time.
+
 ### Added
 - **AV1 input decoding support (Windows and Linux).**
   The native `av1` decoder in ffmpeg triggers NVIDIA NVDEC pixel-format negotiation even

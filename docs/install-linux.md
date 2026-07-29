@@ -32,13 +32,23 @@ sudo dnf install -y gcc gcc-c++ make cmake pkgconf-pkg-config ffmpeg jansson-dev
 > NVDEC support).
 
 ### 1.2 Build targets
+
+> **CMake syntax note:** CMake 3.13+ (minimum required by this project is 3.16)
+> supports the `-B <dir>` flag for specifying the build directory without `cd`-ing into it.
+> Commands below use this modern syntax; if your cmake is older than 3.13 use the
+> traditional form `mkdir -p build && cd build && cmake .. && cmake --build . --target <target>`.
+
 From repository root:
 ```bash
-mkdir -p build
-cd build
-cmake ..
-cmake --build . --target linux_cli
-cmake --build . --target linux_gui
+# Configure (all targets; no options needed for a standard build)
+cmake -B build
+
+# Or enable the Linux GUI explicitly (it is auto-enabled when libgtk-4-dev is found)
+cmake -B build -DENABLE_LINUX_GUI=ON
+
+# Build individual targets
+cmake --build build --target linux_cli
+cmake --build build --target linux_gui
 ```
 
 Artifacts in the flat Linux layout:
@@ -49,6 +59,11 @@ Artifacts in the flat Linux layout:
 - `build/bin/mkvmerge` when found in common Linux system locations
 - `build/bin/MP4Box` when found in common Linux system locations
 
+> **GLib resources note:** the GUI build requires `glib-compile-resources` to embed the
+> application icon. Install it with `sudo apt install libglib2.0-dev-bin` (Debian/Ubuntu)
+> or `sudo dnf install glib2-devel` (Fedora). It is usually already present when
+> `libgtk-4-dev` / `gtk4-devel` is installed.
+
 ### 1.3 AppImage packaging (optional)
 AppImage produces a single-file portable executable that bundles the GUI, ffmpeg/ffprobe, and required libraries.
 
@@ -56,7 +71,7 @@ Requires `appimagetool.AppImage` (or `appimagetool`) in PATH. Download from http
 
 ```bash
 # From the repository root (build directory must already exist)
-cmake -S . -B build -DENABLE_APPIMAGE=ON
+cmake -B build -DENABLE_APPIMAGE=ON
 cmake --build build --target linux_gui
 cmake --build build --target package_appimage
 ```
@@ -162,10 +177,18 @@ When running the application via AppImage (`.AppImage` file):
 - `codec=mux` requires exactly one source file and `--video-track <file>` for replacement video.
 - Final mux output is always `.mkv` via `mkvmerge`.
 
-### GUI-only Features (C GTK on Linux)
-- Apple M4V creator button (available alongside standard conversion and mux workflows).
-- Audio output selector with modes: `pcm`, `fdk_aac_320`, `fdk_aac_320_ac3_640`.
-- Runtime VAAPI codec probing: `h264_vaapi` and `hevc_vaapi` appear only on compatible hardware.
+### GUI-only Features (C GTK4 on Linux, v2.6+)
+- **Drag-and-drop** file addition — drop files from any file manager directly onto the file queue.
+- **Keyboard shortcuts** — Ctrl+O (add files), Delete (remove selected), Ctrl+L (clear list),
+  Ctrl+Return (start), Escape (stop).
+- **Resizable paned layout** — drag the divider between the file queue and the log area to resize.
+- **Tooltips** on all interactive controls (hover to see what each option does).
+- **Apple M4V creator** button (available alongside standard conversion and mux workflows).
+- **Audio output selector** with modes: `pcm`, `fdk_aac_320`, `fdk_aac_320_ac3_640`.
+- **Runtime VAAPI codec probing**: `h264_vaapi` and `hevc_vaapi` appear only on compatible hardware;
+  hardware probe runs in the background so the window opens instantly.
+- **Monospace log area** with autoscroll.
+- **Light/dark theme** compatibility — CSS uses neutral `rgba()` values for both themes.
 
 ### Hardware Codecs (Runtime Detected)
 - C and Pascal both probe Linux hardware support at startup.

@@ -190,34 +190,45 @@ Linux users can choose between the C/CMake GUI (GTK4) or Pascal GUI (Lazarus), p
 
 #### C Implementation (GTK4 GUI - Recommended)
 ```bash
-# From build directory
+# From repository root after building
 ./build/bin/ffmpeg_converter_gui
 
 # Or run the AppImage (portable, single file)
-./src/gui/ffmpeg_converter_gui-x86_64.AppImage
+./build/bin/ffmpeg_converter_gui-x86_64.AppImage
 ```
 
 #### Pascal Implementation (Lazarus GUI)
 ```bash
-# From repository root
-open fpc/gui/form.app
-# Or directly
-./fpc/gui/ffmpeg_converter_gui
+./fpc/bin/ffmpeg_converter_gui
+# AppImage variant
+./fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage
 ```
 
-### Linux GUI Workflow
+### Linux GUI Workflow (C GTK4)
 
-The GUI workflow is similar to macOS:
+1. **Add Files** — click **Add files...** (Ctrl+O) or **drag and drop** files directly from your file manager onto the file list. Duplicate entries are silently ignored.
+2. **Choose Codec** — hardware codecs (`h264_vaapi`, `hevc_vaapi`) are detected in the background; the list updates automatically when detection finishes.
+3. **Audio Settings** — normalization mode and output format.
+4. **Video Options** — profile and deblocking (for ProRes codecs).
+5. **Set Output Directory** — optional; defaults to `~/ffmpeg_converter`.
+6. **Start** — Ctrl+Return, or click **Start**.
 
-1. **Add Files** — drag and drop or browse to select media files
-2. **Choose Codec** — dropdown menu with auto-detected hardware codecs
-3. **Audio Settings** — normalization mode and output format
-4. **Video Options** — profile and deblocking (for ProRes)
-5. **Set Output Directory** (optional)
-6. **Special Actions:**
-   - **Convert** — standard conversion
-   - **Mux** — remux workflow (in codec dropdown)
-   - **M4V Create** — Apple M4V creator (button or separate action)
+**Keyboard shortcuts:**
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+O | Add files |
+| Delete | Remove selected file |
+| Ctrl+L | Clear file list |
+| Ctrl+Return | Start conversion |
+| Escape | Stop conversion |
+
+**Paned layout:** drag the divider between the file queue and the log area to adjust their relative sizes.
+
+**Special Actions:**
+- **Remove / Clear** — remove selected or all files from queue.
+- **Mux mode** — select `mux` in the codec dropdown; provide a replacement video track with **Add track...**.
+- **Apple M4V** — click **Apple m4v...** to open the M4V creator options and produce an Apple-compatible M4V with AAC + AC3 dual audio.
 
 ### Linux CLI Usage
 
