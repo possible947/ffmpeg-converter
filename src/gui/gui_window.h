@@ -54,9 +54,11 @@ typedef struct {
     GtkWidget *status_label;
     GtkWidget *log_view;            /* GtkTextView */
     GtkTextBuffer *log_buffer;
+    GtkTextMark *log_end_mark;      /* persistent autoscroll mark */
 
     /* Threading */
     GThread *worker_thread;
+    GThread *probe_thread;          /* hardware codec probe thread */
     GMutex   thread_lock;           /* protects worker_thread */
     Converter *current_converter;   /* protected by thread_lock */
     gboolean shutting_down;         /* set during app shutdown */
@@ -71,10 +73,23 @@ typedef struct {
 
     /* Linux runtime codec support cache */
     LinuxCodecSupport linux_codec_support;
+
+    /* Backing models for combos that are populated dynamically */
+    GtkStringList *codec_list;          /* model for codec_combo */
+    GtkStringList *vulkan_device_list;  /* model for vulkan_device_combo */
+    GArray        *vulkan_device_ids;   /* parallel: combo-index → vk device number (-1=auto) */
 } AppWidgets;
 
 /* Creation */
 GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w);
+
+/* Register GSimpleActions + accelerators for keyboard shortcuts.
+ * Must be called after create_main_window() so that w->window is set. */
+void setup_keyboard_shortcuts(GtkApplication *app, AppWidgets *w);
+
+/* Launch hardware codec detection in a background thread.
+ * On completion the codec combo is updated on the main thread. */
+void start_hw_probe(AppWidgets *w);
 
 /* Toggle editable controls while a job is running. */
 void set_running_ui_state(AppWidgets *w, gboolean running);

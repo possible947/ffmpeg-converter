@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <!--
+    Icon registered under the hicolor tree so GTK's icon theme resolver
+    can find "ffmpeg-converter" via gtk_icon_theme_add_resource_path().
+  -->
+  <gresource prefix="/io/github/possible947/ffmpeg_converter/icons">
+    <file alias="hicolor/256x256/apps/ffmpeg-converter.png">icon.png</file>
+  </gresource>
+</gresources>

@@ -1,128 +1,121 @@
-# Copilot Instructions for `ffmpeg-converter`
+# Copilot Instructions
 
-## Build, test, and lint commands
+## Build Commands
 
-### C/CMake builds
-
-#### Linux
+### C/CMake — Linux
 ```bash
-cmake -S . -B build
-cmake --build build --target linux_cli
-cmake --build build --target linux_gui
+mkdir build && cd build && cmake ..
+cmake --build . --target linux_cli
+cmake --build . --target linux_gui
 ```
 
-Optional AppImage:
+### C/CMake — macOS
 ```bash
-cmake -S . -B build -DENABLE_APPIMAGE=ON
-cmake --build build --target package_appimage
+mkdir build && cd build && cmake -DCMAKE_PREFIX_PATH=/opt/local ..
+cmake --build . --target macos_cli
+cmake --build . --target macos_gui_native
+cmake --install .   # produces build/install/ffmpeg_converter_gui_macos.app
 ```
 
-#### macOS
-```bash
-cmake -S . -B build
-cmake --build build --target macos_cli
-cmake --build build --target macos_gui_native
-cmake --install build
-```
-
-#### Windows (MSVC)
+### C/CMake — Windows (MSVC, from x64 Native Tools Command Prompt)
 ```powershell
-.\scripts\windows_build.ps1
-.\scripts\windows_build.ps1 -Clean
-.\scripts\windows_build.ps1 -BuildFPC
-.\scripts\windows_build.ps1 -BuildGUI
+.\scripts\windows_build.ps1          # incremental
+.\scripts\windows_build.ps1 -Clean   # clean rebuild
+cmake --build build-msvc --target windows_cli --config Release
 ```
 
-Precondition for `windows_cli`: place `ffmpeg.exe`, `ffprobe.exe`, and required DLLs in `src/platform/windows/bin/`.
-
-### Free Pascal builds
-
-#### Linux
+### Free Pascal — Linux
 ```bash
-make -C fpc/build cli
-make -C fpc/build lib
-make -C fpc/build gui-app
+make -C fpc/build cli          # → fpc/bin/ffmpeg_converter
+make -C fpc/build lib          # → fpc/converter/libconverter_pas.so
+make -C fpc/build gui-app      # → fpc/bin/ffmpeg_converter_gui (Lazarus required)
+make -C fpc/build tests        # all unit tests
 ```
 
-#### Windows
-```bash
-fpc -Fu../converter -Fu../common -Fu../json -Fu../platform -Fu../cli fpc/cli/ffmpeg_converter_windows.lpr
-lazbuild fpc/gui/form.lpi
-```
-
-### Tests
-
-Run Pascal test suite:
-```bash
-make -C fpc/build tests
-```
-
-Run a single/targeted Pascal test build:
+### Running a single Pascal test
 ```bash
 make -C fpc/build tests TEST_PROGRAMS="test_cmd_builder"
-```
-
-Run one compiled test binary:
-```bash
 ./fpc/test/test_cmd_builder
 ```
 
-Integration scripts:
+### Pascal integration tests
 ```bash
 bash fpc/test/test_cli_args_matrix.sh
-bash fpc/test/check_gui_cli_issues.sh
+./fpc/test/run_all_regression_and_capture.sh   # full regression; writes report to /tmp/ffc_regression_<timestamp>/
 ```
 
-### Lint
+## Architecture
 
-No dedicated repo lint target is currently defined in top-level build/test tooling.
+Two **independent, feature-matched** implementations share the same CLI interface and conversion model:
 
-## High-level architecture
+- **C/CMake** (`src/`) — primary engine for all platforms: macOS (Cocoa GUI + CLI), Linux (GTK4 GUI + CLI), Windows (CLI only, MSVC).
+- **Free Pascal** (`fpc/`) — complete port for Linux and Windows only; macOS Pascal support is **discontinued** since v2.4.
 
-This repository contains two independent implementations that must stay behaviorally aligned:
+### C Module Layout (`src/`)
+- `converter/converter.c` + `converter.h` — core public API (`Converter*` opaque object, `ConvertOptions`, `ConverterCallbacks`, `ConverterError` enum).
+- `cli/{linux,macos,windows}/main.c` — platform CLI entry points.
+- `gui/` — Linux GTK4 GUI.
+- `gui_macos_native/` — macOS Cocoa/AppKit GUI (`.m` files, ObjC).
+- `m4v/` — Apple M4V creator pipeline (shared backend).
+- `mux/` — MKV mux mode via `mkvmerge`.
+- `platform/{linux,macos,windows}/` — platform-specific runtime probing (VAAPI, VideoToolbox, GPU).
+- `platform/runtime_probe_common.{c,h}` — shared probe logic.
+- Modules `core`, `utils`, `progress`, `audio`, `video`, `ffmpeg_cmd` are **INTERFACE** (header-only) CMake libraries — they expose include paths but contain no `.c` sources themselves.
 
-1. `src/` (C/CMake): primary implementation across platforms  
-   - Core converter engine: `src/converter/converter.c`  
-   - Platform abstraction: `src/converter/converter_platform.h` with OS-specific implementations in `src/converter/platform/` plus runtime probing in `src/platform/*/runtime_probe.c`  
-   - CLI: shared logic in `src/cli/cli_common.c` + per-platform codec/feature surfaces in `src/cli/platform/`  
-   - GUI: Linux GTK4 in `src/gui/`, macOS native Cocoa in `src/gui_macos_native/`  
-   - Post-process modules: `src/mux/` and `src/m4v/`
+### Pascal Module Layout (`fpc/`)
+- `converter/converter_core.pas` — engine; `converter_pas.lpr` exports C ABI shared library.
+- `cli/ffmpeg_converter.lpr` (Linux) / `ffmpeg_converter_windows.lpr` (Windows) — CLI.
+- `gui/form.pas` — Lazarus/LCL GUI.
+- `converter/apple_m4v_creator.pas` — M4V pipeline.
+- `common/` — reusable FS, path, process, time helpers.
+- `json/loudnorm_json.pas` — loudnorm JSON parsing (uses `fpjson`/`jsonparser`; C uses `jansson`).
+- `platform/` — platform-specific units.
 
-2. `fpc/` (Free Pascal, Linux/Windows): full parallel port  
-   - Converter core: `fpc/converter/converter_core.pas`  
-   - Tool/path resolver shared by CLI+GUI: `fpc/common/tool_paths.pas`  
-   - CLI: `fpc/cli/ffmpeg_converter.lpr` and `fpc/cli/ffmpeg_converter_windows.lpr`  
-   - GUI: Lazarus/LCL in `fpc/gui/`  
-   - Tests: `fpc/test/`, orchestrated from `fpc/build/Makefile`
+### Tool Discovery (both implementations)
+1. Executable-adjacent directory
+2. Env vars: `FFMPEG_BIN`, `FFPROBE_BIN`, `MKVMERGE_BIN`, `MP4BOX_BIN`  (also `MKVMERGE`)
+3. System `PATH`
+- macOS C additionally checks `/opt/local/bin/ffmpeg8`, `/opt/local/bin/ffmpeg`, `/opt/homebrew/bin`.
 
-The converter path is intentionally split into:
-- **analysis/preflight** (input/output checks, runtime capability detection),
-- **command building** (ffmpeg command construction by codec/mode),
-- **execution/progress/error reporting** (callbacks and per-file processing),
-- **optional post-process workflows** (`mux`, `m4v`) that add external-tool stages.
+## Key Conventions
 
-## Key repository conventions
+### C Implementation
+- The converter is an opaque object — always use `converter_create()` / `converter_destroy()`. Never access `struct Converter` fields directly from outside `converter.c`.
+- All results surface through `ConverterCallbacks` (on_file_begin, on_file_end, on_stage, on_progress_encode, on_progress_analysis, on_message, on_error, on_complete). GUI and CLI each register their own callback struct.
+- `ConvertOptions.codec` and `ConvertOptions.audio_norm` are fixed-length `char[32]` string fields — use `snprintf`/`strncpy`, not `strcpy`.
+- Platform guards use `CMAKE_SYSTEM_NAME` / `#if defined(_WIN32)` / `#if defined(__APPLE__)` — never add Linux-specific code to `macos` or `windows` platform subdirs.
+- `src/CMakeLists.txt` declares `core`, `utils`, etc. as `INTERFACE` libraries (header-only). Don't add `.c` files there — put implementation into the correct module directory.
+- Windows C GUI is **not implemented**; Windows uses the CLI binary only.
 
-1. CLI semantics are consistent across C and Pascal:
-   - Input files are positional (`file1 file2 ...`).
-   - `-o/--output` is an output **directory**, never a filename.
-   - If not set, output preflight creates and uses `$HOME/ffmpeg_converter`.
+### Free Pascal Implementation
+- Pascal C ABI export (`converter_pas.lpr`) exports exactly 7 symbols matching `converter.h`: `converter_create`, `converter_destroy`, `converter_set_callbacks`, `converter_set_options`, `converter_process_files`, `converter_stop`, `converter_error_string`. Keep these in sync with the C header.
+- FPC compiler flags: `-Mobjfpc -Sh -O2`. Always compile with `-Cg` (PIC) when building the shared library.
+- Build output goes to `fpc/bin/` (binaries) and `fpc/build/.units/` (compiled units) — never commit these.
+- On Windows, MSYS2 bash path mangling for FPC requires double-quoting `-Fu` arguments (see `fpc/build/Makefile` for the pattern).
+- Pascal macOS builds are explicitly blocked in the Makefile with an error message — do not attempt to add them back.
 
-2. Runtime capability and tool detection drive feature availability:
-   - Hardware codecs are probed at runtime; do not hardcode availability.
-   - `mux` appears/works only when `mkvmerge` is resolvable.
-   - `m4v` appears/works only when `MP4Box` is resolvable.
+### Apple M4V Pipeline
+Implemented independently in both C (`src/m4v/`, `src/gui_macos_native/apple_m4v_creator.m`) and Pascal (`fpc/converter/apple_m4v_creator.pas`). Both must stay in sync. Pipeline order:
+1. Extract video to temp `.mp4` (stream copy)
+2. Encode AAC with `libfdk_aac -b:a 320k` (CBR, fixed — not user-configurable)
+3. Encode AC3 (configurable: 384/448/640 kbps)
+4. Mux via `MP4Box`
+5. Optional chapter import via `ffmpeg -map_chapters 1 -c copy`
 
-3. Tool resolution order is part of behavior:
-   - Adjacent/bundled binaries near executable,
-   - environment overrides (`FFMPEG_BIN`, `FFPROBE_BIN`, `MKVMERGE_BIN`, `MP4BOX_BIN` and platform aliases),
-   - then `PATH`/platform-specific fallbacks.
+### Audio Output Modes
+String values used in `ConvertOptions.audio_output_mode` (C) and equivalent Pascal fields:
+- `"pcm"` — PCM audio passthrough
+- `"fdk_aac_320"` — CBR 320k AAC via `libfdk_aac`
+- `"fdk_aac_320_ac3_640"` — AAC + AC3 dual-track
 
-4. Mode-specific invariants are strict and should be preserved in both implementations:
-   - `mux` requires exactly one input and a readable `--video-track`.
-   - `m4v` uses a multi-step pipeline (video copy + AAC + AC3 + MP4Box mux + optional chapters) and is validated as a dedicated mode, not a generic codec branch.
+### Codec String Values
+`ConvertOptions.codec` accepted values: `copy`, `prores`, `prores_ks`, `prores_videotoolbox` (macOS), `hevc_videotoolbox` (macOS), `h264_vaapi` (Linux), `hevc_vaapi` (Linux), `prores_ks_vulkan` (Windows GPU).
 
-5. When changing behavior, keep C and Pascal parity unless a change is explicitly platform-specific:
-   - mirror CLI options/validation,
-   - mirror converter preflight and post-process rules,
-   - keep feature gating and default output behavior aligned.
+### Bundled Binaries
+- **Windows**: place `ffmpeg.exe`, `ffprobe.exe`, and all DLLs in `src/platform/windows/bin/` before building — the CMake target copies them next to the `.exe`.
+- **Linux**: stage binaries in `src/platform/linux/bin/`; build copies them to `build/bin/`.
+- **macOS**: place in `src/platform/macos/bin/`; bundled inside `.app` at install time.
+
+### CI / Releases
+- Workflows in `.github/workflows/` trigger on tags: `macos` tag → macOS build, `windows` tag → Windows MSVC build.
+- Both workflows upload artifacts and create GitHub Releases when triggered by a tag push.

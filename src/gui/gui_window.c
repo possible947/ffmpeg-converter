@@ -3,6 +3,7 @@
  */
 
 #include "gui_window.h"
+#include "gui_codec_utils.h"
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -14,144 +15,173 @@
 
 /* Forward declarations */
 static void update_dependent_widgets(AppWidgets *w);
-static void on_codec_changed(GtkComboBox *obj, AppWidgets *w);
-static void on_audio_norm_changed(GtkComboBox *obj, AppWidgets *w);
+static void on_codec_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
+static void on_audio_norm_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
 static gboolean update_dependent_widgets_idle(gpointer data);
 static void schedule_update_dependent_widgets(AppWidgets *w);
 static void on_add_files_clicked(GtkButton *button, AppWidgets *w);
-static void on_add_files_response(GObject *source, GAsyncResult *res, AppWidgets *w);
+static void on_add_files_finish(GObject *source, GAsyncResult *res, gpointer user_data);
 static void on_add_track_clicked(GtkButton *button, AppWidgets *w);
+static void on_add_track_finish(GObject *source, GAsyncResult *res, gpointer user_data);
 static void on_apple_m4v_clicked(GtkButton *button, AppWidgets *w);
 static void on_output_dir_clicked(GtkButton *button, AppWidgets *w);
-static void on_output_dir_response(GObject *source, GAsyncResult *res, AppWidgets *w);
+static void on_output_dir_finish(GObject *source, GAsyncResult *res, gpointer user_data);
 static void on_remove_file_clicked(GtkButton *button, AppWidgets *w);
 static void on_clear_list_clicked(GtkButton *button, AppWidgets *w);
 static void on_start_clicked(GtkButton *button, AppWidgets *w);
 static void on_stop_clicked(GtkButton *button, AppWidgets *w);
 static void set_output_dir(AppWidgets *w, const char *path);
 static void set_video_track(AppWidgets *w, const char *path);
+static void add_file_to_list(AppWidgets *w, const char *path);
 static char *get_dropdown_text(GtkWidget *dropdown);
-static gboolean prompt_m4v_options(AppWidgets *w, M4VOptions *opts);
+static void prompt_m4v_options_async(AppWidgets *w);
 static void populate_codec_combo(AppWidgets *w);
-static gboolean codec_uses_software_prores(const char *codec);
-static gboolean codec_uses_linux_vaapi(const char *codec);
-static gboolean codec_uses_vulkan_prores(const char *codec);
-static gboolean codec_is_mux(const char *codec);
 static void populate_vulkan_device_combo(AppWidgets *w);
 static int get_selected_vulkan_device_index(AppWidgets *w);
-
-static gboolean codec_uses_software_prores(const char *codec)
-{
-    return g_strcmp0(codec, "prores") == 0 ||
-           g_strcmp0(codec, "prores_ks") == 0;
-}
-
-static gboolean codec_uses_linux_vaapi(const char *codec)
-{
-    return g_strcmp0(codec, "h264_vaapi") == 0 ||
-           g_strcmp0(codec, "hevc_vaapi") == 0;
-}
-
-static gboolean codec_uses_vulkan_prores(const char *codec)
-{
-    return g_strcmp0(codec, "prores_ks_vulkan") == 0;
-}
-
-static gboolean codec_is_mux(const char *codec)
-{
-    return g_strcmp0(codec, "mux") == 0;
-}
+static void install_drop_target(AppWidgets *w);
 
 static void populate_vulkan_device_combo(AppWidgets *w)
 {
     int i;
     int added = 0;
     char auto_label[64];
+    gint auto_id = -1;
 
     if (!w || !w->vulkan_device_combo)
         return;
 
-    gtk_combo_box_text_remove_all(GTK_COMBO_BOX_TEXT(w->vulkan_device_combo));
+    /* Clear both the string model and the parallel device-index array. */
+    {
+        guint n = g_list_model_get_n_items(G_LIST_MODEL(w->vulkan_device_list));
+        if (n > 0)
+            gtk_string_list_splice(w->vulkan_device_list, 0, n, NULL);
+    }
+    g_array_set_size(w->vulkan_device_ids, 0);
 
+    /* "auto" entry — index 0, maps to device -1 (let ffmpeg decide). */
     if (w->linux_codec_support.vulkan_device_index >= 0) {
-        snprintf(auto_label,
-                 sizeof(auto_label),
+        snprintf(auto_label, sizeof(auto_label),
                  "auto (recommended: vk:%d)",
                  w->linux_codec_support.vulkan_device_index);
     } else {
         g_strlcpy(auto_label, "auto", sizeof(auto_label));
     }
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(w->vulkan_device_combo), "auto", auto_label);
+    gtk_string_list_append(w->vulkan_device_list, auto_label);
+    g_array_append_val(w->vulkan_device_ids, auto_id);
 
+    /* Entries for every working Vulkan device. */
     for (i = 0; i < 32; i++) {
         if ((((unsigned int)w->linux_codec_support.vulkan_working_mask) & (1u << i)) != 0u) {
-            char id[16];
             char label[32];
-            snprintf(id, sizeof(id), "%d", i);
+            gint dev = i;
             snprintf(label, sizeof(label), "vk:%d", i);
-            gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(w->vulkan_device_combo), id, label);
+            gtk_string_list_append(w->vulkan_device_list, label);
+            g_array_append_val(w->vulkan_device_ids, dev);
             added++;
         }
     }
 
+    /* Fallback: mask empty but a recommended device is known. */
     if (added == 0 && w->linux_codec_support.vulkan_device_index >= 0) {
-        char id[16];
         char label[32];
-        snprintf(id, sizeof(id), "%d", w->linux_codec_support.vulkan_device_index);
-        snprintf(label, sizeof(label), "vk:%d", w->linux_codec_support.vulkan_device_index);
-        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(w->vulkan_device_combo), id, label);
+        gint dev = w->linux_codec_support.vulkan_device_index;
+        snprintf(label, sizeof(label), "vk:%d", dev);
+        gtk_string_list_append(w->vulkan_device_list, label);
+        g_array_append_val(w->vulkan_device_ids, dev);
     }
 
-    gtk_combo_box_set_active_id(GTK_COMBO_BOX(w->vulkan_device_combo), "auto");
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(w->vulkan_device_combo), 0);
 }
 
 static int get_selected_vulkan_device_index(AppWidgets *w)
 {
-    const char *id;
-    char *endptr = NULL;
-    long parsed;
+    guint sel;
 
-    if (!w || !w->vulkan_device_combo)
+    if (!w || !w->vulkan_device_combo || !w->vulkan_device_ids)
         return -1;
 
-    id = gtk_combo_box_get_active_id(GTK_COMBO_BOX(w->vulkan_device_combo));
-    if (!id || g_strcmp0(id, "auto") == 0)
+    sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->vulkan_device_combo));
+    if (sel == GTK_INVALID_LIST_POSITION || sel >= w->vulkan_device_ids->len)
         return -1;
 
-    parsed = strtol(id, &endptr, 10);
-    if (!endptr || *endptr != '\0' || parsed < 0 || parsed > INT_MAX)
-        return -1;
-
-    return (int)parsed;
+    return g_array_index(w->vulkan_device_ids, gint, sel);
 }
 
 static void populate_codec_combo(AppWidgets *w)
 {
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "copy");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores_ks");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "mux");
+    gtk_string_list_append(w->codec_list, "copy");
+    gtk_string_list_append(w->codec_list, "prores");
+    gtk_string_list_append(w->codec_list, "prores_ks");
+    gtk_string_list_append(w->codec_list, "mux");
 
     if (w->linux_codec_support.has_h264_vaapi)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h264_vaapi");
+        gtk_string_list_append(w->codec_list, "h264_vaapi");
     if (w->linux_codec_support.has_hevc_vaapi)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "hevc_vaapi");
+        gtk_string_list_append(w->codec_list, "hevc_vaapi");
     if (w->linux_codec_support.has_h264_nvenc)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h264_nvenc");
+        gtk_string_list_append(w->codec_list, "h264_nvenc");
     if (w->linux_codec_support.has_hevc_nvenc)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "hevc_nvenc");
+        gtk_string_list_append(w->codec_list, "hevc_nvenc");
     if (w->linux_codec_support.has_h264_amf)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h264_amf");
+        gtk_string_list_append(w->codec_list, "h264_amf");
     if (w->linux_codec_support.has_hevc_amf)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "hevc_amf");
+        gtk_string_list_append(w->codec_list, "hevc_amf");
     if (w->linux_codec_support.has_h264_qsv)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "h264_qsv");
+        gtk_string_list_append(w->codec_list, "h264_qsv");
     if (w->linux_codec_support.has_hevc_qsv)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "hevc_qsv");
+        gtk_string_list_append(w->codec_list, "hevc_qsv");
     if (w->linux_codec_support.has_prores_ks_vulkan)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->codec_combo), "prores_ks_vulkan");
+        gtk_string_list_append(w->codec_list, "prores_ks_vulkan");
 
-    gtk_combo_box_set_active(GTK_COMBO_BOX(w->codec_combo), 0);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(w->codec_combo), 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* Background hardware codec probe                                     */
+/* ------------------------------------------------------------------ */
+
+/* Idle callback: runs on the main thread after the probe finishes.
+ * Re-populates the codec combo with the detected hardware entries. */
+static gboolean on_probe_done(gpointer data)
+{
+    AppWidgets *w = (AppWidgets *)data;
+
+    if (!w || w->shutting_down)
+        return G_SOURCE_REMOVE;
+
+    /* Rebuild the codec combo now that hardware info is available.
+     * Block the notify::selected signal while we clear and re-fill. */
+    g_signal_handlers_block_by_func(w->codec_combo, on_codec_changed, w);
+    {
+        guint n = g_list_model_get_n_items(G_LIST_MODEL(w->codec_list));
+        if (n > 0)
+            gtk_string_list_splice(w->codec_list, 0, n, NULL);
+    }
+    populate_codec_combo(w);
+    g_signal_handlers_unblock_by_func(w->codec_combo, on_codec_changed, w);
+
+    /* Also refresh the Vulkan device list now that probe data is ready. */
+    populate_vulkan_device_combo(w);
+
+    gtk_label_set_text(GTK_LABEL(w->status_label), "Ready");
+    schedule_update_dependent_widgets(w);
+    return G_SOURCE_REMOVE;
+}
+
+/* Thread function: runs the blocking hardware probe, then schedules
+ * the idle callback to update the UI on the main thread. */
+static gpointer run_hw_probe(gpointer data)
+{
+    AppWidgets *w = (AppWidgets *)data;
+    linux_probe_codec_support(&w->linux_codec_support);
+    g_idle_add(on_probe_done, w);
+    return NULL;
+}
+
+/* Public entry point: launch the probe thread. Called from activate_cb(). */
+void start_hw_probe(AppWidgets *w)
+{
+    w->probe_thread = g_thread_new("hw-probe", run_hw_probe, w);
 }
 
 void set_running_ui_state(AppWidgets *w, gboolean running)
@@ -201,72 +231,90 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
 
     /* ---------- Codec combo ---------- */
     {
-        w->codec_combo = gtk_combo_box_text_new();
+        /* The list is stored in AppWidgets so on_probe_done can append
+         * hardware codec entries after the probe thread finishes. */
+        w->codec_list  = gtk_string_list_new(NULL);
+        w->codec_combo = gtk_drop_down_new(G_LIST_MODEL(w->codec_list), NULL);
         populate_codec_combo(w);
-        g_signal_connect(w->codec_combo, "changed", G_CALLBACK(on_codec_changed), w);
+        g_signal_connect(w->codec_combo, "notify::selected",
+                         G_CALLBACK(on_codec_changed), w);
+        gtk_widget_set_hexpand(w->codec_combo, TRUE);
     }
 
     /* ---------- Vulkan device selector ---------- */
     w->vulkan_device_label = gtk_label_new("Vulkan dev:");
     gtk_widget_set_halign(w->vulkan_device_label, GTK_ALIGN_END);
-    w->vulkan_device_combo = gtk_combo_box_text_new();
-    populate_vulkan_device_combo(w);
+    {
+        w->vulkan_device_ids  = g_array_new(FALSE, TRUE, sizeof(gint));
+        w->vulkan_device_list = gtk_string_list_new(NULL);
+        w->vulkan_device_combo = gtk_drop_down_new(G_LIST_MODEL(w->vulkan_device_list), NULL);
+        populate_vulkan_device_combo(w);
+        gtk_widget_set_hexpand(w->vulkan_device_combo, TRUE);
+    }
     gtk_widget_set_visible(w->vulkan_device_label, FALSE);
     gtk_widget_set_visible(w->vulkan_device_combo, FALSE);
 
     /* ---------- Profile combo ---------- */
     {
-        w->profile_combo = gtk_combo_box_text_new();
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->profile_combo), "lt");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->profile_combo), "standard");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->profile_combo), "hq");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->profile_combo), "4444");
-        gtk_combo_box_set_active(GTK_COMBO_BOX(w->profile_combo), 1);
+        static const char *profile_items[] = {"lt", "standard", "hq", "4444", NULL};
+        GtkStringList *list = gtk_string_list_new(profile_items);
+        w->profile_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 1); /* default: standard */
+        g_object_unref(list);
+        gtk_widget_set_hexpand(w->profile_combo, TRUE);
     }
     /* Initially disabled for copy and hardware codecs */
     gtk_widget_set_sensitive(w->profile_combo, FALSE);
 
     /* ---------- Deblock combo ---------- */
     {
-        w->deblock_combo = gtk_combo_box_text_new();
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->deblock_combo), "none");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->deblock_combo), "weak");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->deblock_combo), "strong");
-        gtk_combo_box_set_active(GTK_COMBO_BOX(w->deblock_combo), 0);
+        static const char *deblock_items[] = {"none", "weak", "strong", NULL};
+        GtkStringList *list = gtk_string_list_new(deblock_items);
+        w->deblock_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->deblock_combo), 0);
+        g_object_unref(list);
+        gtk_widget_set_hexpand(w->deblock_combo, TRUE);
     }
     gtk_widget_set_sensitive(w->deblock_combo, FALSE);
 
     /* ---------- Audio norm combo ---------- */
     {
-        w->audio_norm_combo = gtk_combo_box_text_new();
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "none");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "peak_norm");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "peak_norm_2pass");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "loudness_norm");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_norm_combo), "loudness_norm_2pass");
-        gtk_combo_box_set_active(GTK_COMBO_BOX(w->audio_norm_combo), 0);
-        g_signal_connect(w->audio_norm_combo, "changed", G_CALLBACK(on_audio_norm_changed), w);
+        static const char *norm_items[] = {
+            "none", "peak_norm", "peak_norm_2pass",
+            "loudness_norm", "loudness_norm_2pass", NULL
+        };
+        GtkStringList *list = gtk_string_list_new(norm_items);
+        w->audio_norm_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_norm_combo), 0);
+        g_signal_connect(w->audio_norm_combo, "notify::selected",
+                         G_CALLBACK(on_audio_norm_changed), w);
+        g_object_unref(list);
+        gtk_widget_set_hexpand(w->audio_norm_combo, TRUE);
     }
 
     /* ---------- Genre combo ---------- */
     {
-        w->genre_combo = gtk_combo_box_text_new();
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "edm");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "rock");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "hiphop");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "classical");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->genre_combo), "podcast");
-        gtk_combo_box_set_active(GTK_COMBO_BOX(w->genre_combo), 0);
+        static const char *genre_items[] = {
+            "edm", "rock", "hiphop", "classical", "podcast", NULL
+        };
+        GtkStringList *list = gtk_string_list_new(genre_items);
+        w->genre_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->genre_combo), 0);
+        g_object_unref(list);
+        gtk_widget_set_hexpand(w->genre_combo, TRUE);
     }
     gtk_widget_set_sensitive(w->genre_combo, FALSE);
 
     /* ---------- Audio output combo ---------- */
     {
-        w->audio_output_combo = gtk_combo_box_text_new();
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "pcm");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "fdk_aac_320");
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(w->audio_output_combo), "fdk_aac_320_ac3_640");
-        gtk_combo_box_set_active(GTK_COMBO_BOX(w->audio_output_combo), 0);
+        static const char *output_items[] = {
+            "pcm", "fdk_aac_320", "fdk_aac_320_ac3_640", NULL
+        };
+        GtkStringList *list = gtk_string_list_new(output_items);
+        w->audio_output_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo), 0);
+        g_object_unref(list);
+        gtk_widget_set_hexpand(w->audio_output_combo, TRUE);
     }
 
     /* ---------- Overwrite check ---------- */
@@ -277,6 +325,8 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     w->output_dir_label = gtk_label_new(NULL);
     gtk_label_set_xalign(GTK_LABEL(w->output_dir_label), 0.0f);
     gtk_widget_set_hexpand(w->output_dir_label, TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(w->output_dir_label), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_label_set_max_width_chars(GTK_LABEL(w->output_dir_label), 50);
     w->output_dir_btn = gtk_button_new_with_label("Choose...");
     g_signal_connect(w->output_dir_btn, "clicked", G_CALLBACK(on_output_dir_clicked), w);
     w->output_dir_path = NULL;
@@ -285,6 +335,8 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     w->video_track_label = gtk_label_new("(not set)");
     gtk_label_set_xalign(GTK_LABEL(w->video_track_label), 0.0f);
     gtk_widget_set_hexpand(w->video_track_label, TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(w->video_track_label), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_label_set_max_width_chars(GTK_LABEL(w->video_track_label), 50);
     w->add_track_btn = gtk_button_new_with_label("Add track...");
     gtk_widget_set_sensitive(w->add_track_btn, FALSE);
     g_signal_connect(w->add_track_btn, "clicked", G_CALLBACK(on_add_track_clicked), w);
@@ -325,7 +377,13 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     w->log_view = gtk_text_view_new();
     gtk_text_view_set_editable(GTK_TEXT_VIEW(w->log_view), FALSE);
     gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(w->log_view), GTK_WRAP_WORD_CHAR);
+    gtk_widget_add_css_class(w->log_view, "log");
     w->log_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(w->log_view));
+    {
+        GtkTextIter end;
+        gtk_text_buffer_get_end_iter(w->log_buffer, &end);
+        w->log_end_mark = gtk_text_buffer_create_mark(w->log_buffer, "log_end", &end, FALSE);
+    }
 
     GtkWidget *log_scroller = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(log_scroller), w->log_view);
@@ -333,12 +391,52 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_widget_set_size_request(log_scroller, -1, 140);
 
     /* ---------- Status line ---------- */
+#if defined(__linux__)
+    w->status_label = gtk_label_new("Detecting hardware encoders...");
+#else
     w->status_label = gtk_label_new("Ready");
+#endif
     gtk_label_set_xalign(GTK_LABEL(w->status_label), 0.0f);
     gtk_widget_set_hexpand(w->status_label, TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(w->status_label), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_label_set_max_width_chars(GTK_LABEL(w->status_label), 80);
+
+    /* ---------- Tooltips ---------- */
+    gtk_widget_set_tooltip_text(w->codec_combo,
+        "Video codec. Hardware codecs (VAAPI, Vulkan) are detected at startup.");
+    gtk_widget_set_tooltip_text(w->profile_combo,
+        "ProRes profile: lt (low bitrate), standard, hq (high quality), 4444.");
+    gtk_widget_set_tooltip_text(w->deblock_combo,
+        "Deblock filter strength applied during encoding.");
+    gtk_widget_set_tooltip_text(w->audio_norm_combo,
+        "Audio normalisation mode. peak_norm clips to 0 dBFS; loudness_norm targets EBU R128.");
+    gtk_widget_set_tooltip_text(w->genre_combo,
+        "Genre hint used by loudness normalisation to target genre-appropriate loudness.");
+    gtk_widget_set_tooltip_text(w->audio_output_combo,
+        "Audio output format: PCM (uncompressed), AAC 320 kbps, or AAC+AC3 dual track.");
+    gtk_widget_set_tooltip_text(w->overwrite_check,
+        "Overwrite output files if they already exist.");
+    gtk_widget_set_tooltip_text(w->output_dir_btn,
+        "Choose the directory where converted files will be saved.");
+    gtk_widget_set_tooltip_text(w->add_files_btn,
+        "Add video files to the conversion queue (Ctrl+O).");
+    gtk_widget_set_tooltip_text(w->remove_file_btn,
+        "Remove the selected file from the queue (Delete).");
+    gtk_widget_set_tooltip_text(w->clear_list_btn,
+        "Clear all files from the queue (Ctrl+L).");
+    gtk_widget_set_tooltip_text(w->add_track_btn,
+        "Select a video track file for Mux mode (MUX codec only).");
+    gtk_widget_set_tooltip_text(w->apple_m4v_btn,
+        "Create an Apple M4V file with AAC + AC3 audio from the queued files.");
+    gtk_widget_set_tooltip_text(w->start_btn,
+        "Start conversion of all queued files (Ctrl+Return).");
+    gtk_widget_set_tooltip_text(w->stop_btn,
+        "Stop the current conversion (Escape).");
 
     /* ---------- Layout ---------- */
     int r = 0;
+
+    /* — Video section — */
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Codec:"), 0, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->codec_combo, 1, r, 1, 1);
 
@@ -349,6 +447,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), w->deblock_combo, 5, r, 1, 1);
     r++;
 
+    /* — Audio section — */
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio norm:"), 0, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->audio_norm_combo, 1, r, 1, 1);
 
@@ -359,10 +458,21 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), w->audio_output_combo, 5, r, 1, 1);
     r++;
 
+    /* Vulkan device row (hidden unless a Vulkan-capable codec is selected) */
     gtk_grid_attach(GTK_GRID(grid), w->vulkan_device_label, 0, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->vulkan_device_combo, 1, r, 2, 1);
     r++;
 
+    /* — Separator — */
+    {
+        GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+        gtk_widget_set_margin_top(sep, 2);
+        gtk_widget_set_margin_bottom(sep, 2);
+        gtk_grid_attach(GTK_GRID(grid), sep, 0, r, 6, 1);
+        r++;
+    }
+
+    /* — Output section — */
     gtk_grid_attach(GTK_GRID(grid), w->overwrite_check, 0, r, 2, 1);
 
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Output dir:"), 2, r, 1, 1);
@@ -370,6 +480,16 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), w->output_dir_btn, 5, r, 1, 1);
     r++;
 
+    /* — Separator — */
+    {
+        GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+        gtk_widget_set_margin_top(sep, 2);
+        gtk_widget_set_margin_bottom(sep, 2);
+        gtk_grid_attach(GTK_GRID(grid), sep, 0, r, 6, 1);
+        r++;
+    }
+
+    /* — Files section: action buttons — */
     gtk_grid_attach(GTK_GRID(grid), w->add_files_btn, 0, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->remove_file_btn, 1, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->clear_list_btn, 2, r, 1, 1);
@@ -381,24 +501,32 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), w->video_track_label, 1, r, 5, 1);
     r++;
 
+    /* — File list + log: GtkPaned so the user can resize the split — */
     GtkWidget *file_scroller = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(file_scroller), w->file_listbox);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(file_scroller),
                                    GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_vexpand(file_scroller, TRUE);
-    gtk_widget_set_size_request(file_scroller, -1, 140);
+    gtk_widget_set_size_request(file_scroller, -1, 100);
 
-    gtk_grid_attach(GTK_GRID(grid), file_scroller, 0, r, 6, 1);
+    gtk_widget_set_size_request(log_scroller, -1, 100);
+
+    GtkWidget *paned = gtk_paned_new(GTK_ORIENTATION_VERTICAL);
+    gtk_widget_set_vexpand(paned, TRUE);
+    gtk_paned_set_start_child(GTK_PANED(paned), file_scroller);
+    gtk_paned_set_end_child(GTK_PANED(paned), log_scroller);
+    gtk_paned_set_position(GTK_PANED(paned), 200);
+    gtk_paned_set_shrink_start_child(GTK_PANED(paned), FALSE);
+    gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
+
+    gtk_grid_attach(GTK_GRID(grid), paned, 0, r, 6, 1);
     r++;
 
+    /* — Progress section — */
     gtk_grid_attach(GTK_GRID(grid), w->start_btn, 0, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->stop_btn, 1, r, 1, 1);
     r++;
 
     gtk_grid_attach(GTK_GRID(grid), w->progress_bar, 0, r, 6, 1);
-    r++;
-
-    gtk_grid_attach(GTK_GRID(grid), log_scroller, 0, r, 6, 1);
     r++;
 
     gtk_grid_attach(GTK_GRID(grid), w->status_label, 0, r, 6, 1);
@@ -407,8 +535,95 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     GtkWidget *window = gtk_application_window_new(app);
     gtk_window_set_child(GTK_WINDOW(window), grid);
 
+    /* Set w->window here so install_drop_target() can reference it;
+     * activate_cb() also assigns the returned value — both are the same pointer. */
+    w->window = window;
+    install_drop_target(w);
+
+    /* Load application CSS:
+     *   - log view: monospace font, works in both light and dark themes.
+     *   - drag-hover: highlight using rgba values that are neutral across themes.
+     */
+    {
+        GtkCssProvider *css = gtk_css_provider_new();
+        gtk_css_provider_load_from_string(css,
+            /* Monospace log view */
+            "textview.log {"
+            "  font-family: monospace;"
+            "  font-size: 9pt;"
+            "}"
+            /* File list drag-and-drop hover highlight */
+            "listbox.drag-hover {"
+            "  background-color: rgba(53,132,228,0.12);"
+            "  border: 2px dashed rgba(53,132,228,0.75);"
+            "  border-radius: 6px;"
+            "}");
+        gtk_style_context_add_provider_for_display(
+            gdk_display_get_default(),
+            GTK_STYLE_PROVIDER(css),
+            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        g_object_unref(css);
+    }
+
     /* Return the window widget */
     return window;
+}
+
+/* ------------------------------------------------------------------ */
+/* Drag-and-drop support                                               */
+/* ------------------------------------------------------------------ */
+
+static gboolean on_drop_files(GtkDropTarget *target, const GValue *value,
+                               double x, double y, gpointer user_data)
+{
+    AppWidgets *w = (AppWidgets *)user_data;
+    GdkFileList *file_list;
+    GSList *files;
+    GSList *l;
+
+    (void)target; (void)x; (void)y;
+
+    file_list = g_value_get_boxed(value);
+    if (!file_list)
+        return FALSE;
+
+    files = gdk_file_list_get_files(file_list);
+    for (l = files; l; l = l->next) {
+        char *path = g_file_get_path(G_FILE(l->data));
+        add_file_to_list(w, path);
+        g_free(path);
+    }
+
+    gtk_widget_remove_css_class(w->file_listbox, "drag-hover");
+    schedule_update_dependent_widgets(w);
+    return TRUE;
+}
+
+static GdkDragAction on_drop_enter(GtkDropTarget *target, double x, double y,
+                                    gpointer user_data)
+{
+    AppWidgets *w = (AppWidgets *)user_data;
+    (void)target; (void)x; (void)y;
+    gtk_widget_add_css_class(w->file_listbox, "drag-hover");
+    return GDK_ACTION_COPY;
+}
+
+static void on_drop_leave(GtkDropTarget *target, gpointer user_data)
+{
+    AppWidgets *w = (AppWidgets *)user_data;
+    (void)target;
+    gtk_widget_remove_css_class(w->file_listbox, "drag-hover");
+}
+
+/* Install a GtkDropTarget on the main window so files dropped anywhere
+ * on the window are added to the queue. */
+static void install_drop_target(AppWidgets *w)
+{
+    GtkDropTarget *target = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
+    g_signal_connect(target, "drop",  G_CALLBACK(on_drop_files), w);
+    g_signal_connect(target, "enter", G_CALLBACK(on_drop_enter), w);
+    g_signal_connect(target, "leave", G_CALLBACK(on_drop_leave), w);
+    gtk_widget_add_controller(w->window, GTK_EVENT_CONTROLLER(target));
 }
 
 /* ------------------------------------------------------------------ */
@@ -479,98 +694,167 @@ static void schedule_update_dependent_widgets(AppWidgets *w)
 /* ------------------------------------------------------------------ */
 /* Callback: codec combo changed                                       */
 /* ------------------------------------------------------------------ */
-static void on_codec_changed(GtkComboBox *obj, AppWidgets *w)
+static void on_codec_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
 {
     (void)obj;
+    (void)pspec;
     schedule_update_dependent_widgets(w);
 }
 
 /* ------------------------------------------------------------------ */
-/* Callback: audio_norm combo changed                                   */
+/* Callback: audio_norm combo changed                                  */
 /* ------------------------------------------------------------------ */
-static void on_audio_norm_changed(GtkComboBox *obj, AppWidgets *w)
+static void on_audio_norm_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
 {
     (void)obj;
+    (void)pspec;
     schedule_update_dependent_widgets(w);
 }
 
 /* ------------------------------------------------------------------ */
-/* Add files button                                                    */
+/* File list helper                                                    */
 /* ------------------------------------------------------------------ */
-static void on_file_chooser_response(GtkDialog *dialog, gint response_id, AppWidgets *w)
+
+/* Add a single file path to the listbox and backing array.
+ * Silently skips duplicates. */
+static void add_file_to_list(AppWidgets *w, const char *path)
 {
-    if (response_id == GTK_RESPONSE_ACCEPT) {
-        GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
-        GListModel *files = gtk_file_chooser_get_files(chooser);
-        
-        guint n_items = g_list_model_get_n_items(files);
-        for (guint i = 0; i < n_items; ++i) {
-            GFile *file = (GFile *)g_list_model_get_item(files, i);
-            char *path = g_file_get_path(file);
-            if (path) {
-                /* Add to listbox */
-                char *path_copy = g_strdup(path);
-                GtkWidget *label = gtk_label_new(path_copy);
-                gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
-                gtk_widget_set_halign(label, GTK_ALIGN_START);
-                gtk_list_box_append(GTK_LIST_BOX(w->file_listbox), label);
-                g_object_set_data(G_OBJECT(label), "file_path", path_copy);
-                /* Store copy */
-                g_ptr_array_add(w->file_paths, path_copy);
-            }
-            g_free(path);
-            g_object_unref(file);
-        }
-        g_object_unref(files);
-        schedule_update_dependent_widgets(w);
+    guint i;
+
+    if (!path || path[0] == '\0')
+        return;
+
+    /* Deduplication check */
+    for (i = 0; i < w->file_paths->len; i++) {
+        if (g_str_equal(g_ptr_array_index(w->file_paths, i), path))
+            return;
     }
-    gtk_window_destroy(GTK_WINDOW(dialog));
+
+    char *stored = g_strdup(path);
+    GtkWidget *label = gtk_label_new(stored);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_list_box_append(GTK_LIST_BOX(w->file_listbox), label);
+    g_object_set_data(G_OBJECT(label), "file_path", stored);
+    g_ptr_array_add(w->file_paths, stored);
 }
 
-static void on_track_chooser_response(GtkDialog *dialog, gint response_id, AppWidgets *w)
+/* ------------------------------------------------------------------ */
+/* Add files button — GtkFileDialog async                             */
+/* ------------------------------------------------------------------ */
+static void on_add_files_finish(GObject *source, GAsyncResult *res, gpointer user_data)
 {
-    if (response_id == GTK_RESPONSE_ACCEPT) {
-        GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
-        GFile *file = gtk_file_chooser_get_file(chooser);
-        if (file) {
-            char *path = g_file_get_path(file);
-            if (path)
-                set_video_track(w, path);
-            g_free(path);
-            g_object_unref(file);
-        }
+    AppWidgets *w = (AppWidgets *)user_data;
+    GListModel *files = gtk_file_dialog_open_multiple_finish(GTK_FILE_DIALOG(source), res, NULL);
+
+    if (!files)
+        return;
+
+    guint n = g_list_model_get_n_items(files);
+    for (guint i = 0; i < n; i++) {
+        GFile *file = g_list_model_get_item(files, i);
+        char *path = g_file_get_path(file);
+        add_file_to_list(w, path);
+        g_free(path);
+        g_object_unref(file);
     }
-    gtk_window_destroy(GTK_WINDOW(dialog));
+    g_object_unref(files);
+    schedule_update_dependent_widgets(w);
+}
+
+static void on_add_files_clicked(GtkButton *button, AppWidgets *w)
+{
+    (void)button;
+    GtkFileDialog *fd = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(fd, "Select Files");
+
+    GtkFileFilter *filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "Video files");
+    gtk_file_filter_add_mime_type(filter, "video/*");
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filters, filter);
+    gtk_file_dialog_set_filters(fd, G_LIST_MODEL(filters));
+    g_object_unref(filter);
+    g_object_unref(filters);
+
+    gtk_file_dialog_open_multiple(fd, GTK_WINDOW(w->window), NULL,
+                                  on_add_files_finish, w);
+    g_object_unref(fd);
+}
+
+/* ------------------------------------------------------------------ */
+/* Add video track button — GtkFileDialog async                       */
+/* ------------------------------------------------------------------ */
+static void on_add_track_finish(GObject *source, GAsyncResult *res, gpointer user_data)
+{
+    AppWidgets *w = (AppWidgets *)user_data;
+    GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), res, NULL);
+
+    if (!file)
+        return;
+
+    char *path = g_file_get_path(file);
+    if (path)
+        set_video_track(w, path);
+    g_free(path);
+    g_object_unref(file);
 }
 
 static void on_add_track_clicked(GtkButton *button, AppWidgets *w)
 {
-    GtkWidget *dialog;
-
     (void)button;
-    dialog = gtk_file_chooser_dialog_new(
-        "Select Video Track",
-        GTK_WINDOW(w->window),
-        GTK_FILE_CHOOSER_ACTION_OPEN,
-        "_Cancel", GTK_RESPONSE_CANCEL,
-        "_Open", GTK_RESPONSE_ACCEPT,
-        NULL
-    );
+    GtkFileDialog *fd = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(fd, "Select Video Track");
 
     if (w->video_track_path && w->video_track_path[0] != '\0') {
-        GFile *current = g_file_new_for_path(w->video_track_path);
-        gtk_file_chooser_set_file(GTK_FILE_CHOOSER(dialog), current, NULL);
-        g_object_unref(current);
+        GFile *initial = g_file_new_for_path(w->video_track_path);
+        gtk_file_dialog_set_initial_file(fd, initial);
+        g_object_unref(initial);
     }
 
-    g_signal_connect(dialog, "response", G_CALLBACK(on_track_chooser_response), w);
-    gtk_widget_show(dialog);
+    gtk_file_dialog_open(fd, GTK_WINDOW(w->window), NULL,
+                         on_add_track_finish, w);
+    g_object_unref(fd);
+}
+
+/* ------------------------------------------------------------------ */
+/* Output directory button — GtkFileDialog async                      */
+/* ------------------------------------------------------------------ */
+static void on_output_dir_finish(GObject *source, GAsyncResult *res, gpointer user_data)
+{
+    AppWidgets *w = (AppWidgets *)user_data;
+    GFile *file = gtk_file_dialog_select_folder_finish(GTK_FILE_DIALOG(source), res, NULL);
+
+    if (!file)
+        return;
+
+    char *path = g_file_get_path(file);
+    if (path)
+        set_output_dir(w, path);
+    g_free(path);
+    g_object_unref(file);
+}
+
+static void on_output_dir_clicked(GtkButton *button, AppWidgets *w)
+{
+    (void)button;
+    GtkFileDialog *fd = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(fd, "Select Output Directory");
+
+    if (w->output_dir_path && w->output_dir_path[0] != '\0') {
+        GFile *initial = g_file_new_for_path(w->output_dir_path);
+        gtk_file_dialog_set_initial_folder(fd, initial);
+        g_object_unref(initial);
+    }
+
+    gtk_file_dialog_select_folder(fd, GTK_WINDOW(w->window), NULL,
+                                  on_output_dir_finish, w);
+    g_object_unref(fd);
 }
 
 typedef struct {
-    GMainLoop *loop;
-    M4VOptions *opts;
-    gboolean accepted;
+    AppWidgets *w;
+    M4VOptions opts;
     GtkWidget *video_spin;
     GtkWidget *audio_spin;
     GtkWidget *ac3_spin;
@@ -578,181 +862,114 @@ typedef struct {
     GtkWidget *lang_entry;
 } M4VDialogData;
 
-static void on_m4v_dialog_response(GtkDialog *dialog, gint response_id, gpointer user_data)
+/* Called when the "Start" button is clicked in the M4V options window. */
+static void on_m4v_start_clicked(GtkButton *btn, GtkWidget *win)
 {
-    M4VDialogData *data = (M4VDialogData *)user_data;
+    (void)btn;
+    M4VDialogData *data = g_object_get_data(G_OBJECT(win), "m4v_data");
+    if (!data)
+        return;
 
-    if (response_id == GTK_RESPONSE_ACCEPT) {
-        const char *lang;
-        data->opts->video_track_index = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->video_spin));
-        data->opts->audio_track_index = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->audio_spin));
-        data->opts->ac3_bitrate_kbps = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->ac3_spin));
-        data->opts->add_chapters = gtk_check_button_get_active(GTK_CHECK_BUTTON(data->chapters_check));
+    const char *lang;
+    data->opts.video_track_index = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->video_spin));
+    data->opts.audio_track_index = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->audio_spin));
+    data->opts.ac3_bitrate_kbps  = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->ac3_spin));
+    data->opts.add_chapters      = gtk_check_button_get_active(GTK_CHECK_BUTTON(data->chapters_check));
 
-        lang = gtk_editable_get_text(GTK_EDITABLE(data->lang_entry));
-        if (!lang || lang[0] == '\0')
-            lang = "rus";
-        g_strlcpy(data->opts->audio_lang, lang, sizeof(data->opts->audio_lang));
-        data->accepted = TRUE;
-    }
+    lang = gtk_editable_get_text(GTK_EDITABLE(data->lang_entry));
+    if (!lang || lang[0] == '\0')
+        lang = "rus";
+    g_strlcpy(data->opts.audio_lang, lang, sizeof(data->opts.audio_lang));
 
-    gtk_window_destroy(GTK_WINDOW(dialog));
-    g_main_loop_quit(data->loop);
+    data->w->pending_m4v_options = data->opts;
+    start_m4v_creation(data->w);
+    gtk_window_destroy(GTK_WINDOW(win));
 }
 
-static gboolean prompt_m4v_options(AppWidgets *w, M4VOptions *opts)
+/* Called when the "Cancel" button or window close button is clicked. */
+static void on_m4v_cancel_clicked(GtkButton *btn, GtkWidget *win)
 {
-    GtkWidget *dialog;
-    GtkWidget *content;
-    GtkWidget *grid;
-    GtkWidget *video_spin;
-    GtkWidget *audio_spin;
-    GtkWidget *ac3_spin;
-    GtkWidget *chapters_check;
-    GtkWidget *lang_entry;
-    GMainLoop *loop;
-    M4VDialogData data;
+    (void)btn;
+    gtk_window_destroy(GTK_WINDOW(win));
+}
 
-    dialog = gtk_dialog_new_with_buttons("Apple m4v creator options",
-                                         GTK_WINDOW(w->window),
-                                         GTK_DIALOG_MODAL,
-                                         "_Cancel", GTK_RESPONSE_CANCEL,
-                                         "_Start", GTK_RESPONSE_ACCEPT,
-                                         NULL);
-    content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+static void prompt_m4v_options_async(AppWidgets *w)
+{
+    GtkWidget *win;
+    GtkWidget *header;
+    GtkWidget *cancel_btn;
+    GtkWidget *start_btn;
+    GtkWidget *grid;
+    M4VDialogData *data;
+
+    /* Heap-allocated context; freed automatically via g_object_set_data_full
+     * when the window is destroyed. */
+    data = g_new0(M4VDialogData, 1);
+    data->w    = w;
+    data->opts = w->pending_m4v_options;
+
+    win = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(win), "Apple m4v creator options");
+    gtk_window_set_modal(GTK_WINDOW(win), TRUE);
+    gtk_window_set_transient_for(GTK_WINDOW(win), GTK_WINDOW(w->window));
+    gtk_window_set_resizable(GTK_WINDOW(win), FALSE);
+    gtk_window_set_default_size(GTK_WINDOW(win), 320, -1);
+
+    /* Attach data to window; freed with g_free when window is finalized. */
+    g_object_set_data_full(G_OBJECT(win), "m4v_data", data, g_free);
+
+    /* Header bar with Cancel (leading) and Start (trailing, suggested) */
+    header = gtk_header_bar_new();
+    cancel_btn = gtk_button_new_with_label("Cancel");
+    start_btn  = gtk_button_new_with_label("Start");
+    gtk_widget_add_css_class(start_btn, "suggested-action");
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), cancel_btn);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), start_btn);
+    gtk_window_set_titlebar(GTK_WINDOW(win), header);
+
+    g_signal_connect(cancel_btn, "clicked", G_CALLBACK(on_m4v_cancel_clicked), win);
+    g_signal_connect(start_btn,  "clicked", G_CALLBACK(on_m4v_start_clicked),  win);
+
+    /* Content grid */
     grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 6);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
     gtk_widget_set_margin_top(grid, 12);
     gtk_widget_set_margin_bottom(grid, 12);
     gtk_widget_set_margin_start(grid, 12);
     gtk_widget_set_margin_end(grid, 12);
 
-    video_spin = gtk_spin_button_new_with_range(0, 16, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(video_spin), opts->video_track_index);
-    audio_spin = gtk_spin_button_new_with_range(0, 16, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(audio_spin), opts->audio_track_index);
-    ac3_spin = gtk_spin_button_new_with_range(96, 1536, 32);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(ac3_spin), opts->ac3_bitrate_kbps);
-    chapters_check = gtk_check_button_new_with_label("Add chapters");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(chapters_check), opts->add_chapters != 0);
-    lang_entry = gtk_entry_new();
-    gtk_editable_set_text(GTK_EDITABLE(lang_entry), opts->audio_lang[0] != '\0' ? opts->audio_lang : "rus");
+    data->video_spin = gtk_spin_button_new_with_range(0, 16, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(data->video_spin), data->opts.video_track_index);
+    data->audio_spin = gtk_spin_button_new_with_range(0, 16, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(data->audio_spin), data->opts.audio_track_index);
+    data->ac3_spin = gtk_spin_button_new_with_range(96, 1536, 32);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(data->ac3_spin), data->opts.ac3_bitrate_kbps);
+    data->chapters_check = gtk_check_button_new_with_label("Add chapters");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(data->chapters_check), data->opts.add_chapters != 0);
+    data->lang_entry = gtk_entry_new();
+    gtk_editable_set_text(GTK_EDITABLE(data->lang_entry),
+                          data->opts.audio_lang[0] != '\0' ? data->opts.audio_lang : "rus");
 
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Video track index:"), 0, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), video_spin, 1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), data->video_spin,    1, 0, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio track index:"), 0, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), audio_spin, 1, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("AC3 bitrate kbps:"), 0, 2, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), ac3_spin, 1, 2, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio language:"), 0, 3, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), lang_entry, 1, 3, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), chapters_check, 0, 4, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), data->audio_spin,    1, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("AC3 bitrate kbps:"),  0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), data->ac3_spin,      1, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio language:"),    0, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), data->lang_entry,    1, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), data->chapters_check, 0, 4, 2, 1);
 
-    gtk_box_append(GTK_BOX(content), grid);
-
-    loop = g_main_loop_new(NULL, FALSE);
-    memset(&data, 0, sizeof(data));
-    data.loop = loop;
-    data.opts = opts;
-    data.video_spin = video_spin;
-    data.audio_spin = audio_spin;
-    data.ac3_spin = ac3_spin;
-    data.chapters_check = chapters_check;
-    data.lang_entry = lang_entry;
-
-    g_signal_connect(dialog, "response", G_CALLBACK(on_m4v_dialog_response), &data);
-    gtk_widget_show(dialog);
-    g_main_loop_run(loop);
-    g_main_loop_unref(loop);
-    return data.accepted;
+    gtk_window_set_child(GTK_WINDOW(win), grid);
+    gtk_window_present(GTK_WINDOW(win));
+    /* Returns immediately; button callbacks handle accept/cancel. */
 }
 
 static void on_apple_m4v_clicked(GtkButton *button, AppWidgets *w)
 {
-    M4VOptions opts;
-
     (void)button;
-    opts = w->pending_m4v_options;
-    if (!prompt_m4v_options(w, &opts))
-        return;
-
-    w->pending_m4v_options = opts;
-    start_m4v_creation(w);
-}
-
-static void on_add_files_clicked(GtkButton *button, AppWidgets *w)
-{
-    (void)button;
-    GtkWidget *dialog = gtk_file_chooser_dialog_new(
-        "Select Files",
-        GTK_WINDOW(w->window),
-        GTK_FILE_CHOOSER_ACTION_OPEN,
-        "_Cancel", GTK_RESPONSE_CANCEL,
-        "_Open", GTK_RESPONSE_ACCEPT,
-        NULL
-    );
-    
-    gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), TRUE);
-    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog),
-                                        g_file_new_for_path(g_get_home_dir()), NULL);
-    
-    g_signal_connect(dialog, "response", G_CALLBACK(on_file_chooser_response), w);
-    gtk_widget_show(dialog);
-}
-
-static void on_add_files_response(GObject *source, GAsyncResult *res, AppWidgets *w)
-{
-    /* This function is deprecated, kept for compatibility */
-    (void)source;
-    (void)res;
-    (void)w;
-}
-
-static void on_folder_chooser_response(GtkDialog *dialog, gint response_id, AppWidgets *w)
-{
-    if (response_id == GTK_RESPONSE_ACCEPT) {
-        GtkFileChooser *chooser = GTK_FILE_CHOOSER(dialog);
-        GFile *file = gtk_file_chooser_get_file(chooser);
-        if (file) {
-            char *path = g_file_get_path(file);
-            if (path)
-                set_output_dir(w, path);
-            g_free(path);
-            g_object_unref(file);
-        }
-    }
-    gtk_window_destroy(GTK_WINDOW(dialog));
-}
-
-static void on_output_dir_clicked(GtkButton *button, AppWidgets *w)
-{
-    (void)button;
-    GtkWidget *dialog = gtk_file_chooser_dialog_new(
-        "Select Output Directory",
-        GTK_WINDOW(w->window),
-        GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
-        "_Cancel", GTK_RESPONSE_CANCEL,
-        "_Select", GTK_RESPONSE_ACCEPT,
-        NULL
-    );
-    
-    if (w->output_dir_path && w->output_dir_path[0] != '\0') {
-        GFile *current = g_file_new_for_path(w->output_dir_path);
-        gtk_file_chooser_set_file(GTK_FILE_CHOOSER(dialog), current, NULL);
-        g_object_unref(current);
-    }
-    
-    g_signal_connect(dialog, "response", G_CALLBACK(on_folder_chooser_response), w);
-    gtk_widget_show(dialog);
-}
-
-static void on_output_dir_response(GObject *source, GAsyncResult *res, AppWidgets *w)
-{
-    /* This function is deprecated, kept for compatibility */
-    (void)source;
-    (void)res;
-    (void)w;
+    prompt_m4v_options_async(w);
 }
 
 static void on_remove_file_clicked(GtkButton *button, AppWidgets *w)
@@ -765,7 +982,7 @@ static void on_remove_file_clicked(GtkButton *button, AppWidgets *w)
     GtkWidget *child = gtk_list_box_row_get_child(row);
     char *path = NULL;
     if (child)
-        path = (char *)g_object_get_data(G_OBJECT(child), "file_path");
+        path = (char *)g_object_steal_data(G_OBJECT(child), "file_path");
 
     if (path)
         g_ptr_array_remove(w->file_paths, path);
@@ -811,16 +1028,16 @@ void collect_options_from_gui(AppWidgets *w,
 
     /* ----- profile ----- */
     if (gtk_widget_get_sensitive(w->profile_combo)) {
-        int active = gtk_combo_box_get_active(GTK_COMBO_BOX(w->profile_combo));
-        opts->profile = active >= 0 ? active + 1 : 0;
+        guint sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->profile_combo));
+        opts->profile = (sel != GTK_INVALID_LIST_POSITION) ? (int)sel + 1 : 0;
     } else {
         opts->profile = 0;
     }
 
     /* ----- deblock ----- */
     if (gtk_widget_get_sensitive(w->deblock_combo)) {
-        int active = gtk_combo_box_get_active(GTK_COMBO_BOX(w->deblock_combo));
-        opts->deblock = active >= 0 ? active + 1 : 0;
+        guint sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->deblock_combo));
+        opts->deblock = (sel != GTK_INVALID_LIST_POSITION) ? (int)sel + 1 : 0;
     } else {
         opts->deblock = 0;
     }
@@ -842,8 +1059,8 @@ void collect_options_from_gui(AppWidgets *w,
 
     /* ----- genre ----- */
     if (gtk_widget_get_sensitive(w->genre_combo)) {
-        int active = gtk_combo_box_get_active(GTK_COMBO_BOX(w->genre_combo));
-        opts->genre = active >= 0 ? active + 1 : 0;
+        guint sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->genre_combo));
+        opts->genre = (sel != GTK_INVALID_LIST_POSITION) ? (int)sel + 1 : 0;
     } else {
         opts->genre = 0;
     }
@@ -924,8 +1141,76 @@ static void set_video_track(AppWidgets *w, const char *path)
 
 static char *get_dropdown_text(GtkWidget *dropdown)
 {
-    char *text = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(dropdown));
-    if (!text)
+    GtkStringObject *obj =
+        GTK_STRING_OBJECT(gtk_drop_down_get_selected_item(GTK_DROP_DOWN(dropdown)));
+    if (!obj)
         return g_strdup("");
-    return text;
+    return g_strdup(gtk_string_object_get_string(obj));
 }
+
+/* ------------------------------------------------------------------ */
+/* Keyboard shortcuts                                                  */
+/* ------------------------------------------------------------------ */
+
+static void on_add_files_action(GSimpleAction *action, GVariant *param, gpointer user_data)
+{
+    (void)action; (void)param;
+    AppWidgets *w = (AppWidgets *)user_data;
+    on_add_files_clicked(NULL, w);
+}
+
+static void on_remove_file_action(GSimpleAction *action, GVariant *param, gpointer user_data)
+{
+    (void)action; (void)param;
+    AppWidgets *w = (AppWidgets *)user_data;
+    on_remove_file_clicked(NULL, w);
+}
+
+static void on_clear_list_action(GSimpleAction *action, GVariant *param, gpointer user_data)
+{
+    (void)action; (void)param;
+    AppWidgets *w = (AppWidgets *)user_data;
+    on_clear_list_clicked(NULL, w);
+}
+
+static void on_start_action(GSimpleAction *action, GVariant *param, gpointer user_data)
+{
+    (void)action; (void)param;
+    AppWidgets *w = (AppWidgets *)user_data;
+    start_conversion(w);
+}
+
+static void on_stop_action(GSimpleAction *action, GVariant *param, gpointer user_data)
+{
+    (void)action; (void)param;
+    AppWidgets *w = (AppWidgets *)user_data;
+    stop_conversion(w);
+}
+
+void setup_keyboard_shortcuts(GtkApplication *app, AppWidgets *w)
+{
+    static const struct {
+        const char *name;
+        GCallback   handler;
+        const char *accel;
+    } actions[] = {
+        { "add-files",    G_CALLBACK(on_add_files_action),   "<Ctrl>o"      },
+        { "remove-file",  G_CALLBACK(on_remove_file_action), "Delete"       },
+        { "clear-list",   G_CALLBACK(on_clear_list_action),  "<Ctrl>l"      },
+        { "start",        G_CALLBACK(on_start_action),       "<Ctrl>Return" },
+        { "stop",         G_CALLBACK(on_stop_action),        "Escape"       },
+    };
+
+    for (gsize i = 0; i < G_N_ELEMENTS(actions); i++) {
+        GSimpleAction *action = g_simple_action_new(actions[i].name, NULL);
+        g_signal_connect(action, "activate", actions[i].handler, w);
+        g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(action));
+        g_object_unref(action);
+
+        char detailed[64];
+        g_snprintf(detailed, sizeof(detailed), "app.%s", actions[i].name);
+        const char *accels[] = { actions[i].accel, NULL };
+        gtk_application_set_accels_for_action(app, detailed, accels);
+    }
+}
+

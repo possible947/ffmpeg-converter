@@ -40,14 +40,31 @@ foreach(MP4BOX_CANDIDATE ${LINUX_SYSTEM_MP4BOX_CANDIDATES})
     endif()
 endforeach()
 
+# Compile GLib resources (window icon)
+find_program(GLIB_COMPILE_RESOURCES glib-compile-resources REQUIRED)
+set(RESOURCES_XML  "${CMAKE_CURRENT_SOURCE_DIR}/resources.gresource.xml")
+set(RESOURCES_C    "${CMAKE_CURRENT_BINARY_DIR}/resources.c")
+add_custom_command(
+    OUTPUT  "${RESOURCES_C}"
+    COMMAND "${GLIB_COMPILE_RESOURCES}"
+            "--sourcedir=${CMAKE_CURRENT_SOURCE_DIR}"
+            "--c-name=ffmpeg_converter_res"
+            "--target=${RESOURCES_C}"
+            "--generate-source"
+            "${RESOURCES_XML}"
+    DEPENDS "${RESOURCES_XML}" "${CMAKE_CURRENT_SOURCE_DIR}/icon.png"
+    COMMENT "Compiling GLib resources"
+)
+
 # Add the GUI library (just a convenience target)
 add_library(gui_lib
     gui_window.c
     gui_callbacks.c
+    "${RESOURCES_C}"
 )
 
 target_include_directories(gui_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_options(gui_lib PRIVATE -Wno-deprecated-declarations)
+target_compile_options(gui_lib PRIVATE)
 target_link_libraries(gui_lib
     PRIVATE PkgConfig::GTK4
     PUBLIC converter   # already defined in src/converter/CMakeLists
@@ -61,7 +78,7 @@ set_target_properties(linux_gui PROPERTIES
     OUTPUT_NAME "ffmpeg_converter_gui"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
-target_compile_options(linux_gui PRIVATE -Wno-deprecated-declarations)
+target_compile_options(linux_gui PRIVATE)
 target_link_libraries(linux_gui
     PRIVATE gui_lib
     PRIVATE converter

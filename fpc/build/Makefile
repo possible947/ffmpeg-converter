@@ -86,7 +86,7 @@ GUI_MAIN ?= $(ROOT)/fpc/gui/main.lpr
 GUI_MAIN_STEM := $(basename $(notdir $(GUI_MAIN)))
 GUI_RES := $(ROOT)/fpc/gui/$(GUI_MAIN_STEM).res
 GUI_PROJECT ?= $(ROOT)/fpc/gui/form.lpi
-LAZBUILD_FLAGS ?= -B -q -q
+LAZBUILD_FLAGS ?= -B -q -q --ws=gtk3
 
 GUI_DEPS := \
 	$(GUI_PROJECT) \

@@ -3,6 +3,7 @@
  */
 
 #include "gui_window.h"
+#include "gui_codec_utils.h"
 #include "mux.h"
 #include <glib.h>
 #include <unistd.h>
@@ -52,11 +53,6 @@ typedef struct {
 } FinishUpdateData;
 
 static AppWidgets *g_widgets = NULL;
-
-static gboolean codec_is_mux(const char *codec)
-{
-    return codec && strcmp(codec, "mux") == 0;
-}
 
 static void reset_stop_state(AppWidgets *w)
 {
@@ -300,10 +296,9 @@ static gboolean update_log_idle(gpointer data)
     GtkTextIter end;
     gtk_text_buffer_get_end_iter(w->log_buffer, &end);
     gtk_text_buffer_insert(w->log_buffer, &end, msg, -1);
-    /* autoscroll */
-    GtkTextMark *mark = gtk_text_buffer_create_mark(w->log_buffer, NULL, &end, FALSE);
-    gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(w->log_view), mark, 0.0, TRUE, 0.0, 0.0);
-    gtk_text_buffer_delete_mark(w->log_buffer, mark);
+    /* autoscroll using the persistent end mark */
+    gtk_text_buffer_move_mark(w->log_buffer, w->log_end_mark, &end);
+    gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(w->log_view), w->log_end_mark, 0.0, TRUE, 0.0, 0.0);
 
     return G_SOURCE_REMOVE;
 }
@@ -460,6 +455,10 @@ static gpointer run_converter(gpointer user_data)
     collect_options_from_gui(w, &opts, &file_list, &file_count);
     job_kind = w->active_job_kind;
 
+    /* Publish the widget context for the ConverterCallbacks (which have no
+     * user_data parameter).  Cleared again at the end of cleanup. */
+    g_widgets = w;
+
     if (job_kind == GUI_JOB_M4V) {
         if (file_count <= 0) {
             LogUpdateData *data = g_new0(LogUpdateData, 1);
@@ -470,7 +469,6 @@ static gpointer run_converter(gpointer user_data)
             goto cleanup;
         }
 
-        g_widgets = w;
         {
             ConverterCallbacks cb = {
                 .on_file_begin = on_file_begin,
@@ -534,7 +532,6 @@ static gpointer run_converter(gpointer user_data)
         }
     }
 
-    g_widgets = w;
     converter_set_callbacks(c, &cb);
     {
         ConvertOptions work_opts = opts;
@@ -599,6 +596,10 @@ cleanup:
                         finish,
                         finish_update_data_free);
     }
+
+    /* Clear the callback widget context before the thread exits so that no
+     * stale pointer is visible to shutdown_conversion. */
+    g_widgets = NULL;
 
     return NULL;
 }
@@ -703,7 +704,6 @@ void shutdown_conversion(AppWidgets *w)
 
     g_mutex_lock(&w->thread_lock);
     w->shutting_down = TRUE;
-    g_widgets = NULL;
     w->stop_requested = 1;
 
     if (w->current_converter)
@@ -715,4 +715,14 @@ void shutdown_conversion(AppWidgets *w)
 
     if (thread)
         g_thread_join(thread);
+
+    /* The worker thread clears g_widgets itself before exiting.  Clear it
+     * here as well to cover the case where no conversion was ever run. */
+    g_widgets = NULL;
+
+    /* Join the hardware probe thread if it is still running. */
+    if (w->probe_thread) {
+        g_thread_join(w->probe_thread);
+        w->probe_thread = NULL;
+    }
 }
