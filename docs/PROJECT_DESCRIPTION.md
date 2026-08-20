@@ -151,7 +151,7 @@ In `fpc/build/Makefile`:
 ## 6. Known Boundaries
 
 - Windows C GUI is not implemented.
-- C CLI currently does not support `--dry-run`.
+- C CLI supports `--dry-run` and `--version`.
 
 ## 7. Canonical References
 

@@ -48,6 +48,14 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    /* Quick-exit version */
+    if (argc == 2 &&
+        (!strcmp(argv[1], "--version"))) {
+        print_version();
+        cli_platform_cleanup(h);
+        return 0;
+    }
+
     c = converter_create();
     if (!c) {
         fprintf(stderr, "Failed to create converter.\n");
@@ -142,6 +150,29 @@ int main(int argc, char** argv) {
         {
             ConvertOptions work_opts = opts;
             ConverterError err = ERR_OK;
+
+            /* Dry run: print the plan and stop before touching ffmpeg. */
+            if (opts.dry_run) {
+                int fi;
+                printf("\n--- Dry run: planned operations ---\n");
+                for (fi = 0; fi < file_count; fi++) {
+                    char out_name[1024];
+                    if (!strcmp(opts.codec, "m4v")) {
+                        M4VOptions m4v_plan_opts;
+                        m4v_default_options(&m4v_plan_opts);
+                        m4v_make_output_name(files[fi], opts.output_dir,
+                                             out_name, sizeof(out_name));
+                        printf("  [m4v] %s -> %s\n", files[fi], out_name);
+                    } else {
+                        converter_make_output_name(files[fi], &opts,
+                                                   out_name, sizeof(out_name));
+                        printf("  [%s] %s -> %s\n", opts.codec, files[fi], out_name);
+                    }
+                }
+                printf("--- Dry run: no files were processed ---\n");
+                result = 0;
+                goto cleanup;
+            }
 
             if (!strcmp(opts.codec, "m4v")) {
                 /* Apple M4V path — uses the m4v module directly */
