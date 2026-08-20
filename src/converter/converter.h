@@ -78,6 +78,7 @@ typedef struct {
 
     // OUTPUT
     int  overwrite;      // 0=skip, 1=force
+    int  dry_run;        // 1 = CLI prints the plan without running ffmpeg
     char output_dir[1024]; // optional output directory ("" = default $HOME/ffmpeg_converter)
     int output_dir_status;
     char video_track_path[1024];

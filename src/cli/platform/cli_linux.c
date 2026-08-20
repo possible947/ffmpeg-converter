@@ -224,8 +224,11 @@ void platform_apply_hw_device(ConvertOptions* opts, const CliPlatformHandle* h) 
     if (!opts || !h)
         return;
 
+    /* Only auto-select the render node when the user did not pass an
+     * explicit --hw_device override. */
     if ((!strcmp(opts->codec, "h264_vaapi") ||
          !strcmp(opts->codec, "hevc_vaapi")) &&
+        opts->hw_device[0] == '\0' &&
         h->support.default_render_node[0] != '\0') {
         strncpy(opts->hw_device, h->support.default_render_node,
                 sizeof(opts->hw_device) - 1);

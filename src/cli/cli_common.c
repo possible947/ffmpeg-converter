@@ -100,10 +100,16 @@ void print_usage(const CliPlatformHandle* h) {
     printf("  -g, --genre <edm|rock|hiphop|classical|podcast>\n");
     printf("      (genre is used only with loudnorm2)\n");
     printf("  --overwrite        overwrite output files\n");
+    printf("  --dry-run          print the conversion plan without running ffmpeg\n");
+    printf("  --version          show version and exit\n");
     if (platform_codec_is_available(h, "prores_ks_vulkan"))
         printf("      --vk_device <N>    Vulkan adapter index for prores_ks_vulkan"
                " (default: %d)\n",
                platform_get_default_vulkan_device(h));
+    if (platform_codec_is_available(h, "h264_vaapi") ||
+        platform_codec_is_available(h, "hevc_vaapi"))
+        printf("      --hw_device <path> VAAPI render node for h264_vaapi/hevc_vaapi"
+               " (default: auto-detected)\n");
     printf("  -o, --output <directory> set output directory\n");
     printf("  -h, --help         show this help\n\n");
     if (platform_mux_is_supported()) {
@@ -133,6 +139,10 @@ void print_usage(const CliPlatformHandle* h) {
     if (platform_m4v_is_supported())
         printf("  ffmpeg_converter -c m4v --m4v-lang eng input.mov\n");
     printf("\n");
+}
+
+void print_version(void) {
+    printf("ffmpeg_converter %s\n", FFMPEG_CONVERTER_VERSION);
 }
 
 void print_summary(const ConvertOptions* opts,
@@ -179,6 +189,12 @@ void print_summary(const ConvertOptions* opts,
         }
         printf("Profile:      %s\n", profile_str);
         printf("Deblock:      (n/a)\n");
+    } else if (!strcmp(opts->codec, "h264_vaapi") ||
+               !strcmp(opts->codec, "hevc_vaapi")) {
+        printf("Profile:      (n/a)\n");
+        printf("Deblock:      (n/a)\n");
+        printf("HW device:    %s\n",
+               opts->hw_device[0] != '\0' ? opts->hw_device : "(auto)");
     } else {
         printf("Profile:      (n/a)\n");
         printf("Deblock:      (n/a)\n");
@@ -216,6 +232,7 @@ void print_summary(const ConvertOptions* opts,
     }
 
     printf("Overwrite:    %s\n", opts->overwrite ? "yes" : "no");
+    printf("Dry run:      %s\n", opts->dry_run ? "yes" : "no");
     if (opts->output_dir[0] != '\0')
         printf("Output dir:   %s\n", opts->output_dir);
     else
@@ -588,6 +605,10 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
 {
     int i;
 
+    /* Zero the struct so every field (hw_device, vulkan_device, gain,
+     * measured_*, ...) has a deterministic value before defaults are set. */
+    memset(opts, 0, sizeof(*opts));
+
     strcpy(opts->codec, "prores_ks");
     opts->profile   = 2;  /* standard */
     opts->deblock   = 1;  /* none */
@@ -699,6 +720,11 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             continue;
         }
 
+        if (!strcmp(argv[i], "--dry-run")) {
+            opts->dry_run = 1;
+            continue;
+        }
+
         if (!strcmp(argv[i], "--m4v-video-track")) {
             if (i + 1 >= argc) return 0;
             i++;
@@ -753,6 +779,15 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
                 if (*endptr != '\0' || val < 0 || val > 7) return 0;
                 opts->vulkan_device = (int)val;
             }
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--hw_device")) {
+            if (i + 1 >= argc) return 0;
+            i++;
+            if (argv[i][0] == '\0') return 0;
+            strncpy(opts->hw_device, argv[i], sizeof(opts->hw_device) - 1);
+            opts->hw_device[sizeof(opts->hw_device) - 1] = '\0';
             continue;
         }
 
@@ -838,6 +873,12 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
 
     int codec_count = platform_get_codec_count(h);
     const PlatformCodecEntry* entries = platform_get_codec_entries(h);
+
+    /* Zero the option structs so hw_device / vulkan_device and other fields
+     * that are not filled by the menu have deterministic values. */
+    memset(opts, 0, sizeof(*opts));
+    if (m4v_opts)
+        memset(m4v_opts, 0, sizeof(*m4v_opts));
 
     output_dir[0]        = '\0';
     video_track_path[0]  = '\0';

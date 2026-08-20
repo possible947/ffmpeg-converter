@@ -255,19 +255,43 @@ const char* platform_get_video_codec_flags(const char* codec,
                                             const char* input_path,
                                             const void* opts) {
     (void)input_path;
-    (void)opts;
+
+    const ConvertOptions* copt = (const ConvertOptions*)opts;
+    static char prores_flags[256];
 
     if (!codec) return NULL;
 
-    if (strcmp(codec, "h264_vaapi")       == 0) return "-c:v h264_vaapi -rc_mode auto ";
-    if (strcmp(codec, "hevc_vaapi")       == 0) return "-c:v hevc_vaapi -rc_mode auto ";
-    if (strcmp(codec, "h264_nvenc")       == 0) return "-c:v h264_nvenc ";
-    if (strcmp(codec, "hevc_nvenc")       == 0) return "-c:v hevc_nvenc ";
-    if (strcmp(codec, "h264_amf")         == 0) return "-c:v h264_amf ";
-    if (strcmp(codec, "hevc_amf")         == 0) return "-c:v hevc_amf ";
-    if (strcmp(codec, "h264_qsv")         == 0) return "-c:v h264_qsv ";
-    if (strcmp(codec, "hevc_qsv")         == 0) return "-c:v hevc_qsv ";
-    if (strcmp(codec, "prores_ks_vulkan") == 0) return "-c:v prores_ks_vulkan ";
+    if (strcmp(codec, "h264_vaapi") == 0)
+        return "-c:v h264_vaapi -rc_mode auto ";
+    if (strcmp(codec, "hevc_vaapi") == 0)
+        return "-c:v hevc_vaapi -rc_mode auto ";
+    if (strcmp(codec, "h264_nvenc") == 0)
+        return "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 ";
+    if (strcmp(codec, "hevc_nvenc") == 0)
+        return "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto ";
+    if (strcmp(codec, "h264_amf") == 0)
+        return "-c:v h264_amf ";
+    if (strcmp(codec, "hevc_amf") == 0)
+        return "-c:v hevc_amf ";
+    if (strcmp(codec, "h264_qsv") == 0)
+        return "-c:v h264_qsv -global_quality 22 -preset slower "
+               "-look_ahead 1 -look_ahead_depth 40 -extbrc 1 ";
+    if (strcmp(codec, "hevc_qsv") == 0)
+        return "-c:v hevc_qsv -global_quality 25 -preset slow "
+               "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ";
+
+    if (strcmp(codec, "prores_ks_vulkan") == 0) {
+        const char* profile_name = "hq"; /* default: HQ */
+        if (copt) {
+            if      (copt->profile == 1) profile_name = "lt";
+            else if (copt->profile == 2) profile_name = "standard";
+            else if (copt->profile == 3) profile_name = "hq";
+            else if (copt->profile == 4) profile_name = "4444";
+        }
+        snprintf(prores_flags, sizeof(prores_flags),
+                 "-c:v prores_ks_vulkan -profile:v %s ", profile_name);
+        return prores_flags;
+    }
 
     /* Not a Linux platform-specific codec */
     return NULL;
@@ -377,11 +401,15 @@ const char* platform_get_preinput_hw_flags(const char* codec, const void* opts) 
 }
 
 const char* platform_get_hw_vfilter(const char* codec, const void* opts) {
-    (void)opts;
     if (codec &&
         (strcmp(codec, "h264_vaapi") == 0 || strcmp(codec, "hevc_vaapi") == 0))
         return "nv12,hwupload";
-    if (codec && strcmp(codec, "prores_ks_vulkan") == 0)
+    if (codec && strcmp(codec, "prores_ks_vulkan") == 0) {
+        const ConvertOptions* copt = (const ConvertOptions*)opts;
+        /* ProRes 4444 uses yuv444p10le; all other profiles use yuv422p10le */
+        if (copt && copt->profile == 4)
+            return "yuv444p10le,hwupload";
         return "yuv422p10le,hwupload";
+    }
     return NULL;
 }

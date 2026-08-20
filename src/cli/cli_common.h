@@ -18,6 +18,10 @@ extern "C" {
 
 #define CLI_BUFFER_SIZE 4096
 
+/* Version string shown by --version.  Keep in sync with CMakeLists.txt
+ * project(VERSION ...) and the [Unreleased]/latest release in CHANGELOG.md. */
+#define FFMPEG_CONVERTER_VERSION "2.6.0"
+
 /* ---------------------------------------------------------------
  *  CLI Callbacks (passed to converter_set_callbacks)
  * --------------------------------------------------------------- */
@@ -50,6 +54,7 @@ typedef struct {
 
 void clear_screen(void);
 void print_usage(const CliPlatformHandle* h);
+void print_version(void);
 void print_summary(const ConvertOptions* opts,
                    const CliM4VOptions* m4v_opts,
                    const char** files, int file_count);
