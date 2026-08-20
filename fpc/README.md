@@ -80,10 +80,12 @@ make -C fpc/build gui        # → fpc/bin/ffmpeg_converter_gui
 ```
 
 > **Lazarus source**: the GTK3 widgetset is **not** shipped by Ubuntu/Debian
-> (`apt` only provides `lcl-gtk2` and `lcl-qt5`). Install Lazarus from the
-> official site (lazarus-ide.com) — it includes LCL/GTK3 out of the box. If
-> the build fails, it usually means the LCL GTK3 widgetset is missing:
-> `sudo apt install lcl-gtk3` (Debian/Ubuntu, non-Ubuntu distros).
+> (`apt` only provides `lcl-gtk2` and `lcl-qt5`; there is **no `lcl-gtk3`
+> package**). Install Lazarus from the official site (lazarus-ide.com) — it
+> includes LCL/GTK3 out of the box. If the build fails, the Makefile prints
+> the real compiler errors plus a hint (GTK3 dev libraries missing →
+> `sudo apt install libgtk-3-dev`; widgetset missing → install Lazarus from
+> lazarus-ide.org). Full log: `fpc/build/.units/gui-build.log`.
 
 Windows (native widgetset):
 

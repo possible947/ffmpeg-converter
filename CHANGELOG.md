@@ -132,6 +132,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 - Linux GTK4 window title and `g_set_application_name` are now
   `FFMpeg-Converter` (was `ffmpeg-converter GUI`).
+- **Pascal GUI build diagnostics** — `make -C fpc/build gui` saves the
+  lazbuild log to `fpc/build/.units/gui-build.log`, prints the compiler
+  errors, and gives a correct hint per failure (GTK3 dev libs vs LCL GTK3
+  widgetset). The old hint suggested `apt install lcl-gtk3`, which does not
+  exist on Ubuntu/Debian — the correct fix is Lazarus from lazarus-ide.org.
 
 ### Stage log — P2 implementation
 - [P2.1 — done] M4V «edit-before-mux» в Linux C GUI: `M4VOptions.edit_before_mux`,

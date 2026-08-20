@@ -173,15 +173,32 @@ appimage: $(GUI_BIN)
 endif
 
 $(GUI_BIN): $(GUI_DEPS)
-	@command -v "$(LAZBUILD)" >/dev/null 2>&1 || { echo "ERROR: lazbuild not found in PATH."; exit 1; }
-	@mkdir -p "$(ROOT)/fpc/bin" "$(UNIT_BASE)/gui"
-	cd "$(ROOT)" && "$(LAZBUILD)" $(LAZBUILD_FLAGS) "$(GUI_PROJECT)" || { \
-		echo "ERROR: Lazarus GUI build failed."; \
-		echo "       On Linux this usually means the LCL GTK3 widgetset is missing."; \
-		echo "       Install it, e.g. on Debian/Ubuntu: sudo apt install lcl-gtk3"; \
-		echo "       or use the lazarus-ide-gtk3 package of your distribution."; \
+	@command -v "$(LAZBUILD)" >/dev/null 2>&1 || { \
+		echo "ERROR: lazbuild not found in PATH."; \
+		echo "       Install Lazarus from https://www.lazarus-ide.org"; \
 		exit 1; \
 	}
+	@mkdir -p "$(ROOT)/fpc/bin" "$(UNIT_BASE)/gui"
+	@echo "==> Building Lazarus GUI: $(GUI_PROJECT)"
+	@cd "$(ROOT)" && "$(LAZBUILD)" $(LAZBUILD_FLAGS) "$(GUI_PROJECT)" > "$(UNIT_BASE)/gui-build.log" 2>&1; status=$$?; cat "$(UNIT_BASE)/gui-build.log"; \
+	if [ $$status -ne 0 ]; then \
+		echo "ERROR: Lazarus GUI build failed."; \
+		echo "       Full log: $(UNIT_BASE)/gui-build.log"; \
+		echo "       ----- last lines -----"; \
+		tail -n 12 "$(UNIT_BASE)/gui-build.log" | sed 's/^/       /'; \
+		echo "       ----------------------"; \
+		if grep -q 'cannot find -lgtk-3\|cannot find -lgdk-3' "$(UNIT_BASE)/gui-build.log"; then \
+			echo "       The GTK3 development libraries are missing."; \
+			echo "       On Debian/Ubuntu: sudo apt install libgtk-3-dev"; \
+		elif grep -qE 'lclgtk3|LCLgtk3|widgetset' "$(UNIT_BASE)/gui-build.log"; then \
+			echo "       The LCL GTK3 widgetset is missing or cannot be compiled."; \
+			echo "       Note: Ubuntu/Debian apt has NO lcl-gtk3 package."; \
+			echo "       Install Lazarus from https://www.lazarus-ide.org (includes GTK3)."; \
+		else \
+			echo "       See the log above for compiler errors in the project code."; \
+		fi; \
+		exit 1; \
+	fi
 	@test -f "$@" || { echo "ERROR: lazbuild finished but GUI binary not found at $@"; exit 1; }
 
 $(CLI_BIN): $(CLI_DEPS)

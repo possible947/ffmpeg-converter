@@ -36,8 +36,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   win32/win64 widgetset). `form.lpi` is shared by both platforms, so the
   widgetset cannot be pinned inside the `.lpi` without breaking the Windows
   build.
-- **Clear GUI build failure message (P3.4)** — `make gui` now prints a
-  hint when the LCL GTK3 widgetset is missing (e.g. `apt install lcl-gtk3`).
+- **Clear GUI build failure diagnostics (P3.4)** — `make gui` now saves the
+  full lazbuild log to `fpc/build/.units/gui-build.log`, prints the compiler
+  errors, and gives a correct hint per failure type: missing GTK3 dev libs →
+  `sudo apt install libgtk-3-dev`; missing LCL GTK3 widgetset → install
+  Lazarus from lazarus-ide.org (**Ubuntu/Debian apt has no `lcl-gtk3`
+  package**, only `lcl-gtk2`/`lcl-qt5`); other errors → project code.
+  Fixed a `/bin/sh` incompatibility (`set -o pipefail` → POSIX rewrite).
 - **`gui-app` target fixed (P3.5)** — `make gui-app` is now an alias of
   `appimage` instead of printing a misleading "macOS not supported" message.
 - **`form.lps` cleaned (P3.2)** — removed the stale
