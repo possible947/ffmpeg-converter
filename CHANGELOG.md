@@ -119,6 +119,115 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Stage log — P2 implementation
+- [P2.1 — done] M4V «edit-before-mux» в Linux C GUI: `M4VOptions.edit_before_mux`,
+  чекбокс в диалоге Apple m4v, edit flow в `run_gui_m4v_job`
+  (main worker → m4v из конвертированных файлов → cleanup).
+- [P2.2 — done] `--version` в C CLI (`FFMPEG_CONVERTER_VERSION "2.6.0"`,
+  quick-exit в `main.c`, строка в `print_usage`); `CMakeLists.txt` VERSION
+  синхронизирован 2.5.0 → 2.6.0.
+- [P2.3 — done] `--dry-run` в C CLI (`ConvertOptions.dry_run`, парсинг,
+  строка в summary, план операций в `main.c` без запуска ffmpeg).
+- [verify — done] `linux_cli`/`linux_gui` собраны; `--version`,
+  `--dry-run` (prores_ks и m4v), обычное кодирование и старт GUI проверены.
+
+### Stage log — P3/P4 implementation
+- [P3.1 — done] Linux GUI widgetset pinned to gtk3 via Makefile (Linux only;
+  Windows keeps native widgetset — `form.lpi` is shared, so the widgetset
+  cannot be pinned inside the `.lpi`).
+- [P3.2 — done] `fpc/gui/form.lps` cleaned: removed stale
+  `Temp/HQ_converter/...` module entry, fixed working directory path.
+- [P3.3 — done] Duplicate `fpc/gui/form.lpr` removed (project uses `main.lpr`).
+- [P3.4 — done] `make gui` prints a clear hint when the LCL GTK3 widgetset
+  is missing (`lcl-gtk3`).
+- [P3.5 — done] `fpc/README.md` rewritten for v2.6 + strategy; `gui-app`
+  target is now an alias of `appimage` (no more misleading macOS message).
+- [P4.1 — done] Strategy recorded in `fpc/README.md`: Linux GUI = C/GTK4;
+  Pascal on Linux = CLI + library; Pascal GUI = Windows-only.
+- [P4.2 — done] Pascal interactive codec menu is dynamic — built from the
+  runtime probe (vaapi/nvenc/amf/qsv/prores_ks_vulkan/m4v) instead of a
+  hard-coded list; multi-digit choices via `ReadChoiceNum`.
+- [P4.3 — done] `--vk-device`/`--vk_device` unified (parsing already accepted
+  both; help documents the canonical form).
+- [P4.4 — done] `fpc/CHANGELOG.md` synced with reality: stale drag-and-drop
+  claim in [1.1.0] flagged; current LCL GUI has no drag-and-drop.
+- [verify — done] Lazarus 4.8 + FPC 3.2.2 (official site): LCL GTK3 widgetset
+  present; Pascal GUI builds via `make -C fpc/build gui` (first lazbuild link
+  failed with "cannot find -lgtk-3" until the LCL units were rebuilt by a
+  direct fpc invocation — now clean). Pascal CLI dynamic menu shows 7 codecs
+  on this machine (vaapi + m4v; vulkan hidden — not in the bundled ffmpeg).
+  C `linux_cli`/`linux_gui` build; C GUI starts clean.
+
+### Known issues — Linux hardware probe (diagnosed 2026-08-20, fix deferred)
+- **`prores_ks_vulkan` missing from the new bundled ffmpeg (user's 8.1 build)**
+  — the rebuild added VAAPI/AMF/Vulkan/OpenCL but lost the ProRes Vulkan
+  encoder: `ffmpeg -h encoder=prores_ks_vulkan` → "Codec ... is not
+  recognized". `h264_vulkan`/`hevc_vulkan`/`av1_vulkan` are present, only
+  `prores_ks_vulkan` is gone (the previous bundle had it). Needs to be
+  re-enabled in the ffmpeg build config; no program code change required.
+- **Vulkan probe counts software devices as working GPUs** — ffmpeg's Vulkan
+  GPU listing includes `llvmpipe (software)` at `vk:2`; the `vk:0..vk:7`
+  probe treats it as a working device, so a 2-GPU system reports
+  `vulkan_device_index=2` and the GUI recommends `vk:2` (llvmpipe). Needs a
+  fix when work resumes: parse the `GPU listing:` block and exclude entries
+  tagged `(software)` before probing.
+
+### Stage log — P1 implementation
+- [P1.1+P1.2 — done] `converter_linux.c` now emits full hardware encoder
+  flags (NVENC/QSV quality, `prores_ks_vulkan` profile + 4444 pixel format).
+- [P1.2 GUI — done] GTK4 profile combo enabled for `prores_ks_vulkan`.
+- [P1.3 — reverted] VAAPI `-rc_mode ICQ -global_quality 22|25` was rolled
+  back to `-rc_mode auto` in both `converter_linux.c` and
+  `converter_cmd_builder.pas`: the radeonsi driver rejects ICQ
+  ("Driver does not support ICQ RC mode (supported modes: CQP, CBR, VBR)").
+- [P1.4 — done] `--hw_device` CLI flag (parse, help, summary, no-override
+  auto-detection, zeroed option structs).
+- [VAAPI device selector — done] GTK4 GUI now shows a "VAAPI dev:" dropdown
+  (auto + each usable `/dev/dri/renderD*` node) for `h264_vaapi`/`hevc_vaapi`.
+- [verify — done] `linux_cli`/`linux_gui` build; end-to-end `h264_vaapi` and
+  `hevc_vaapi` encodes succeed with the new bundled ffmpeg; GUI starts clean.
+
+### Added
+- **C CLI: `--hw_device <path>` option** — overrides the VAAPI render node
+  used by `h264_vaapi` / `hevc_vaapi` (Linux only). Without it, the engine
+  auto-selects the first working render node from the startup probe, matching
+  the existing Pascal CLI behavior.
+- **C CLI: `--version`** — prints `ffmpeg_converter <version>` and exits.
+  Version source: `FFMPEG_CONVERTER_VERSION` in `src/cli/cli_common.h`,
+  synced with `CMakeLists.txt` (2.6.0) and the changelog.
+- **C CLI: `--dry-run`** — prints the planned operations
+  (`[codec] input -> output` for every file, incl. m4v output names) and
+  exits without running ffmpeg. Summary shows "Dry run: yes".
+- **Linux GTK4 GUI: M4V «edit-before-mux» mode** — new checkbox in the
+  Apple m4v options dialog: first runs the main conversion with the GUI
+  options, then creates .m4v from each converted file, then deletes the
+  intermediate files (parity with the Pascal GUI `chkM4VEditBeforeMux` and
+  the macOS GUI `m4vEditCheck`).
+- **Linux GTK4 GUI: VAAPI render-node selector** — a "VAAPI dev:" dropdown
+  (auto / each usable `/dev/dri/renderD*` node) is shown when a VAAPI codec
+  is selected; the chosen node is passed as `-vaapi_device`. Auto mode lets
+  the converter pick the first working node (same as before).
+
+### Changed
+- **Linux C engine: full hardware encoder quality flags** — NVENC
+  (`-preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1` for H.264,
+  `-preset hq -cq 25 -lookahead_level auto` for HEVC), QSV
+  (`-global_quality 22 ...` for H.264, `-global_quality 25 ...` for HEVC),
+  and `prores_ks_vulkan` (`-profile:v lt|standard|hq|4444` + `yuv444p10le`
+  upload for the 4444 profile) now match the Windows C engine and the Pascal
+  command builder.
+- **Linux VAAPI rate control kept at `-rc_mode auto`** — the temporary
+  `-rc_mode ICQ -global_quality 22|25` change (P1.3) was reverted after
+  testing: the radeonsi VAAPI driver reports "Driver does not support ICQ RC
+  mode (supported modes: CQP, CBR, VBR)" and the encode fails. `auto` works
+  on all tested drivers.
+
+### Fixed
+- **CLI `ConvertOptions` uninitialized fields** — `parse_args()` and
+  `run_menu()` now zero the options struct first; `opts.hw_device` and
+  `opts.vulkan_device` were previously read uninitialized in menu mode
+  (could pass a garbage Vulkan device index to `prores_ks_vulkan`).
+
 ## [2.6.0] — 2026-07-30
 
 ### Fixed — Linux GTK4 GUI

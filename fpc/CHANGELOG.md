@@ -7,7 +7,43 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- **Interactive codec menu is now dynamic (P4.2)** — `fpc/cli/cli_menu.pas`
+  builds the codec list at runtime from the platform probe
+  (`ProbeLinuxCodecSupport` / `ProbeWindowsCodecSupport`) instead of
+  hard-coding entries. Only codecs that are actually available are offered
+  (Linux: copy/prores/prores_ks/mux + probed vaapi/nvenc/amf/qsv/
+  prores_ks_vulkan/m4v; Windows likewise). Multi-digit choices are supported
+  via `ReadChoiceNum`.
+- **`--vk-device` / `--vk_device` unified (P4.3)** — argument parsing already
+  accepted both spellings (`cli_args.pas`); the help now documents the
+  canonical `--vk-device` form. No functional change.
+- **VAAPI rate control reverted to `-rc_mode auto`** — the temporary
+  `-rc_mode ICQ -global_quality 22|25` change in
+  `fpc/converter/converter_cmd_builder.pas` was rolled back: the radeonsi
+  VAAPI driver rejects ICQ ("Driver does not support ICQ RC mode
+  (supported modes: CQP, CBR, VBR)"), breaking VAAPI encodes. `auto` works
+  on all tested drivers and keeps parity with the C engine.
+
 ### Fixed
+- **Stale drag-and-drop claim (P4.4)** — the historical [1.1.0] changelog
+  entry "Drag-and-drop file loading in Lazarus GUI" does not match the
+  current code: `fpc/gui/form.pas` / `form.lfm` have no `AcceptFilesAtRunTime`
+  and no drag handlers. The current LCL GUI does **not** implement
+  drag-and-drop; the C/GTK4 GUI does.
+- **Linux GUI widgetset pinning (P3.1)** — `fpc/build/Makefile` now sets
+  `--ws=gtk3` for Linux only; on Windows `--ws` is not passed (native
+  win32/win64 widgetset). `form.lpi` is shared by both platforms, so the
+  widgetset cannot be pinned inside the `.lpi` without breaking the Windows
+  build.
+- **Clear GUI build failure message (P3.4)** — `make gui` now prints a
+  hint when the LCL GTK3 widgetset is missing (e.g. `apt install lcl-gtk3`).
+- **`gui-app` target fixed (P3.5)** — `make gui-app` is now an alias of
+  `appimage` instead of printing a misleading "macOS not supported" message.
+- **`form.lps` cleaned (P3.2)** — removed the stale
+  `../../../../Temp/HQ_converter/...` module entry and updated the working
+  directory to the current repo location; duplicate `form.lpr` removed
+  (P3.3) in favour of `main.lpr`.
 - **Windows mux failure with `mkvmerge` argument parsing (`codec=mux`).**
   Removed `--overwrite` from the Pascal post-mux command line in
   `fpc/converter/mux_postprocess.pas`. On current MKVToolNix builds this token
