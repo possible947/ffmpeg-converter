@@ -194,7 +194,7 @@ Linux users can choose between the C/CMake GUI (GTK4) or Pascal GUI (Lazarus), p
 ./build/bin/ffmpeg_converter_gui
 
 # Or run the AppImage (portable, single file)
-./build/bin/ffmpeg_converter_gui-x86_64.AppImage
+./build/bin/FFMpeg-Converter-x86_64.AppImage
 ```
 
 #### Pascal Implementation (Lazarus GUI)
@@ -271,10 +271,10 @@ The AppImage is a single-file portable executable:
 
 ```bash
 # Make executable (usually automatic)
-chmod +x src/gui/ffmpeg_converter_gui-x86_64.AppImage
+chmod +x build/bin/FFMpeg-Converter-x86_64.AppImage
 
 # Run
-./src/gui/ffmpeg_converter_gui-x86_64.AppImage
+./build/bin/FFMpeg-Converter-x86_64.AppImage
 ```
 
 Benefits:

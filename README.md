@@ -184,7 +184,7 @@ cmake --build build --target linux_gui
 cmake -B build -DENABLE_APPIMAGE=ON
 cmake --build build --target linux_gui
 cmake --build build --target package_appimage
-# Output: build/bin/ffmpeg_converter_gui-x86_64.AppImage (~71 MB)
+# Output: build/bin/FFMpeg-Converter-x86_64.AppImage
 ```
 Requires `appimagetool` in PATH. The script `src/gui/package_appimage.sh` can
 also be invoked directly with custom output directory.
@@ -287,7 +287,7 @@ CLI notes:
   and creates it if missing.
 
 GUI:
-- **Linux (C)**: `./build/bin/ffmpeg_converter_gui` or AppImage: `./build/bin/ffmpeg_converter_gui-x86_64.AppImage`
+- **Linux (C)**: `./build/bin/ffmpeg_converter_gui` or AppImage: `./build/bin/FFMpeg-Converter-x86_64.AppImage`
 - **Linux (Pascal)**: `./fpc/bin/ffmpeg_converter_gui` or AppImage: `./fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage`
 - **macOS (C)**: `open build/install/ffmpeg_converter_gui_macos.app`
 - **Windows (C CLI)**: `build-msvc/src/cli/Release/ffmpeg_converter.exe` (CLI only, most complete)

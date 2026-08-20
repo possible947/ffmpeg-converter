@@ -7,7 +7,7 @@
 #   output_dir — directory for resulting AppImage (default: <build_dir>/bin)
 #
 # Requires: appimagetool (https://github.com/AppImage/AppImageKit) in PATH
-# Creates: ffmpeg_converter_gui-<arch>.AppImage in script directory
+# Creates: FFMpeg-Converter-<arch>.AppImage in <output_dir>
 #
 
 set -e
@@ -38,9 +38,15 @@ else
 fi
 
 mkdir -p "${OUTPUT_DIR}"
-APPIMAGE_NAME="ffmpeg_converter_gui-$(uname -m).AppImage"
+APPIMAGE_NAME="FFMpeg-Converter-$(uname -m).AppImage"
 APPIMAGE_PATH="${OUTPUT_DIR}/${APPIMAGE_NAME}"
 APPDIR="${SCRIPT_DIR}/AppDir"
+# Freedesktop icon/desktop basename — MUST match gtk_window_set_icon_name()
+# ("ffmpeg-converter") so GNOME dock, the applications menu, and the window
+# all resolve the same icon.  Display name is independent of this key.
+ICON_NAME="ffmpeg-converter"
+DESKTOP_BASENAME="${ICON_NAME}.desktop"
+APP_DISPLAY_NAME="FFMpeg-Converter"
 
 # Check GUI binary
 if [ ! -x "${GUI_BIN}" ]; then
@@ -55,6 +61,7 @@ mkdir -p "${APPDIR}/usr/bin"
 mkdir -p "${APPDIR}/usr/lib"
 mkdir -p "${APPDIR}/usr/share/applications"
 mkdir -p "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+mkdir -p "${APPDIR}/usr/share/icons/hicolor/1024x1024/apps"
 
 # Copy GUI binary
 echo "Copying gui binary..."
@@ -184,31 +191,53 @@ exec "${APPDIR}/usr/bin/ffmpeg_converter_gui" "$@"
 APPEOF
 chmod +x "${APPDIR}/AppRun"
 
-# Create desktop file
-echo "Creating desktop entry..."
-DESKTOP_FILE="${APPDIR}/ffmpeg_converter_gui.desktop"
-cat > "${DESKTOP_FILE}" << DESKTOP_EOF
-[Desktop Entry]
+# Icon is required: GNOME dock, Ubuntu panel, and the applications menu
+# all resolve it from the AppImage desktop file + hicolor tree.
+ICON_SRC="${SCRIPT_DIR}/icon.png"
+if [ ! -f "${ICON_SRC}" ]; then
+    echo "ERROR: Icon not found: ${ICON_SRC}"
+    echo "src/gui/icon.png is required to package the AppImage."
+    exit 1
+fi
+
+echo "Installing icon (${ICON_NAME})..."
+ICON_1024="${APPDIR}/usr/share/icons/hicolor/1024x1024/apps/${ICON_NAME}.png"
+ICON_256="${APPDIR}/usr/share/icons/hicolor/256x256/apps/${ICON_NAME}.png"
+cp "${ICON_SRC}" "${ICON_1024}"
+# Scale a 256x256 copy for desktop environments that look in that size
+# directory first.  Fall back to the original if ffmpeg is unavailable.
+if command -v ffmpeg >/dev/null 2>&1 && \
+   ffmpeg -y -hide_banner -loglevel error -i "${ICON_SRC}" \
+          -vf scale=256:256 "${ICON_256}"; then
+    echo "  256x256 scaled from icon.png"
+else
+    cp "${ICON_SRC}" "${ICON_256}"
+    echo "  256x256 = copy of original (ffmpeg scale unavailable)"
+fi
+# AppImage spec: icon next to the .desktop in AppDir root, same basename
+# as Icon=.  A real file (not a symlink) so appimagetool always embeds it.
+cp "${ICON_256}" "${APPDIR}/${ICON_NAME}.png"
+cp "${ICON_256}" "${APPDIR}/.DirIcon"
+
+# Desktop file — AppDir root (appimagetool) AND usr/share/applications
+# (AppImageLauncher / applications menu integration).
+echo "Creating desktop entry (${APP_DISPLAY_NAME})..."
+# StartupWMClass MUST equal the GtkApplication id so GNOME can match the
+# running window to this desktop file and show the icon in the dock.
+DESKTOP_BODY="[Desktop Entry]
 Type=Application
-Name=FFmpeg Converter
+Name=${APP_DISPLAY_NAME}
 Comment=Convert video/audio using FFmpeg with audio normalization
 Exec=ffmpeg_converter_gui
+Icon=${ICON_NAME}
 Categories=AudioVideo;Video;
 Terminal=false
-StartupWMClass=ffmpeg_converter_gui
-DESKTOP_EOF
-
-# Copy icon if available
-ICON_SRC="${SCRIPT_DIR}/icon.png"
-if [ -f "${ICON_SRC}" ]; then
-    cp "${ICON_SRC}" "${APPDIR}/usr/share/icons/hicolor/256x256/apps/ffmpeg_converter.png"
-    # Add Icon entry to desktop file
-    sed -i '/^Exec=/a Icon=ffmpeg_converter' "${DESKTOP_FILE}"
-    # Create symlink for icon in AppDir root (required by AppImage)
-    ln -sf "usr/share/icons/hicolor/256x256/apps/ffmpeg_converter.png" "${APPDIR}/ffmpeg_converter.png"
-else
-    echo "No icon.png found — desktop entry will have no Icon key"
-fi
+StartupNotify=true
+StartupWMClass=io.github.possible947.ffmpeg_converter
+"
+printf '%s' "${DESKTOP_BODY}" > "${APPDIR}/${DESKTOP_BASENAME}"
+cp "${APPDIR}/${DESKTOP_BASENAME}" \
+   "${APPDIR}/usr/share/applications/${DESKTOP_BASENAME}"
 
 # Build AppImage
 echo "Building AppImage..."

@@ -32,6 +32,10 @@ int main(int argc, char **argv)
         g_setenv("GSK_RENDERER", "cairo", FALSE);
 #endif
 
+    /* Shown in GNOME dock, the applications menu, and window switcher.
+     * Must stay in sync with Name= in the AppImage .desktop file. */
+    g_set_application_name("FFMpeg-Converter");
+
     app = gtk_application_new("io.github.possible947.ffmpeg_converter",
                               G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(activate_cb), NULL);
@@ -89,7 +93,7 @@ static void activate_cb(GtkApplication *app, gpointer user_data)
     setup_keyboard_shortcuts(app, w);
 
     g_object_set_data(G_OBJECT(app), "app_widgets", w);
-    gtk_window_set_title(GTK_WINDOW(w->window), "ffmpeg-converter GUI");
+    gtk_window_set_title(GTK_WINDOW(w->window), "FFMpeg-Converter");
     gtk_window_set_default_size(GTK_WINDOW(w->window), 800, 600);
     gtk_window_set_resizable(GTK_WINDOW(w->window), TRUE);
 

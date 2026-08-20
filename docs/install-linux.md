@@ -76,7 +76,8 @@ cmake --build build --target linux_gui
 cmake --build build --target package_appimage
 ```
 
-The AppImage is created at `build/bin/ffmpeg_converter_gui-x86_64.AppImage` (≈71 MB).
+The AppImage is created at `build/bin/FFMpeg-Converter-x86_64.AppImage`.
+The desktop name is **FFMpeg-Converter**; the window icon is `src/gui/icon.png`.
 
 **Important:** `ffmpeg` and `ffprobe` must be present in `src/platform/linux/bin/` before packaging — the script enforces this and will exit with an error otherwise.
 
@@ -201,8 +202,8 @@ When running the application via AppImage (`.AppImage` file):
 - `MP4Box` is a single binary; no shared-library bundle created. Ensure target system
   has compatible GPAC runtime libraries.
 - **AppImage (C GUI):** `cmake -S . -B build -DENABLE_APPIMAGE=ON && cmake --build build --target package_appimage`
-  — output: `build/bin/ffmpeg_converter_gui-x86_64.AppImage` (~71 MB).
-  - Usage: `./ffmpeg_converter_gui-x86_64.AppImage` (may require `chmod +x` first)
+  — output: `build/bin/FFMpeg-Converter-x86_64.AppImage`.
+  - Usage: `./FFMpeg-Converter-x86_64.AppImage` (may require `chmod +x` first)
   - Contains all bundled ffmpeg, ffprobe, and optional mkvmerge/MP4Box
   - Single-file deployment: copy to any Linux x86_64 system
 - **AppImage (FPC GUI):** `make -C fpc/build appimage`

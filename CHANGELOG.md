@@ -119,6 +119,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **AppImage icon and desktop name** — the C GUI AppImage now ships
+  `src/gui/icon.png` as `ffmpeg-converter` (matching
+  `gtk_window_set_icon_name`) in the AppDir root, `.DirIcon`, and the
+  hicolor 256/1024 trees, plus `usr/share/applications/ffmpeg-converter.desktop`.
+  Display name is **FFMpeg-Converter**; `StartupWMClass` is the GtkApplication
+  id so GNOME dock / Ubuntu panel and the applications menu show the icon.
+  Output file: `FFMpeg-Converter-<arch>.AppImage`. Packaging fails if
+  `icon.png` is missing.
+
+### Changed
+- Linux GTK4 window title and `g_set_application_name` are now
+  `FFMpeg-Converter` (was `ffmpeg-converter GUI`).
+
 ### Stage log — P2 implementation
 - [P2.1 — done] M4V «edit-before-mux» в Linux C GUI: `M4VOptions.edit_before_mux`,
   чекбокс в диалоге Apple m4v, edit flow в `run_gui_m4v_job`
