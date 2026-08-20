@@ -86,7 +86,14 @@ GUI_MAIN ?= $(ROOT)/fpc/gui/main.lpr
 GUI_MAIN_STEM := $(basename $(notdir $(GUI_MAIN)))
 GUI_RES := $(ROOT)/fpc/gui/$(GUI_MAIN_STEM).res
 GUI_PROJECT ?= $(ROOT)/fpc/gui/form.lpi
+# Widgetset: Linux GUI targets LCL/GTK3 (GTK4 is not supported by LCL);
+# Windows uses the native win32/win64 widgetset, so --ws must NOT be passed
+# there (form.lpi is shared by both platforms and cannot pin a single one).
+ifeq ($(OS),Windows_NT)
+LAZBUILD_FLAGS ?= -B -q -q
+else
 LAZBUILD_FLAGS ?= -B -q -q --ws=gtk3
+endif
 
 GUI_DEPS := \
 	$(GUI_PROJECT) \
@@ -157,8 +164,7 @@ copy-binaries:
 		fi; \
 	done
 
-gui-app: $(GUI_BIN)
-	@echo "Skipping gui-app packaging (macOS Pascal build is not supported)."
+gui-app: appimage
 
 appimage: $(GUI_BIN)
 	@mkdir -p "$(BIN_DIR)"
@@ -169,7 +175,13 @@ endif
 $(GUI_BIN): $(GUI_DEPS)
 	@command -v "$(LAZBUILD)" >/dev/null 2>&1 || { echo "ERROR: lazbuild not found in PATH."; exit 1; }
 	@mkdir -p "$(ROOT)/fpc/bin" "$(UNIT_BASE)/gui"
-	cd "$(ROOT)" && "$(LAZBUILD)" $(LAZBUILD_FLAGS) "$(GUI_PROJECT)"
+	cd "$(ROOT)" && "$(LAZBUILD)" $(LAZBUILD_FLAGS) "$(GUI_PROJECT)" || { \
+		echo "ERROR: Lazarus GUI build failed."; \
+		echo "       On Linux this usually means the LCL GTK3 widgetset is missing."; \
+		echo "       Install it, e.g. on Debian/Ubuntu: sudo apt install lcl-gtk3"; \
+		echo "       or use the lazarus-ide-gtk3 package of your distribution."; \
+		exit 1; \
+	}
 	@test -f "$@" || { echo "ERROR: lazbuild finished but GUI binary not found at $@"; exit 1; }
 
 $(CLI_BIN): $(CLI_DEPS)

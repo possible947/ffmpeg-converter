@@ -19,7 +19,6 @@
         <ComponentName Value="MainForm"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="1"/>
         <TopLine Value="268"/>
         <CursorPos X="43" Y="283"/>
@@ -85,14 +84,14 @@
       <Modes ActiveMode="default">
         <Mode Name="default">
           <local>
-            <WorkingDirectory Value="/home/viktor/Git/ffmpeg-converter/fpc/gui"/>
+            <WorkingDirectory Value="/home/viktor/Work/Git/ffmpeg-converter/fpc/gui"/>
           </local>
         </Mode>
       </Modes>
     </RunParams>
     <HistoryLists>
       <List Name="WorkingDirectory" Type="File" Count="1">
-        <Item1 Value="/home/viktor/Git/ffmpeg-converter/fpc/gui"/>
+        <Item1 Value="/home/viktor/Work/Git/ffmpeg-converter/fpc/gui"/>
       </List>
     </HistoryLists>
   </ProjectSession>

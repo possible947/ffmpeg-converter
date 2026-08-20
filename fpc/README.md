@@ -1,13 +1,20 @@
-# Free Pascal Port — ffmpeg_converter (Version 2.5)
+# Free Pascal Port — ffmpeg_converter (Version 2.6)
 
 This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-converter` project,
 available for **Linux and Windows only**. macOS support was discontinued in version 2.4.
 
-## Platform Status
+## Platform Status (strategy)
 
-- **Linux**: CLI + Lazarus/LCL GUI (feature-matched with C implementation)
-- **Windows**: CLI + Lazarus/LCL GUI with Vulkan GPU support
-- **macOS**: Discontinued in v2.4 (use C/CMake native Cocoa GUI instead)
+- **Linux**: CLI + shared library are first-class citizens. The **primary Linux GUI is the
+  C/GTK4 implementation** (`src/gui/`); the Pascal/LCL GUI on Linux is legacy and kept only
+  for feature parity testing — it is built with the GTK3 widgetset and has no GTK4 support.
+- **Windows**: CLI + Lazarus/LCL GUI (native win32/win64 widgetset) with Vulkan GPU support.
+  This is the **only GUI on Windows**.
+- **macOS**: Discontinued in v2.4 (use C/CMake native Cocoa GUI instead).
+
+> Conclusion of the Linux audit (P4): the Pascal GUI is **not** developed further for Linux —
+> LCL has no GTK4 widgetset, so the C/GTK4 GUI is the strategic Linux GUI. Pascal remains
+> valuable on Linux as the CLI and the shared `libconverter_pas.so` library.
 
 ## Features
 
@@ -19,7 +26,8 @@ available for **Linux and Windows only**. macOS support was discontinued in vers
 - Apple M4V creator with multi-step mux pipeline
   (video copy + AAC + AC3 + MP4Box, optional chapter transfer via `ffmpeg -map_chapters`)
 - 2-pass peak and loudnorm (EBU R128) audio analysis
-- Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`)
+- Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`), Windows (`*_nvenc`, `*_amf`,
+  `*_qsv`, `prores_ks_vulkan`), both via runtime probing
 - Audio output modes: `pcm`, `fdk_aac_320`, `fdk_aac_320_ac3_640`
 - Mux mode parity: `-c mux --video-track <file>` with mkvmerge post-process pipeline
 
@@ -34,13 +42,28 @@ available for **Linux and Windows only**. macOS support was discontinued in vers
 
 ## Build
 
+Prefer the Makefile (`make -C fpc/build ...`); it handles platform-specific flags
+(Windows path mangling via `cygpath`, Linux `--ws=gtk3` widgetset, macOS hard-block).
+
 ### CLI binary
+
+```bash
+make -C fpc/build cli        # → fpc/bin/ffmpeg_converter
+```
+
+Direct invocation:
 
 ```bash
 fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli ./fpc/cli/ffmpeg_converter.lpr
 ```
 
 ### Shared library
+
+```bash
+make -C fpc/build lib        # → fpc/converter/libconverter_pas.so (Linux)
+```
+
+Direct invocation:
 
 ```bash
 fpc -Cg -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/converter_pas.lpr
@@ -50,15 +73,28 @@ fpc -Cg -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/convert
 
 ### GUI (requires Lazarus IDE or lazbuild)
 
+Linux (LCL/GTK3 — legacy, C/GTK4 GUI is the primary Linux GUI):
+
 ```bash
-make -C fpc/build gui-app
+make -C fpc/build gui        # → fpc/bin/ffmpeg_converter_gui
 ```
 
-Direct lazbuild invocation is also supported:
+> **Lazarus source**: the GTK3 widgetset is **not** shipped by Ubuntu/Debian
+> (`apt` only provides `lcl-gtk2` and `lcl-qt5`). Install Lazarus from the
+> official site (lazarus-ide.com) — it includes LCL/GTK3 out of the box. If
+> the build fails, it usually means the LCL GTK3 widgetset is missing:
+> `sudo apt install lcl-gtk3` (Debian/Ubuntu, non-Ubuntu distros).
+
+Windows (native widgetset):
 
 ```bash
-lazbuild -B ./fpc/gui/form.lpi
-bash ./fpc/build/package_macos_app.sh ./fpc/gui/ffmpeg_converter_gui
+make -C fpc/build gui
+```
+
+AppImage packaging (Linux):
+
+```bash
+make -C fpc/build appimage   # (gui-app is an alias of appimage)
 ```
 
 ### Tests
@@ -94,11 +130,10 @@ with `summary.txt`, `status.tsv`, logs, and parity artifacts.
 
 ### Generated artifacts
 
-- CLI binary: `fpc/cli/ffmpeg_converter`
+- CLI binary: `fpc/bin/ffmpeg_converter`
 - Shared library (Linux): `fpc/converter/libconverter_pas.so`
-- Shared library (macOS): `fpc/converter/libconverter_pas.dylib`
 - Shared library (Windows): `fpc/converter/converter_pas.dll`
-- GUI binary: `fpc/gui/ffmpeg_converter_gui`
+- GUI binary: `fpc/bin/ffmpeg_converter_gui`
 
 ## C/C++ Integration
 
@@ -123,11 +158,19 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
 - Optimization audit: `fpc/OPTIMIZATION_AUDIT.md`
 - Cross-platform install guides: `docs/install-linux.md`, `docs/install-macos.md`, `docs/install-windows.md`
 
-## macOS Notes
+## Notes
 
-- Pascal CLI/GUI supports Linux and Windows. macOS users should primarily use the native C GUI (`cli_macos.c` / the macOS app bundle).
-- Pascal runtime resolves tools for GUI/CLI launches using a unified resolver (`ffmpeg`, `ffprobe`, `MP4Box`, `mkvmerge`), including `.app` bundled tools in `Contents/Resources/bin`.
-- `converter_set_options` now validates platform capabilities for hardware codecs (VAAPI rejected on non-Linux, Linux probes encoder availability).
-- Windows GUI runtime-probes NVENC/AMF/QSV/Vulkan and conditionally exposes matching codecs in the codec combobox.
-- `prores_ks_vulkan` now uses dedicated Vulkan probe logic and supports explicit or auto device index selection.
-- CLI `-o/--output` creates missing output directories before conversion and fails early on invalid/unwritable targets.
+- Pascal GUI/CLI supports Linux and Windows. macOS users should use the native C GUI
+  (`src/gui_macos_native`).
+- Pascal runtime resolves tools for GUI/CLI launches using a unified resolver
+  (`ffmpeg`, `ffprobe`, `MP4Box`, `mkvmerge`): executable-adjacent dir → env vars → PATH.
+- `converter_set_options` validates platform capabilities for hardware codecs
+  (VAAPI rejected on non-Linux, Linux probes encoder availability).
+- Windows GUI runtime-probes NVENC/AMF/QSV/Vulkan and conditionally exposes matching codecs
+  in the codec combobox.
+- `prores_ks_vulkan` uses dedicated Vulkan probe logic and supports explicit or auto device
+  index selection.
+- CLI `-o/--output` creates missing output directories before conversion and fails early on
+  invalid/unwritable targets.
+- The interactive menu (Linux/Windows) builds its codec list dynamically from the runtime
+  probe — only codecs that are actually available are offered.

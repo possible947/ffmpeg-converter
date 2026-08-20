@@ -14,25 +14,117 @@ uses
   {$IFNDEF Windows}
   BaseUnix,
   {$ENDIF}
+  {$IFDEF Linux}
+  linux_probe,
+  {$ENDIF}
+  {$IFDEF Windows}
+  windows_probe,
+  {$ENDIF}
+  tool_paths,
   fs_utils,
   SysUtils;
 
-function IsLinux: Boolean;
-begin
+type
+  TCodecNameArray = array of string;
+
+{ Build the list of codecs that are actually available on this platform
+  (mirrors the C CLI's platform_get_codec_entries).  The interactive menu
+  renders this list dynamically instead of hard-coding entries. }
+function BuildCodecList: TCodecNameArray;
+  procedure Add(var L: TCodecNameArray; const Name: string);
+  begin
+    SetLength(L, Length(L) + 1);
+    L[High(L)] := Name;
+  end;
+var
 {$IFDEF Linux}
-  Result := True;
-{$ELSE}
-  Result := False;
+  Caps: TLinuxCodecSupport;
+{$ENDIF}
+{$IFDEF Windows}
+  WCaps: TWindowsCodecSupport;
+{$ENDIF}
+begin
+  Result := nil;
+  Add(Result, 'copy');
+  Add(Result, 'prores');
+  Add(Result, 'prores_ks');
+  Add(Result, 'mux');
+{$IFDEF Linux}
+  Caps := ProbeLinuxCodecSupport;
+  if Caps.HasVaapiH264 then Add(Result, 'h264_vaapi');
+  if Caps.HasVaapiHEVC then Add(Result, 'hevc_vaapi');
+  if Caps.HasNVENC then
+  begin
+    Add(Result, 'h264_nvenc');
+    Add(Result, 'hevc_nvenc');
+  end;
+  if Caps.HasAMF then
+  begin
+    Add(Result, 'h264_amf');
+    Add(Result, 'hevc_amf');
+  end;
+  if Caps.HasQSV then
+  begin
+    Add(Result, 'h264_qsv');
+    Add(Result, 'hevc_qsv');
+  end;
+  if Caps.HasVulkan then
+    Add(Result, 'prores_ks_vulkan');
+  if Caps.HasMp4Box then
+    Add(Result, 'm4v');
+{$ENDIF}
+{$IFDEF Windows}
+  WCaps := ProbeWindowsCodecSupport;
+  if WCaps.HasNVENC then
+  begin
+    Add(Result, 'h264_nvenc');
+    Add(Result, 'hevc_nvenc');
+  end;
+  if WCaps.HasAMF then
+  begin
+    Add(Result, 'h264_amf');
+    Add(Result, 'hevc_amf');
+  end;
+  if WCaps.HasQSV then
+  begin
+    Add(Result, 'h264_qsv');
+    Add(Result, 'hevc_qsv');
+  end;
+  if WCaps.HasVulkan then
+    Add(Result, 'prores_ks_vulkan');
+  if ResolveMp4BoxBin <> '' then
+    Add(Result, 'm4v');
 {$ENDIF}
 end;
 
-function IsWindows: Boolean;
+{ Reads a menu choice for a dynamic list:
+  0 = Enter (default), 1..Max = item number,
+  -1 = cancel (c), -2 = back (b), -3 = invalid. }
+function ReadChoiceNum(Max: Integer): Integer;
+var
+  Line: string;
+  N: Integer;
 begin
-{$IFDEF Windows}
-  Result := True;
-{$ELSE}
-  Result := False;
-{$ENDIF}
+  Result := 0;
+  if EOF(Input) then
+    Exit(-1);
+  ReadLn(Line);
+  Line := Trim(Line);
+  if Line = '' then
+    Exit(0);
+  if Length(Line) = 1 then
+  begin
+    case Line[1] of
+      'c', 'C': Exit(-1);
+      'b', 'B': Exit(-2);
+    end;
+  end;
+  if TryStrToInt(Line, N) then
+  begin
+    if (N >= 1) and (N <= Max) then
+      Exit(N);
+  end;
+  Exit(-3);
 end;
 
 procedure ClearScreen;
@@ -265,7 +357,10 @@ end;
 function RunMenu(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt): Boolean;
 var
   Step: LongInt;
-  Codec: LongInt;
+  CodecIdx: LongInt;
+  CodecNames: TCodecNameArray;
+  ChoiceNum: Integer;
+  I: Integer;
   Profile: LongInt;
   Deblock: LongInt;
   AudioNorm: LongInt;
@@ -283,7 +378,8 @@ begin
   FileCount := 0;
 
   Step := 1;
-  Codec := 1;
+  CodecNames := BuildCodecList;
+  CodecIdx := 0;
   Profile := 2;
   Deblock := 1;
   AudioNorm := 3;
@@ -305,98 +401,33 @@ begin
           WriteLn;
           WriteLn('select codec');
           WriteLn('----------------------');
-          WriteLn('  1. copy (default)');
-          WriteLn('  2. prores');
-          WriteLn('  3. prores_ks');
-          WriteLn('  4. mux');
-          if IsLinux then
-          begin
-            WriteLn('  5. h264_vaapi');
-            WriteLn('  6. hevc_vaapi');
-          end;
-          if IsWindows then
-          begin
-            WriteLn('  5. h264_nvenc (if available)');
-            WriteLn('  6. hevc_nvenc (if available)');
-            WriteLn('  7. h264_amf   (if available)');
-            WriteLn('  8. hevc_amf   (if available)');
-            WriteLn('  9. h264_qsv   (if available)');
-            WriteLn('  0. hevc_qsv   (if available)');
-          end;
+          for I := 0 to High(CodecNames) do
+            WriteLn(Format('  %d. %s', [I + 1, CodecNames[I]]));
           WriteLn('----------------------');
           Write('select: number->choice,Enter->(default),c->cancel,b->back');
           WriteLn;
           Write('>');
-          Ch := ReadChoice;
-          if Ch = #10 then
+          ChoiceNum := ReadChoiceNum(Length(CodecNames));
+          if ChoiceNum = 0 then
             Step := 4
-          else if Ch = '1' then
+          else if ChoiceNum > 0 then
           begin
-            Codec := 1;
-            Step := 4;
+            CodecIdx := ChoiceNum - 1;
+            if CodecNames[CodecIdx] = 'mux' then
+              Step := 8
+            else if (CodecNames[CodecIdx] = 'prores') or
+                    (CodecNames[CodecIdx] = 'prores_ks') then
+              Step := 2
+            else
+              Step := 4;
           end
-          else if Ch = '2' then
-          begin
-            Codec := 2;
-            Step := 2;
-          end
-          else if Ch = '3' then
-          begin
-            Codec := 3;
-            Step := 2;
-          end
-          else if Ch = '4' then
-          begin
-            Codec := 4;
-            Step := 8;
-          end
-          else if (Ch = '5') and IsLinux then
-          begin
-            Codec := 5;
-            Step := 4;
-          end
-          else if (Ch = '6') and IsLinux then
-          begin
-            Codec := 6;
-            Step := 4;
-          end
-          else if (Ch = '5') and IsWindows then
-          begin
-            Codec := 7;
-            Step := 4;
-          end
-          else if (Ch = '6') and IsWindows then
-          begin
-            Codec := 8;
-            Step := 4;
-          end
-          else if (Ch = '7') and IsWindows then
-          begin
-            Codec := 9;
-            Step := 4;
-          end
-          else if (Ch = '8') and IsWindows then
-          begin
-            Codec := 10;
-            Step := 4;
-          end
-          else if (Ch = '9') and IsWindows then
-          begin
-            Codec := 11;
-            Step := 4;
-          end
-          else if (Ch = '0') and IsWindows then
-          begin
-            Codec := 12;
-            Step := 4;
-          end
-          else if (Ch = 'c') or (Ch = 'C') then
+          else if ChoiceNum = -1 then
           begin
             ClearAllocated(Files, TempFileCount);
             Exit(False);
           end
-          else if (Ch = 'b') or (Ch = 'B') then
-            Step := 1
+          else if ChoiceNum = -2 then
+            WriteLn('Already at the first step')
           else
             WriteLn('Invalid choice');
         end;
@@ -553,7 +584,9 @@ begin
           end
           else if (Ch = 'b') or (Ch = 'B') then
           begin
-            if (Codec = 2) or (Codec = 3) then
+            if (CodecIdx >= 0) and (CodecIdx <= High(CodecNames)) and
+               ((CodecNames[CodecIdx] = 'prores') or
+                (CodecNames[CodecIdx] = 'prores_ks')) then
               Step := 3
             else
               Step := 1;
@@ -726,13 +759,15 @@ begin
           WriteLn;
           if ReadInputList(Files, TempFileCount) then
           begin
-            if (Codec = 4) and (TempFileCount <> 1) then
+            if (CodecIdx >= 0) and (CodecIdx <= High(CodecNames)) and
+               (CodecNames[CodecIdx] = 'mux') and (TempFileCount <> 1) then
             begin
               WriteLn('Mux mode requires exactly one source file.');
               ClearAllocated(Files, TempFileCount);
               Exit(False);
             end;
-            if Codec = 4 then
+            if (CodecIdx >= 0) and (CodecIdx <= High(CodecNames)) and
+               (CodecNames[CodecIdx] = 'mux') then
               Step := 10
             else
               Step := 11;
@@ -763,28 +798,10 @@ begin
 
       11:
         begin
-          case Codec of
-            1: SetAnsiField(Opts.codec, 'copy');
-            2: SetAnsiField(Opts.codec, 'prores');
-            3: SetAnsiField(Opts.codec, 'prores_ks');
-            4: SetAnsiField(Opts.codec, 'mux');
-            5:
-              if IsLinux then
-                SetAnsiField(Opts.codec, 'h264_vaapi')
-              else
-                SetAnsiField(Opts.codec, 'copy');
-            6:
-              if IsLinux then
-                SetAnsiField(Opts.codec, 'hevc_vaapi')
-              else
-                SetAnsiField(Opts.codec, 'copy');
-            7: SetAnsiField(Opts.codec, 'h264_nvenc');
-            8: SetAnsiField(Opts.codec, 'hevc_nvenc');
-            9: SetAnsiField(Opts.codec, 'h264_amf');
-            10: SetAnsiField(Opts.codec, 'hevc_amf');
-            11: SetAnsiField(Opts.codec, 'h264_qsv');
-            12: SetAnsiField(Opts.codec, 'hevc_qsv');
-          end;
+          if (CodecIdx >= 0) and (CodecIdx <= High(CodecNames)) then
+            SetAnsiField(Opts.codec, CodecNames[CodecIdx])
+          else
+            SetAnsiField(Opts.codec, 'copy');
 
           Opts.profile := Profile;
           Opts.deblock := Deblock;
@@ -807,7 +824,8 @@ begin
           Opts.overwrite := Overwrite;
           SetAnsiField(Opts.output_dir, OutputDir);
           Opts.output_dir_status := OutputDirStatus;
-          if Codec = 4 then
+          if (CodecIdx >= 0) and (CodecIdx <= High(CodecNames)) and
+             (CodecNames[CodecIdx] = 'mux') then
             SetAnsiField(Opts.video_track_path, VideoTrackPath);
 
           FileCount := TempFileCount;
