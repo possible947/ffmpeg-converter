@@ -86,13 +86,19 @@ GUI_MAIN ?= $(ROOT)/fpc/gui/main.lpr
 GUI_MAIN_STEM := $(basename $(notdir $(GUI_MAIN)))
 GUI_RES := $(ROOT)/fpc/gui/$(GUI_MAIN_STEM).res
 GUI_PROJECT ?= $(ROOT)/fpc/gui/form.lpi
-# Widgetset: Linux GUI targets LCL/GTK3 (GTK4 is not supported by LCL);
-# Windows uses the native win32/win64 widgetset, so --ws must NOT be passed
-# there (form.lpi is shared by both platforms and cannot pin a single one).
+# Widgetset:
+#  - Windows: native win32/win64 widgetset, so --ws must NOT be passed
+#    (form.lpi is shared by both platforms and cannot pin a single one).
+#  - Linux: Qt6 is the recommended widgetset for GNOME + Wayland (LCL GTK3
+#    is still considered alpha in Lazarus).  Requires libQt6Pas.so.6 — build
+#    it from the Qt6 cbindings shipped with Lazarus (see fpc/README.md).
+#    GTK3 remains available via: make -C fpc/build gui GUI_WS=gtk3
 ifeq ($(OS),Windows_NT)
 LAZBUILD_FLAGS ?= -B -q -q
+GUI_WS := win32
 else
-LAZBUILD_FLAGS ?= -B -q -q --ws=gtk3
+GUI_WS ?= qt6
+LAZBUILD_FLAGS ?= -B -q -q --ws=$(GUI_WS)
 endif
 
 GUI_DEPS := \
@@ -178,8 +184,20 @@ $(GUI_BIN): $(GUI_DEPS)
 		echo "       Install Lazarus from https://www.lazarus-ide.org"; \
 		exit 1; \
 	}
+ifneq ($(OS),Windows_NT)
+ifeq ($(GUI_WS),qt6)
+	@ldconfig -p 2>/dev/null | grep -q 'libQt6Pas.so.6' || { \
+		echo "ERROR: libQt6Pas.so.6 not found (required for the Qt6 widgetset)."; \
+		echo "       Build and install it from the Qt6 bindings shipped with Lazarus:"; \
+		echo "         cd /usr/share/lazarus/*/lcl/interfaces/qt6/cbindings"; \
+		echo "         qmake6 && make && sudo make install && sudo ldconfig"; \
+		echo "       Alternatively use GTK3: make -C fpc/build gui GUI_WS=gtk3"; \
+		exit 1; \
+	}
+endif
+endif
 	@mkdir -p "$(ROOT)/fpc/bin" "$(UNIT_BASE)/gui"
-	@echo "==> Building Lazarus GUI: $(GUI_PROJECT)"
+	@echo "==> Building Lazarus GUI: $(GUI_PROJECT) (widgetset: $(GUI_WS))"
 	@cd "$(ROOT)" && "$(LAZBUILD)" $(LAZBUILD_FLAGS) "$(GUI_PROJECT)" > "$(UNIT_BASE)/gui-build.log" 2>&1; status=$$?; cat "$(UNIT_BASE)/gui-build.log"; \
 	if [ $$status -ne 0 ]; then \
 		echo "ERROR: Lazarus GUI build failed."; \
@@ -190,10 +208,16 @@ $(GUI_BIN): $(GUI_DEPS)
 		if grep -q 'cannot find -lgtk-3\|cannot find -lgdk-3' "$(UNIT_BASE)/gui-build.log"; then \
 			echo "       The GTK3 development libraries are missing."; \
 			echo "       On Debian/Ubuntu: sudo apt install libgtk-3-dev"; \
-		elif grep -qE 'lclgtk3|LCLgtk3|widgetset' "$(UNIT_BASE)/gui-build.log"; then \
-			echo "       The LCL GTK3 widgetset is missing or cannot be compiled."; \
-			echo "       Note: Ubuntu/Debian apt has NO lcl-gtk3 package."; \
-			echo "       Install Lazarus from https://www.lazarus-ide.org (includes GTK3)."; \
+		elif grep -q 'cannot find -lQt6Pas\|Qt6Pas' "$(UNIT_BASE)/gui-build.log"; then \
+			echo "       The Qt6 Pascal bindings (libQt6Pas) are missing or cannot be linked."; \
+			echo "       Build and install them from the Qt6 cbindings shipped with Lazarus:"; \
+			echo "         cd /usr/share/lazarus/*/lcl/interfaces/qt6/cbindings"; \
+			echo "         qmake6 && make && sudo make install && sudo ldconfig"; \
+		elif grep -qE 'lclgtk3|LCLgtk3|LCLqt6|lclqt6|widgetset' "$(UNIT_BASE)/gui-build.log"; then \
+			echo "       The selected LCL widgetset ($(GUI_WS)) is missing or cannot be compiled."; \
+			echo "       Ubuntu/Debian apt ships no lcl-gtk3 and no Qt6 bindings."; \
+			echo "       Install Lazarus from https://www.lazarus-ide.org and, for Qt6,"; \
+			echo "       build libQt6Pas from the shipped cbindings (see above)."; \
 		else \
 			echo "       See the log above for compiler errors in the project code."; \
 		fi; \

@@ -8,6 +8,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Changed
+- **Qt6 is now the default Linux GUI widgetset (P5)** — `make -C fpc/build
+  gui` builds with `--ws=qt6`; GTK3 stays available via `GUI_WS=gtk3`.
+  Qt6 is the recommended LCL widgetset for GNOME + Wayland (LCL GTK3 is
+  still alpha in Lazarus). Requires `libQt6Pas.so.6`, built from the Qt6
+  cbindings shipped with Lazarus (`qmake6 && make && sudo make install`);
+  the Makefile now checks for it and prints build instructions when missing.
+  Verified on Ubuntu 24.04 / Lazarus 4.8 / Qt 6.4: the Qt6 GUI builds
+  (28 MB) and starts clean, without the Gtk-CRITICAL warnings of GTK3.
 - **Interactive codec menu is now dynamic (P4.2)** — `fpc/cli/cli_menu.pas`
   builds the codec list at runtime from the platform probe
   (`ProbeLinuxCodecSupport` / `ProbeWindowsCodecSupport`) instead of

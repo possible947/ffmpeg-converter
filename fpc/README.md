@@ -73,19 +73,32 @@ fpc -Cg -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/convert
 
 ### GUI (requires Lazarus IDE or lazbuild)
 
-Linux (LCL/GTK3 — legacy, C/GTK4 GUI is the primary Linux GUI):
+Linux — **Qt6 widgetset** is the default and recommended for GNOME + Wayland
+(LCL GTK3 is still alpha in Lazarus):
 
 ```bash
-make -C fpc/build gui        # → fpc/bin/ffmpeg_converter_gui
+make -C fpc/build gui        # Qt6 (default) → fpc/bin/ffmpeg_converter_gui
+# GTK3 fallback:
+make -C fpc/build gui GUI_WS=gtk3
 ```
 
-> **Lazarus source**: the GTK3 widgetset is **not** shipped by Ubuntu/Debian
-> (`apt` only provides `lcl-gtk2` and `lcl-qt5`; there is **no `lcl-gtk3`
-> package**). Install Lazarus from the official site (lazarus-ide.com) — it
-> includes LCL/GTK3 out of the box. If the build fails, the Makefile prints
-> the real compiler errors plus a hint (GTK3 dev libraries missing →
-> `sudo apt install libgtk-3-dev`; widgetset missing → install Lazarus from
-> lazarus-ide.org). Full log: `fpc/build/.units/gui-build.log`.
+> **Qt6 requires `libQt6Pas.so.6`** (the Pascal bindings for Qt6). Ubuntu/Debian
+> apt ships **no** `libqt6pas` package, so build it from the bindings that ship
+> with Lazarus:
+> ```bash
+> cd /usr/share/lazarus/*/lcl/interfaces/qt6/cbindings
+> qmake6 && make && sudo make install && sudo ldconfig
+> ```
+> (Dev packages `qt6-base-dev` + `qt6-base-dev-tools` must be installed first:
+> `sudo apt install qt6-base-dev qt6-base-dev-tools`.)
+>
+> **Lazarus source**: Ubuntu/Debian apt ships `lcl-gtk2`/`lcl-qt5` only — no
+> `lcl-gtk3` and no Qt6 bindings. Install Lazarus from lazarus-ide.org; it
+> includes both the GTK3 and Qt6 LCL interfaces.
+>
+> If the build fails, the Makefile prints the real compiler errors plus a
+> per-cause hint (GTK3 dev libs, missing Qt6Pas, missing widgetset). Full log:
+> `fpc/build/.units/gui-build.log`.
 
 Windows (native widgetset):
 

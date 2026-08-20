@@ -132,6 +132,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 - Linux GTK4 window title and `g_set_application_name` are now
   `FFMpeg-Converter` (was `ffmpeg-converter GUI`).
+- **Pascal Linux GUI switched to the Qt6 widgetset (P5)** — `make -C
+  fpc/build gui` now builds with `--ws=qt6` (default) for GNOME + Wayland;
+  GTK3 remains via `GUI_WS=gtk3`. Requires `libQt6Pas.so.6` built from the
+  Qt6 cbindings shipped with Lazarus; the Makefile verifies it and prints
+  the build steps when missing. Verified: Qt6 GUI builds (28 MB) and starts
+  clean (no Gtk-CRITICAL warnings).
 - **Pascal GUI build diagnostics** — `make -C fpc/build gui` saves the
   lazbuild log to `fpc/build/.units/gui-build.log`, prints the compiler
   errors, and gives a correct hint per failure (GTK3 dev libs vs LCL GTK3

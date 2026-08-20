@@ -98,12 +98,40 @@ The script:
 - Creates a desktop entry with icon
 - Invokes `appimagetool.AppImage` (or `appimagetool`) to produce the final `.AppImage`
 
-## 2. Free Pascal Path (v2.5: Feature-complete, tested)
+## 2. Free Pascal Path (v2.6)
+
+The Pascal path provides a CLI, a shared library, and a Lazarus/LCL GUI.
+On Linux the **primary GUI remains the C/GTK4 implementation**; the Pascal GUI
+is kept for feature-parity testing.  Its default widgetset is **Qt6**
+(recommended for GNOME + Wayland; LCL GTK3 is still alpha in Lazarus).
 
 ### 2.1 Install dependencies
+
+Ubuntu/Debian **apt does not ship** `lcl-gtk3` or Qt6 Pascal bindings
+(`libqt6pas`).  Install Lazarus from the official site
+(https://www.lazarus-ide.org) — it includes both the GTK3 and Qt6 LCL
+interfaces.  The Ubuntu packages `fpc` / `lazarus` from apt are GTK2/Qt5 only
+and are **not sufficient** for this GUI.
+
 ```bash
-sudo apt install -y fpc lazarus
+# Qt6 development files (needed to build libQt6Pas)
+sudo apt install -y qt6-base-dev qt6-base-dev-tools
+
+# Optional: GTK3 fallback widgetset
+sudo apt install -y libgtk-3-dev
 ```
+
+Then build and install the Qt6 Pascal bindings from the copy shipped with
+Lazarus (there is no `libqt6pas` package in Ubuntu apt):
+
+```bash
+cd /usr/share/lazarus/*/lcl/interfaces/qt6/cbindings
+qmake6 && make
+sudo make install
+sudo ldconfig
+```
+
+Verify: `ldconfig -p | grep Qt6Pas` should list `libQt6Pas.so.6`.
 
 ### 2.2 Build targets
 From repository root:
@@ -116,18 +144,25 @@ make -C fpc/build cli
 make -C fpc/build lib
 # → fpc/converter/libconverter_pas.so
 
-# GUI binary
+# GUI binary (Qt6 widgetset, default)
 make -C fpc/build gui
 # → fpc/bin/ffmpeg_converter_gui
+
+# GUI binary (GTK3 fallback)
+make -C fpc/build gui GUI_WS=gtk3
 
 # Unit tests
 make -C fpc/build tests
 ```
 
+If the GUI build fails, the Makefile prints the real compiler errors plus a
+per-cause hint (missing `libQt6Pas`, missing GTK3 dev libs, missing widgetset)
+and saves the full log at `fpc/build/.units/gui-build.log`.
+
 Artifacts:
 - `fpc/bin/ffmpeg_converter` — CLI binary (parity with C CLI)
 - `fpc/converter/libconverter_pas.so` — shared library (C ABI export)
-- `fpc/bin/ffmpeg_converter_gui` — GUI binary
+- `fpc/bin/ffmpeg_converter_gui` — GUI binary (Qt6 by default)
 - `fpc/test/test_*` — unit test executables
 
 ### 2.3 AppImage packaging (optional)
@@ -141,6 +176,7 @@ make -C fpc/build appimage
 ```
 
 The AppImage is created at `fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage`.
+The GUI is built with the Qt6 widgetset by default (same as `make gui`).
 
 Alternatively, run the script directly:
 ```bash
