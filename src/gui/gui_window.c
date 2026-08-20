@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdio.h>
+#include <dirent.h>
+#include <unistd.h>
 #include <glib.h>
 #include <gio/gio.h>
 /* GTK4 main header includes all necessary types and functions */
@@ -38,6 +40,8 @@ static void prompt_m4v_options_async(AppWidgets *w);
 static void populate_codec_combo(AppWidgets *w);
 static void populate_vulkan_device_combo(AppWidgets *w);
 static int get_selected_vulkan_device_index(AppWidgets *w);
+static void populate_vaapi_device_combo(AppWidgets *w);
+static void get_selected_vaapi_device(AppWidgets *w, char *out, size_t out_sz);
 static void install_drop_target(AppWidgets *w);
 
 static void populate_vulkan_device_combo(AppWidgets *w)
@@ -107,6 +111,82 @@ static int get_selected_vulkan_device_index(AppWidgets *w)
     return g_array_index(w->vulkan_device_ids, gint, sel);
 }
 
+static void populate_vaapi_device_combo(AppWidgets *w)
+{
+    const char *dir_path = "/dev/dri";
+    DIR *dir;
+    struct dirent *entry;
+    char auto_label[1100];
+
+    if (!w || !w->vaapi_device_combo)
+        return;
+
+    /* Clear the string model and the parallel render-node array. */
+    {
+        guint n = g_list_model_get_n_items(G_LIST_MODEL(w->vaapi_device_list));
+        if (n > 0)
+            gtk_string_list_splice(w->vaapi_device_list, 0, n, NULL);
+    }
+    if (w->vaapi_device_nodes) {
+        guint i;
+        for (i = 0; i < w->vaapi_device_nodes->len; i++)
+            g_free(g_array_index(w->vaapi_device_nodes, gchar*, i));
+        g_array_set_size(w->vaapi_device_nodes, 0);
+    }
+
+    /* "auto" entry — index 0, maps to "" (converter auto-selects the node). */
+    if (w->linux_codec_support.default_render_node[0] != '\0') {
+        snprintf(auto_label, sizeof(auto_label),
+                 "auto (recommended: %s)",
+                 w->linux_codec_support.default_render_node);
+    } else {
+        g_strlcpy(auto_label, "auto", sizeof(auto_label));
+    }
+    gtk_string_list_append(w->vaapi_device_list, auto_label);
+    if (w->vaapi_device_nodes) {
+        gchar *auto_node = g_strdup("");
+        g_array_append_val(w->vaapi_device_nodes, auto_node);
+    }
+
+    /* One entry per usable render node. */
+    dir = opendir(dir_path);
+    if (dir) {
+        while ((entry = readdir(dir)) != NULL) {
+            char node[PATH_MAX];
+            gchar *dup;
+            if (strncmp(entry->d_name, "renderD", 7) != 0)
+                continue;
+            snprintf(node, sizeof(node), "%s/%s", dir_path, entry->d_name);
+            if (access(node, R_OK | W_OK) != 0)
+                continue;
+            gtk_string_list_append(w->vaapi_device_list, node);
+            dup = g_strdup(node);
+            g_array_append_val(w->vaapi_device_nodes, dup);
+        }
+        closedir(dir);
+    }
+
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(w->vaapi_device_combo), 0);
+}
+
+static void get_selected_vaapi_device(AppWidgets *w, char *out, size_t out_sz)
+{
+    guint sel;
+
+    if (!out || out_sz == 0)
+        return;
+    out[0] = '\0';
+
+    if (!w || !w->vaapi_device_combo || !w->vaapi_device_nodes)
+        return;
+
+    sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->vaapi_device_combo));
+    if (sel == GTK_INVALID_LIST_POSITION || sel >= w->vaapi_device_nodes->len)
+        return;
+
+    g_strlcpy(out, g_array_index(w->vaapi_device_nodes, gchar*, sel), out_sz);
+}
+
 static void populate_codec_combo(AppWidgets *w)
 {
     gtk_string_list_append(w->codec_list, "copy");
@@ -162,6 +242,8 @@ static gboolean on_probe_done(gpointer data)
 
     /* Also refresh the Vulkan device list now that probe data is ready. */
     populate_vulkan_device_combo(w);
+    /* ... and the VAAPI render-node list. */
+    populate_vaapi_device_combo(w);
 
     gtk_label_set_text(GTK_LABEL(w->status_label), "Ready");
     schedule_update_dependent_widgets(w);
@@ -194,6 +276,7 @@ void set_running_ui_state(AppWidgets *w, gboolean running)
 
     gtk_widget_set_sensitive(w->codec_combo, !running);
     gtk_widget_set_sensitive(w->vulkan_device_combo, !running);
+    gtk_widget_set_sensitive(w->vaapi_device_combo, !running);
     gtk_widget_set_sensitive(w->audio_norm_combo, !running);
     gtk_widget_set_sensitive(w->audio_output_combo, !running);
     gtk_widget_set_sensitive(w->overwrite_check, !running);
@@ -253,6 +336,19 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     }
     gtk_widget_set_visible(w->vulkan_device_label, FALSE);
     gtk_widget_set_visible(w->vulkan_device_combo, FALSE);
+
+    /* ---------- VAAPI device selector ---------- */
+    w->vaapi_device_label = gtk_label_new("VAAPI dev:");
+    gtk_widget_set_halign(w->vaapi_device_label, GTK_ALIGN_END);
+    {
+        w->vaapi_device_nodes = g_array_new(FALSE, TRUE, sizeof(gchar*));
+        w->vaapi_device_list  = gtk_string_list_new(NULL);
+        w->vaapi_device_combo = gtk_drop_down_new(G_LIST_MODEL(w->vaapi_device_list), NULL);
+        populate_vaapi_device_combo(w);
+        gtk_widget_set_hexpand(w->vaapi_device_combo, TRUE);
+    }
+    gtk_widget_set_visible(w->vaapi_device_label, FALSE);
+    gtk_widget_set_visible(w->vaapi_device_combo, FALSE);
 
     /* ---------- Profile combo ---------- */
     {
@@ -463,6 +559,11 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), w->vulkan_device_combo, 1, r, 2, 1);
     r++;
 
+    /* VAAPI device row (hidden unless a VAAPI codec is selected) */
+    gtk_grid_attach(GTK_GRID(grid), w->vaapi_device_label, 0, r, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), w->vaapi_device_combo, 1, r, 2, 1);
+    r++;
+
     /* — Separator — */
     {
         GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
@@ -636,10 +737,12 @@ static void update_dependent_widgets(AppWidgets *w)
 
     char *codec = get_dropdown_text(w->codec_combo);
 
-    /* Profile & Deblock only for software ProRes */
-    gboolean profile_sensitive = codec_uses_software_prores(codec);
+    /* Profile: software ProRes and Vulkan ProRes (profile:v mapping).
+     * Deblock: software ProRes encoders only; hardware encoders skip it. */
+    gboolean profile_sensitive = codec_uses_software_prores(codec) ||
+                                 codec_uses_vulkan_prores(codec);
     gtk_widget_set_sensitive(w->profile_combo, profile_sensitive);
-    gtk_widget_set_sensitive(w->deblock_combo, profile_sensitive);
+    gtk_widget_set_sensitive(w->deblock_combo, codec_uses_software_prores(codec));
 
     gtk_widget_set_sensitive(w->add_files_btn,
                              !codec_is_mux(codec));
@@ -659,6 +762,12 @@ static void update_dependent_widgets(AppWidgets *w)
             w->linux_codec_support.has_prores_ks_vulkan;
         gtk_widget_set_visible(w->vulkan_device_label, show_vulkan_device);
         gtk_widget_set_visible(w->vulkan_device_combo, show_vulkan_device);
+    }
+
+    {
+        gboolean show_vaapi_device = codec_uses_linux_vaapi(codec);
+        gtk_widget_set_visible(w->vaapi_device_label, show_vaapi_device);
+        gtk_widget_set_visible(w->vaapi_device_combo, show_vaapi_device);
     }
 
     g_free(audio_norm);
@@ -859,6 +968,7 @@ typedef struct {
     GtkWidget *audio_spin;
     GtkWidget *ac3_spin;
     GtkWidget *chapters_check;
+    GtkWidget *edit_check;
     GtkWidget *lang_entry;
 } M4VDialogData;
 
@@ -875,6 +985,7 @@ static void on_m4v_start_clicked(GtkButton *btn, GtkWidget *win)
     data->opts.audio_track_index = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->audio_spin));
     data->opts.ac3_bitrate_kbps  = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(data->ac3_spin));
     data->opts.add_chapters      = gtk_check_button_get_active(GTK_CHECK_BUTTON(data->chapters_check));
+    data->opts.edit_before_mux   = gtk_check_button_get_active(GTK_CHECK_BUTTON(data->edit_check)) ? 1 : 0;
 
     lang = gtk_editable_get_text(GTK_EDITABLE(data->lang_entry));
     if (!lang || lang[0] == '\0')
@@ -947,6 +1058,9 @@ static void prompt_m4v_options_async(AppWidgets *w)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(data->ac3_spin), data->opts.ac3_bitrate_kbps);
     data->chapters_check = gtk_check_button_new_with_label("Add chapters");
     gtk_check_button_set_active(GTK_CHECK_BUTTON(data->chapters_check), data->opts.add_chapters != 0);
+    data->edit_check = gtk_check_button_new_with_label(
+        "Edit main files before mux (main worker \xe2\x86\x92 m4v \xe2\x86\x92 cleanup)");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(data->edit_check), data->opts.edit_before_mux != 0);
     data->lang_entry = gtk_entry_new();
     gtk_editable_set_text(GTK_EDITABLE(data->lang_entry),
                           data->opts.audio_lang[0] != '\0' ? data->opts.audio_lang : "rus");
@@ -960,6 +1074,7 @@ static void prompt_m4v_options_async(AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Audio language:"),    0, 3, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), data->lang_entry,    1, 3, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), data->chapters_check, 0, 4, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), data->edit_check,     0, 5, 2, 1);
 
     gtk_window_set_child(GTK_WINDOW(win), grid);
     gtk_window_present(GTK_WINDOW(win));
@@ -1074,10 +1189,9 @@ void collect_options_from_gui(AppWidgets *w,
     else
         g_strlcpy(opts->output_dir, "", sizeof(opts->output_dir));
 
-    if (codec_uses_linux_vaapi(opts->codec) && w->linux_codec_support.default_render_node[0] != '\0') {
-        g_strlcpy(opts->hw_device,
-                  w->linux_codec_support.default_render_node,
-                  sizeof(opts->hw_device));
+    if (codec_uses_linux_vaapi(opts->codec)) {
+        /* "" (auto) → converter_set_options() fills the first working node. */
+        get_selected_vaapi_device(w, opts->hw_device, sizeof(opts->hw_device));
     }
 
     if (codec_uses_vulkan_prores(opts->codec)) {

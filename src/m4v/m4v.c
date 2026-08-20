@@ -214,6 +214,7 @@ void m4v_default_options(M4VOptions *opts)
     opts->audio_track_index = 0;
     opts->ac3_bitrate_kbps = 640;
     opts->add_chapters = 1;
+    opts->edit_before_mux = 0;
     copy_string(opts->audio_lang, sizeof(opts->audio_lang), "rus");
 }
 

@@ -119,6 +119,7 @@ static ConverterError run_gui_mux_postprocess(const ConvertOptions *opts,
 
 static ConverterError run_gui_m4v_job(AppWidgets *w,
                                       const ConverterCallbacks *cb,
+                                      const ConvertOptions *opts,
                                       char **file_list,
                                       int file_count)
 {
@@ -126,12 +127,54 @@ static ConverterError run_gui_m4v_job(AppWidgets *w,
     int success_count = 0;
     int fail_count = 0;
     ConverterError final_err = ERR_OK;
+    int edit_before_mux = w->pending_m4v_options.edit_before_mux != 0;
+
+    if (edit_before_mux) {
+        /* Main worker first: convert every source file with the GUI options,
+         * then feed the produced files into the Apple m4v creator and delete
+         * the intermediate files afterwards (edit-before-mux flow). */
+        LogUpdateData *data = g_new0(LogUpdateData, 1);
+        data->w = w;
+        data->msg = g_strdup("Apple m4v: edit-before-mux enabled (main worker -> m4v -> cleanup)\n");
+        g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+
+        Converter *c = converter_create();
+        if (!c) {
+            LogUpdateData *errdata = g_new0(LogUpdateData, 1);
+            errdata->w = w;
+            errdata->msg = g_strdup("Failed to create converter for edit-before-mux mode\n");
+            g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, errdata, log_update_data_free);
+            return ERR_UNKNOWN;
+        }
+
+        converter_set_callbacks(c, cb);
+        {
+            ConverterError err = converter_set_options(c, opts);
+            if (err != ERR_OK) {
+                converter_destroy(c);
+                return err;
+            }
+        }
+
+        {
+            ConverterError err = converter_process_files(c, (const char**)file_list, file_count);
+            converter_destroy(c);
+            if (err != ERR_OK)
+                return err;
+        }
+
+        if (w->stop_requested)
+            return ERR_SKIP_FILE;
+    }
 
     for (i = 0; i < file_count; ++i) {
         char output_file[1024];
+        char main_file[1024];
         char detail[256];
         char error_text[1024];
+        char m4v_dir[1024];
         ConverterError err;
+        const char *source_for_m4v;
 
         if (w->stop_requested)
             return ERR_SKIP_FILE;
@@ -139,11 +182,19 @@ static ConverterError run_gui_m4v_job(AppWidgets *w,
         if (cb->on_file_begin)
             cb->on_file_begin(file_list[i], i + 1, file_count);
 
-        err = m4v_validate_input_supported(file_list[i], detail, sizeof(detail), NULL, 0);
+        if (edit_before_mux) {
+            converter_make_output_name(file_list[i], opts, main_file, sizeof(main_file));
+            source_for_m4v = main_file;
+        } else {
+            g_strlcpy(main_file, file_list[i], sizeof(main_file));
+            source_for_m4v = file_list[i];
+        }
+
+        err = m4v_validate_input_supported(source_for_m4v, detail, sizeof(detail), NULL, 0);
         if (err != ERR_OK) {
             LogUpdateData *data = g_new0(LogUpdateData, 1);
             data->w = w;
-            data->msg = g_strdup_printf("Apple m4v skipped: %s (%s)\n", file_list[i], detail);
+            data->msg = g_strdup_printf("Apple m4v skipped: %s (%s)\n", source_for_m4v, detail);
             g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
             if (cb->on_file_end)
                 cb->on_file_end(file_list[i], err);
@@ -152,8 +203,15 @@ static ConverterError run_gui_m4v_job(AppWidgets *w,
             continue;
         }
 
-        m4v_make_output_name(file_list[i], w->output_dir_path, output_file, sizeof(output_file));
-        err = m4v_create_from_input(file_list[i],
+        if (edit_before_mux)
+            resolve_effective_output_dir(opts, m4v_dir, sizeof(m4v_dir));
+        else if (w->output_dir_path)
+            g_strlcpy(m4v_dir, w->output_dir_path, sizeof(m4v_dir));
+        else
+            m4v_dir[0] = '\0';
+
+        m4v_make_output_name(file_list[i], m4v_dir, output_file, sizeof(output_file));
+        err = m4v_create_from_input(source_for_m4v,
                                     output_file,
                                     &w->pending_m4v_options,
                                     gtk_check_button_get_active(GTK_CHECK_BUTTON(w->overwrite_check)) ? 1 : 0,
@@ -167,6 +225,16 @@ static ConverterError run_gui_m4v_job(AppWidgets *w,
             data->msg = g_strdup_printf("Apple m4v completed: %s\n", output_file);
             g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
             success_count += 1;
+
+            if (edit_before_mux) {
+                /* Cleanup: remove the intermediate converted file. */
+                if (unlink(main_file) != 0) {
+                    LogUpdateData *warn = g_new0(LogUpdateData, 1);
+                    warn->w = w;
+                    warn->msg = g_strdup_printf("Apple m4v warning: failed to delete temporary converted file: %s\n", main_file);
+                    g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, warn, log_update_data_free);
+                }
+            }
         } else if (err == ERR_SKIP_FILE) {
             if (cb->on_file_end)
                 cb->on_file_end(file_list[i], err);
@@ -480,7 +548,7 @@ static gpointer run_converter(gpointer user_data)
                 .on_error = on_error,
                 .on_complete = on_complete
             };
-            err = run_gui_m4v_job(w, &cb, file_list, file_count);
+            err = run_gui_m4v_job(w, &cb, &opts, file_list, file_count);
         }
         goto cleanup;
     }

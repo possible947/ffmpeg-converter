@@ -12,6 +12,7 @@ typedef struct {
     int audio_track_index;
     int ac3_bitrate_kbps;
     int add_chapters;
+    int edit_before_mux;   /* 1 = main worker → m4v → cleanup (like Pascal/macOS GUI) */
     char audio_lang[16];
 } M4VOptions;
 

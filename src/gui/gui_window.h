@@ -28,6 +28,8 @@ typedef struct {
     GtkWidget *codec_combo;
     GtkWidget *vulkan_device_label;
     GtkWidget *vulkan_device_combo;
+    GtkWidget *vaapi_device_label;
+    GtkWidget *vaapi_device_combo;
     GtkWidget *profile_combo;
     GtkWidget *deblock_combo;
 
@@ -78,6 +80,8 @@ typedef struct {
     GtkStringList *codec_list;          /* model for codec_combo */
     GtkStringList *vulkan_device_list;  /* model for vulkan_device_combo */
     GArray        *vulkan_device_ids;   /* parallel: combo-index → vk device number (-1=auto) */
+    GtkStringList *vaapi_device_list;   /* model for vaapi_device_combo */
+    GArray        *vaapi_device_nodes;  /* parallel: combo-index → render node string ("" = auto) */
 } AppWidgets;
 
 /* Creation */
