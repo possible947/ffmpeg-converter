@@ -994,18 +994,13 @@ begin
   if CodecText <> '' then
     SetAnsiField(Opts.codec, CodecText);
 
-  case cmbProfile.ItemIndex of
-    0: SetAnsiField(Opts.preset, 'lt');
-    1: SetAnsiField(Opts.preset, 'standard');
-    2: SetAnsiField(Opts.preset, 'hq');
-    3: SetAnsiField(Opts.preset, '4444');
+  { cmbProfile is populated dynamically per-codec from presets.json, so the
+    preset name must always come from the actual combo text, never from a
+    hardcoded item index (index-to-name order is not guaranteed). }
+  if (cmbProfile.ItemIndex >= 0) and (cmbProfile.ItemIndex < cmbProfile.Items.Count) then
+    SetAnsiField(Opts.preset, cmbProfile.Items[cmbProfile.ItemIndex])
   else
-    { For dynamic presets, get value from combo text }
-    if (cmbProfile.ItemIndex >= 0) and (cmbProfile.ItemIndex < cmbProfile.Items.Count) then
-      SetAnsiField(Opts.preset, cmbProfile.Items[cmbProfile.ItemIndex])
-    else
-      SetAnsiField(Opts.preset, 'default');
-  end;
+    SetAnsiField(Opts.preset, 'default');
 
   case cmbDeblock.ItemIndex of
     0: Opts.deblock := 1;

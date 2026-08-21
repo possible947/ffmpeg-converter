@@ -289,6 +289,7 @@ static void populate_preset_combo(AppWidgets *w)
             gtk_string_list_append(w->preset_list, presets[i]);
         }
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 0);
+        free((void*)presets);
     }
 
     g_free(codec);

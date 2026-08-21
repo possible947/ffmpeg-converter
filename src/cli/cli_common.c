@@ -702,6 +702,7 @@ char* cli_choose_preset_for_codec(const char* codec) {
         /* Only one preset, use it automatically */
         result = malloc(strlen(presets[0]) + 1);
         if (result) strcpy(result, presets[0]);
+        free(presets);
         preset_db_free(db);
         return result;
     }
@@ -714,6 +715,7 @@ char* cli_choose_preset_for_codec(const char* codec) {
     
     if (scanf("%d", &choice) != 1 || choice < 0 || choice >= preset_count) {
         fprintf(stderr, "Invalid choice\n");
+        free(presets);
         preset_db_free(db);
         return NULL;
     }
@@ -721,6 +723,7 @@ char* cli_choose_preset_for_codec(const char* codec) {
     result = malloc(strlen(presets[choice]) + 1);
     if (result) strcpy(result, presets[choice]);
     
+    free(presets);
     preset_db_free(db);
     return result;
 }
@@ -1108,13 +1111,16 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
                 int default_idx = preset_count > 1 ? 1 : 0;
                 
                 if (ch == '\n') {
-                    strcpy(preset, presets[default_idx]);
+                    strncpy(preset, presets[default_idx], sizeof(preset) - 1);
+                    preset[sizeof(preset) - 1] = '\0';
                     step = next;
                 } else if (ch >= '1' && ch < '1' + preset_count) {
-                    strcpy(preset, presets[ch - '1']);
+                    strncpy(preset, presets[ch - '1'], sizeof(preset) - 1);
+                    preset[sizeof(preset) - 1] = '\0';
                     step = next;
                 } else if (ch == 'c' || ch == 'C') {
                     free_temp_files(temp_files, temp_file_count);
+                    free((void*)presets);
                     preset_db_free(db);
                     return -1;
                 } else if (ch == 'b' || ch == 'B') {
@@ -1124,6 +1130,7 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
                 }
             }
             
+            free((void*)presets);
             preset_db_free(db);
             break;
         }

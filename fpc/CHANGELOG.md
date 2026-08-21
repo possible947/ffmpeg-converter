@@ -7,6 +7,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- Fixed the Lazarus GUI preset selector (`fpc/gui/form.pas`) submitting a
+  hardcoded `lt`/`standard`/`hq`/`4444` value based on combo item index
+  instead of the actual dynamically-populated combo text, which could
+  silently submit the wrong preset if `presets.json` key ordering changes.
+  The preset value is now always read from the selected combo item text,
+  matching the GTK4 GUI's approach.
+
 ### Added
 - **Phase 1 codec/preset architecture completed** for Pascal CLI/GUI with
   runtime preset loading from `presets.json`.

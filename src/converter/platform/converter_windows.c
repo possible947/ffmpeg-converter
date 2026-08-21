@@ -543,13 +543,13 @@ const char* platform_get_video_codec_flags(const char* codec,
                "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ";
 
     if (strcmp(codec, "prores_ks_vulkan") == 0) {
-        const char* profile_name = "standard"; /* default: standard */
+        const char* profile_name = "hq"; /* default: HQ (preserves pre-refactor behavior) */
         if (copt && copt->preset[0] != '\0') {
             if      (strcmp((const char*)copt->preset, "lt") == 0)     profile_name = "lt";
             else if (strcmp((const char*)copt->preset, "standard") == 0) profile_name = "standard";
             else if (strcmp((const char*)copt->preset, "hq") == 0)     profile_name = "hq";
             else if (strcmp((const char*)copt->preset, "4444") == 0)   profile_name = "4444";
-            else profile_name = "standard";  /* unknown, use standard */
+            else profile_name = "hq";  /* unknown, use HQ */
         }
         snprintf(prores_flags, sizeof(prores_flags),
                  "-c:v prores_ks_vulkan -profile:v %s ", profile_name);

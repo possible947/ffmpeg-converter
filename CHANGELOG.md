@@ -5,6 +5,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [3.0.0-Phase1.11] — 2026-08-21 (Development)
+
+### Fixed
+- Fixed a stack buffer overflow in the interactive CLI preset menu
+  (`cli_common.c`): preset names loaded from `presets.json` were copied into
+  a fixed `char preset[32]` via unchecked `strcpy`; now uses bounded
+  `strncpy` with explicit NUL-termination.
+- Fixed memory leaks where the preset-name array returned by
+  `preset_db_list_presets()` was never freed: `cli_choose_preset_for_codec`,
+  the interactive CLI preset step, and the GTK4 `populate_preset_combo`
+  (leaked on every codec-combo change).
+- Restored the `prores_ks_vulkan` fallback preset default to `"hq"` on Linux
+  and Windows (it had regressed to `"standard"` during the profile → preset
+  migration), preserving pre-refactor, behavior-identical output.
+
 ## [3.0.0-Phase1.10] — 2026-08-21 (Development)
 
 ### Added
