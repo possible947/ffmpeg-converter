@@ -35,6 +35,100 @@ begin
     Result := 2;  { standard or default }
 end;
 
+{ Phase 2 speed/balance/quality preset tiers for GPU codecs.
+  `default` strings are byte-for-byte identical to pre-Phase-2 behavior —
+  zero regression for existing users/scripts. Values mirror presets.json
+  Section 5 (v3.0-Phase2.md / src/converter/platform/converter_linux.c,
+  converter_windows.c) and must be kept in sync with both. Returns ''
+  if Codec is not a recognized Phase-2 tiered GPU codec. }
+function GetHwCodecFlags(const Codec, Preset: string): string;
+begin
+  Result := '';
+
+  if Codec = 'h264_vaapi' then
+  begin
+    if Preset = 'speed' then Result := '-c:v h264_vaapi -rc_mode CQP -qp 28 '
+    else if Preset = 'balance' then Result := '-c:v h264_vaapi -rc_mode CQP -qp 24 '
+    else if Preset = 'quality' then Result := '-c:v h264_vaapi -rc_mode CQP -qp 20 '
+    else Result := '-c:v h264_vaapi -rc_mode auto ';
+  end
+  else if Codec = 'hevc_vaapi' then
+  begin
+    if Preset = 'speed' then Result := '-c:v hevc_vaapi -rc_mode CQP -qp 28 '
+    else if Preset = 'balance' then Result := '-c:v hevc_vaapi -rc_mode CQP -qp 24 '
+    else if Preset = 'quality' then Result := '-c:v hevc_vaapi -rc_mode CQP -qp 20 '
+    else Result := '-c:v hevc_vaapi -rc_mode auto ';
+  end
+  else if Codec = 'h264_nvenc' then
+  begin
+    if Preset = 'speed' then Result := '-c:v h264_nvenc -preset p1 -qp 22 -spatial_aq 1 -temporal_aq 1 '
+    else if Preset = 'balance' then Result := '-c:v h264_nvenc -preset p4 -qp 22 -spatial_aq 1 -temporal_aq 1 '
+    else Result := '-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 ';
+  end
+  else if Codec = 'hevc_nvenc' then
+  begin
+    if Preset = 'speed' then Result := '-c:v hevc_nvenc -preset p1 -cq 25 -lookahead_level 0 '
+    else if Preset = 'balance' then Result := '-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto '
+    else Result := '-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto ';
+  end
+  else if Codec = 'h264_amf' then
+  begin
+    if Preset = 'speed' then Result := '-c:v h264_amf -quality speed '
+    else if Preset = 'balance' then Result := '-c:v h264_amf -quality balanced '
+    else if Preset = 'quality' then Result := '-c:v h264_amf -quality quality '
+    else Result := '-c:v h264_amf ';
+  end
+  else if Codec = 'hevc_amf' then
+  begin
+    if Preset = 'speed' then Result := '-c:v hevc_amf -quality speed '
+    else if Preset = 'balance' then Result := '-c:v hevc_amf -quality balanced '
+    else if Preset = 'quality' then Result := '-c:v hevc_amf -quality quality '
+    else Result := '-c:v hevc_amf ';
+  end
+  else if Codec = 'av1_amf' then
+  begin
+    if Preset = 'speed' then Result := '-c:v av1_amf -quality speed '
+    else if Preset = 'balance' then Result := '-c:v av1_amf -quality balanced '
+    else if Preset = 'quality' then Result := '-c:v av1_amf -quality quality '
+    else Result := '-c:v av1_amf ';
+  end
+  else if Codec = 'h264_qsv' then
+  begin
+    if Preset = 'speed' then Result := '-c:v h264_qsv -global_quality 22 -preset veryfast -extbrc 1 '
+    else if Preset = 'balance' then Result := '-c:v h264_qsv -global_quality 22 -preset medium -look_ahead 1 -look_ahead_depth 40 -extbrc 1 '
+    else Result := '-c:v h264_qsv -global_quality 22 -preset slower -look_ahead 1 -look_ahead_depth 40 -extbrc 1 ';
+  end
+  else if Codec = 'hevc_qsv' then
+  begin
+    if Preset = 'speed' then Result := '-c:v hevc_qsv -global_quality 25 -preset fast -g 240 -bf 4 '
+    else if Preset = 'balance' then Result := '-c:v hevc_qsv -global_quality 25 -preset medium -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 '
+    else Result := '-c:v hevc_qsv -global_quality 25 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ';
+  end
+  else if Codec = 'h264_vulkan' then
+  begin
+    if Preset = 'speed' then Result := '-c:v h264_vulkan -qp 28 '
+    else if Preset = 'balance' then Result := '-c:v h264_vulkan -qp 23 '
+    else Result := '-c:v h264_vulkan -qp 18 ';
+  end
+  else if Codec = 'hevc_vulkan' then
+  begin
+    if Preset = 'speed' then Result := '-c:v hevc_vulkan -qp 28 '
+    else if Preset = 'balance' then Result := '-c:v hevc_vulkan -qp 23 '
+    else Result := '-c:v hevc_vulkan -qp 18 ';
+  end
+  else if Codec = 'av1_vulkan' then
+  begin
+    if Preset = 'speed' then Result := '-c:v av1_vulkan -qp 120 '
+    else if Preset = 'balance' then Result := '-c:v av1_vulkan -qp 90 '
+    else Result := '-c:v av1_vulkan -qp 60 ';
+  end;
+end;
+
+function IsHwVulkanCodec(const Codec: string): Boolean;
+begin
+  Result := (Codec = 'h264_vulkan') or (Codec = 'hevc_vulkan') or (Codec = 'av1_vulkan');
+end;
+
 function InvariantFmt: TFormatSettings;
 begin
   Result := DefaultFormatSettings;
@@ -78,6 +172,15 @@ begin
   if Codec = 'prores_ks_vulkan' then
   begin
     { Device index -1 means "auto" (first available); clamp to 0 for ffmpeg. }
+    if Opts.vulkan_device < 0 then
+      Result += '-init_hw_device vulkan=vk:0 -filter_hw_device vk '
+    else
+      Result += '-init_hw_device vulkan=vk:' + IntToStr(Opts.vulkan_device) + ' -filter_hw_device vk ';
+  end
+  else if IsHwVulkanCodec(Codec) then
+  begin
+    { h264_vulkan/hevc_vulkan/av1_vulkan share the same pre-input device
+      init pattern and probed --vk_device index as prores_ks_vulkan. }
     if Opts.vulkan_device < 0 then
       Result += '-init_hw_device vulkan=vk:0 -filter_hw_device vk '
     else
@@ -135,22 +238,12 @@ begin
     else
       Result += '-c:v hevc_videotoolbox -b:v 35000k -tag:v hvc1 -spatial_aq 1 ';
   end
-  else if Codec = 'h264_vaapi' then
-    Result += '-c:v h264_vaapi -rc_mode auto '
-  else if Codec = 'hevc_vaapi' then
-    Result += '-c:v hevc_vaapi -rc_mode auto '
-  else if Codec = 'h264_nvenc' then
-    Result += '-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 '
-  else if Codec = 'hevc_nvenc' then
-    Result += '-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto '
-  else if Codec = 'h264_amf' then
-    Result += '-c:v h264_amf '
-  else if Codec = 'hevc_amf' then
-    Result += '-c:v hevc_amf '
-  else if Codec = 'h264_qsv' then
-    Result += '-c:v h264_qsv -global_quality 22 -preset slower -look_ahead 1 -look_ahead_depth 40 -extbrc 1 '
-  else if Codec = 'hevc_qsv' then
-    Result += '-c:v hevc_qsv -global_quality 25 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 '
+  else if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') or
+          (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
+          (Codec = 'h264_amf') or (Codec = 'hevc_amf') or (Codec = 'av1_amf') or
+          (Codec = 'h264_qsv') or (Codec = 'hevc_qsv') or
+          (Codec = 'h264_vulkan') or (Codec = 'hevc_vulkan') or (Codec = 'av1_vulkan') then
+    Result += GetHwCodecFlags(Codec, ArrToStr(Opts.preset))
   else if Codec = 'prores_ks_vulkan' then
   begin
     case PresetToProfileNum(ArrToStr(Opts.preset)) of
@@ -173,7 +266,7 @@ begin
     else
       Result += '-vf "format=yuv422p10le,hwupload" ';
   end
-  else if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
+  else if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') or IsHwVulkanCodec(Codec) then
     Result += '-vf "format=nv12,hwupload" '
   else if (Codec <> 'hevc_videotoolbox') and (Codec <> 'prores_videotoolbox') then
   begin

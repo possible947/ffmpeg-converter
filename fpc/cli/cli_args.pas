@@ -76,11 +76,20 @@ begin
   if WinCaps.HasAMF then
     Result := Result or (Codec = 'h264_amf') or (Codec = 'hevc_amf');
 
+  if WinCaps.HasAV1AMF then
+    Result := Result or (Codec = 'av1_amf');
+
   if WinCaps.HasQSV then
     Result := Result or (Codec = 'h264_qsv') or (Codec = 'hevc_qsv');
 
   if WinCaps.HasVulkan then
     Result := Result or (Codec = 'prores_ks_vulkan');
+  if WinCaps.HasVulkanH264 then
+    Result := Result or (Codec = 'h264_vulkan');
+  if WinCaps.HasVulkanHEVC then
+    Result := Result or (Codec = 'hevc_vulkan');
+  if WinCaps.HasVulkanAV1 then
+    Result := Result or (Codec = 'av1_vulkan');
 {$ELSE}
   {$IFDEF Linux}
   LinuxCaps := ProbeLinuxCodecSupport;
@@ -98,10 +107,18 @@ begin
     Result := Result or (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc');
   if LinuxCaps.HasAMF then
     Result := Result or (Codec = 'h264_amf') or (Codec = 'hevc_amf');
+  if LinuxCaps.HasAV1AMF then
+    Result := Result or (Codec = 'av1_amf');
   if LinuxCaps.HasQSV then
     Result := Result or (Codec = 'h264_qsv') or (Codec = 'hevc_qsv');
   if LinuxCaps.HasVulkan then
     Result := Result or (Codec = 'prores_ks_vulkan');
+  if LinuxCaps.HasVulkanH264 then
+    Result := Result or (Codec = 'h264_vulkan');
+  if LinuxCaps.HasVulkanHEVC then
+    Result := Result or (Codec = 'hevc_vulkan');
+  if LinuxCaps.HasVulkanAV1 then
+    Result := Result or (Codec = 'av1_vulkan');
   if LinuxCaps.HasMp4Box then
     Result := Result or (Codec = 'm4v');
   {$ELSE}
@@ -172,10 +189,18 @@ begin
     CodecList += '|h264_nvenc|hevc_nvenc';
   if WinCaps.HasAMF then
     CodecList += '|h264_amf|hevc_amf';
+  if WinCaps.HasAV1AMF then
+    CodecList += '|av1_amf';
   if WinCaps.HasQSV then
     CodecList += '|h264_qsv|hevc_qsv';
   if WinCaps.HasVulkan then
     CodecList += '|prores_ks_vulkan';
+  if WinCaps.HasVulkanH264 then
+    CodecList += '|h264_vulkan';
+  if WinCaps.HasVulkanHEVC then
+    CodecList += '|hevc_vulkan';
+  if WinCaps.HasVulkanAV1 then
+    CodecList += '|av1_vulkan';
   if WinCaps.HasMkvmerge then
     CodecList += '|mux';
   if HasM4V then
@@ -193,10 +218,18 @@ begin
     CodecList += '|h264_nvenc|hevc_nvenc';
   if LinuxCaps.HasAMF then
     CodecList += '|h264_amf|hevc_amf';
+  if LinuxCaps.HasAV1AMF then
+    CodecList += '|av1_amf';
   if LinuxCaps.HasQSV then
     CodecList += '|h264_qsv|hevc_qsv';
   if LinuxCaps.HasVulkan then
     CodecList += '|prores_ks_vulkan';
+  if LinuxCaps.HasVulkanH264 then
+    CodecList += '|h264_vulkan';
+  if LinuxCaps.HasVulkanHEVC then
+    CodecList += '|hevc_vulkan';
+  if LinuxCaps.HasVulkanAV1 then
+    CodecList += '|av1_vulkan';
   if LinuxCaps.HasMp4Box then
     CodecList += '|m4v';
   WriteLn('  -c, --codec <', CodecList, '>');
@@ -219,12 +252,12 @@ begin
   WriteLn('  --overwrite        overwrite output files');
   WriteLn('  -o, --output <directory> set output directory');
 {$IFDEF Windows}
-  if WinCaps.HasVulkan then
-    WriteLn('      --vk-device <0..7> Select Vulkan adapter index for prores_ks_vulkan');
+  if WinCaps.HasVulkan or WinCaps.HasVulkanH264 or WinCaps.HasVulkanHEVC or WinCaps.HasVulkanAV1 then
+    WriteLn('      --vk-device <0..7> Select Vulkan adapter index for prores_ks_vulkan/h264_vulkan/hevc_vulkan/av1_vulkan');
   {$ELSE}
   {$IFDEF Linux}
-  if LinuxCaps.HasVulkan then
-    WriteLn('      --vk-device <0..7>  Select Vulkan adapter index for prores_ks_vulkan');
+  if LinuxCaps.HasVulkan or LinuxCaps.HasVulkanH264 or LinuxCaps.HasVulkanHEVC or LinuxCaps.HasVulkanAV1 then
+    WriteLn('      --vk-device <0..7>  Select Vulkan adapter index for prores_ks_vulkan/h264_vulkan/hevc_vulkan/av1_vulkan');
   if LinuxCaps.HasVaapiH264 or LinuxCaps.HasVaapiHEVC then
     WriteLn('      --hw_device <path>  Override VAAPI device path (default: ', LinuxCaps.VaapiRenderNode, ')');
   {$ENDIF}
@@ -302,9 +335,15 @@ begin
   begin
     WriteLn('h264_nvenc');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
     WriteLn('hevc_nvenc');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
   end;
   
@@ -312,9 +351,25 @@ begin
   begin
     WriteLn('h264_amf');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
     WriteLn('hevc_amf');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
+  if WinCaps.HasAV1AMF then
+  begin
+    WriteLn('av1_amf');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
   end;
   
@@ -322,9 +377,45 @@ begin
   begin
     WriteLn('h264_qsv');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
     WriteLn('hevc_qsv');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
+  if WinCaps.HasVulkanH264 then
+  begin
+    WriteLn('h264_vulkan');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
+  if WinCaps.HasVulkanHEVC then
+  begin
+    WriteLn('hevc_vulkan');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
+  if WinCaps.HasVulkanAV1 then
+  begin
+    WriteLn('av1_vulkan');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
   end;
   
@@ -348,6 +439,9 @@ begin
   begin
     WriteLn('h264_vaapi');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
   end;
   
@@ -355,6 +449,9 @@ begin
   begin
     WriteLn('hevc_vaapi');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
   end;
   
@@ -372,9 +469,15 @@ begin
   begin
     WriteLn('h264_nvenc');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
     WriteLn('hevc_nvenc');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
   end;
   
@@ -382,9 +485,25 @@ begin
   begin
     WriteLn('h264_amf');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
     WriteLn('hevc_amf');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasAV1AMF then
+  begin
+    WriteLn('av1_amf');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
   end;
   
@@ -392,9 +511,45 @@ begin
   begin
     WriteLn('h264_qsv');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
     WriteLn('hevc_qsv');
     WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasVulkanH264 then
+  begin
+    WriteLn('h264_vulkan');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasVulkanHEVC then
+  begin
+    WriteLn('hevc_vulkan');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasVulkanAV1 then
+  begin
+    WriteLn('av1_vulkan');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
     WriteLn;
   end;
   

@@ -63,6 +63,8 @@ begin
     Add(Result, 'h264_amf');
     Add(Result, 'hevc_amf');
   end;
+  if Caps.HasAV1AMF then
+    Add(Result, 'av1_amf');
   if Caps.HasQSV then
   begin
     Add(Result, 'h264_qsv');
@@ -70,6 +72,9 @@ begin
   end;
   if Caps.HasVulkan then
     Add(Result, 'prores_ks_vulkan');
+  if Caps.HasVulkanH264 then Add(Result, 'h264_vulkan');
+  if Caps.HasVulkanHEVC then Add(Result, 'hevc_vulkan');
+  if Caps.HasVulkanAV1 then Add(Result, 'av1_vulkan');
   if Caps.HasMp4Box then
     Add(Result, 'm4v');
 {$ENDIF}
@@ -85,6 +90,8 @@ begin
     Add(Result, 'h264_amf');
     Add(Result, 'hevc_amf');
   end;
+  if WCaps.HasAV1AMF then
+    Add(Result, 'av1_amf');
   if WCaps.HasQSV then
   begin
     Add(Result, 'h264_qsv');
@@ -92,6 +99,9 @@ begin
   end;
   if WCaps.HasVulkan then
     Add(Result, 'prores_ks_vulkan');
+  if WCaps.HasVulkanH264 then Add(Result, 'h264_vulkan');
+  if WCaps.HasVulkanHEVC then Add(Result, 'hevc_vulkan');
+  if WCaps.HasVulkanAV1 then Add(Result, 'av1_vulkan');
   if ResolveMp4BoxBin <> '' then
     Add(Result, 'm4v');
 {$ENDIF}

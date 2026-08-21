@@ -8,8 +8,14 @@ type
   TWindowsCodecSupport = record
     HasNVENC: Boolean;
     HasAMF: Boolean;
+    HasAV1AMF: Boolean;
     HasQSV: Boolean;
     HasVulkan: Boolean;
+    { Phase 2: hardware Vulkan video encoders, probed independently of the
+      prores_ks_vulkan-only HasVulkan flag above. }
+    HasVulkanH264: Boolean;
+    HasVulkanHEVC: Boolean;
+    HasVulkanAV1: Boolean;
     HasMkvmerge: Boolean;
   end;
 
@@ -20,6 +26,7 @@ function IsQSVAvailable: Boolean;
 function IsVulkanAvailable: Boolean;
 function ProbeEncoder(const FfmpegBin, EncoderName: string): Boolean;
 function ProbeVulkanEncoder(const FfmpegBin: string): Boolean;
+function ProbeVulkanHwEncoder(const FfmpegBin, EncoderName: string): Boolean;
 
 implementation
 
@@ -73,6 +80,37 @@ begin
 {$ENDIF}
 end;
 
+{ Probe a hardware Vulkan video encoder (h264_vulkan/hevc_vulkan/av1_vulkan)
+  on devices vk:0..vk:7. Mirrors ProbeVulkanEncoder above but for a
+  caller-supplied encoder name (no software-device exclusion — that's a
+  Linux/llvmpipe-specific concern per v3.0-Phase2.md). }
+function ProbeVulkanHwEncoder(const FfmpegBin, EncoderName: string): Boolean;
+var
+  Cmd: string;
+  R: TRunResult;
+  DeviceIdx: Integer;
+begin
+{$IFDEF Windows}
+  if FfmpegBin = '' then
+    Exit(False);
+
+  for DeviceIdx := 0 to 7 do
+  begin
+    Cmd := QuoteForShell(FfmpegBin) + ' -v error -hide_banner ' +
+           '-init_hw_device vulkan=vk:' + IntToStr(DeviceIdx) + ' -filter_hw_device vk ' +
+           '-f lavfi -i color=size=1920x1080:rate=1 -frames:v 1 ' +
+           '-vf format=nv12,hwupload -c:v ' + EncoderName + ' -f null NUL 2>nul';
+    R := RunCommandCapture(Cmd);
+    if R.ExitCode = 0 then
+      Exit(True);
+  end;
+
+  Result := False;
+{$ELSE}
+  Result := False;
+{$ENDIF}
+end;
+
 function DetectWindowsCodecSupport: TWindowsCodecSupport;
 var
   FfmpegBin: string;
@@ -84,8 +122,12 @@ begin
   begin
     Result.HasNVENC := ProbeEncoder(FfmpegBin, 'h264_nvenc') or ProbeEncoder(FfmpegBin, 'hevc_nvenc');
     Result.HasAMF := ProbeEncoder(FfmpegBin, 'h264_amf') or ProbeEncoder(FfmpegBin, 'hevc_amf');
+    Result.HasAV1AMF := ProbeEncoder(FfmpegBin, 'av1_amf');
     Result.HasQSV := ProbeEncoder(FfmpegBin, 'h264_qsv') or ProbeEncoder(FfmpegBin, 'hevc_qsv');
     Result.HasVulkan := ProbeVulkanEncoder(FfmpegBin);
+    Result.HasVulkanH264 := ProbeVulkanHwEncoder(FfmpegBin, 'h264_vulkan');
+    Result.HasVulkanHEVC := ProbeVulkanHwEncoder(FfmpegBin, 'hevc_vulkan');
+    Result.HasVulkanAV1 := ProbeVulkanHwEncoder(FfmpegBin, 'av1_vulkan');
   end;
   Result.HasMkvmerge := FindMkvmergeBin <> '';
 {$ENDIF}

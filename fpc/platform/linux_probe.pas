@@ -12,10 +12,19 @@ type
     HasVaapiHEVC: Boolean;
     HasNVENC:     Boolean;
     HasAMF:       Boolean;
+    HasAV1AMF:    Boolean;
     HasQSV:       Boolean;
     HasVulkan:    Boolean;
     VulkanDeviceIndex: Integer;
     VulkanDeviceCount: Integer;
+    { Phase 2: hardware Vulkan video encoders (h264_vulkan/hevc_vulkan/av1_vulkan),
+      tracked separately from the prores_ks_vulkan fields above because they are
+      probed with different encoders/filters and may succeed/fail independently. }
+    HasVulkanH264: Boolean;
+    HasVulkanHEVC: Boolean;
+    HasVulkanAV1:  Boolean;
+    VulkanHwDeviceIndex: Integer;
+    VulkanHwDeviceCount: Integer;
     HasMkvmerge:  Boolean;
     HasMp4Box:    Boolean;
     VaapiRenderNode: string;
@@ -181,6 +190,113 @@ begin
 {$ENDIF}
 end;
 
+{ Cheap pre-filter: check `ffmpeg -encoders` text output for EncoderName before
+  running an actual one-frame probe (mirrors C's ffmpeg_has_encoder). }
+function FfmpegHasEncoder(const FfmpegBin, EncoderName: string): Boolean;
+var
+  Cmd: string;
+  R: TRunResult;
+begin
+  Result := False;
+{$IFDEF Linux}
+  if FfmpegBin = '' then
+    Exit;
+  Cmd := QuoteForShell(FfmpegBin) + ' -hide_banner -v error -encoders 2>/dev/null';
+  R := RunCommandCapture(Cmd);
+  Result := (R.ExitCode = 0) and (Pos(' ' + EncoderName, R.OutputText) > 0);
+{$ENDIF}
+end;
+
+{ Returns True if the Vulkan device at DeviceIndex is a software renderer
+  (llvmpipe/lavapipe) as reported by `vulkaninfo --summary`. Fails open
+  (returns False, i.e. "not software") if vulkaninfo is unavailable, deferring
+  the final judgement to the encode probe itself. }
+function VulkanDeviceIsSoftware(DeviceIndex: Integer): Boolean;
+var
+  R: TRunResult;
+  Lines: TStringList;
+  I, Cur: Integer;
+  Line, Header: string;
+begin
+  Result := False;
+{$IFDEF Linux}
+  R := RunCommandCapture('vulkaninfo --summary 2>/dev/null');
+  if (R.ExitCode <> 0) or (R.OutputText = '') then
+    Exit;
+  Lines := TStringList.Create;
+  try
+    Lines.Text := R.OutputText;
+    Cur := -1;
+    for I := 0 to Lines.Count - 1 do
+    begin
+      Line := Lines[I];
+      Header := Trim(Line);
+      if (Pos('GPU', Header) = 1) and (Pos(':', Header) > 0) then
+      begin
+        Inc(Cur);
+        Continue;
+      end;
+      if Cur = DeviceIndex then
+      begin
+        if ((Pos('deviceType', Line) > 0) and (Pos('CPU', Line) > 0)) or
+           (Pos('llvmpipe', LowerCase(Line)) > 0) or
+           (Pos('lavapipe', LowerCase(Line)) > 0) then
+        begin
+          Result := True;
+          Break;
+        end;
+      end
+      else if Cur > DeviceIndex then
+        Break;
+    end;
+  finally
+    Lines.Free;
+  end;
+{$ENDIF}
+end;
+
+{ Probe a hardware Vulkan video encoder (h264_vulkan/hevc_vulkan/av1_vulkan) on
+  devices vk:0..vk:7, skipping devices identified as software (llvmpipe). }
+function ProbeVulkanHwEncoder(const FfmpegBin, EncoderName: string;
+  out BestDevice: Integer; out DeviceCount: Integer): Boolean;
+var
+  I: Integer;
+  Cmd: string;
+  R: TRunResult;
+begin
+{$IFDEF Linux}
+  Result := False;
+  BestDevice := -1;
+  DeviceCount := 0;
+  if FfmpegBin = '' then
+    Exit;
+  for I := 0 to 7 do
+  begin
+    if VulkanDeviceIsSoftware(I) then
+      Continue;
+    Cmd := QuoteForShell(FfmpegBin) +
+           ' -v error -hide_banner' +
+           ' -init_hw_device vulkan=vk:' + IntToStr(I) + ' -filter_hw_device vk' +
+           ' -f lavfi -i color=size=1920x1080:rate=1 -frames:v 1' +
+           ' -vf format=nv12,hwupload' +
+           ' -c:v ' + EncoderName + ' -f null /dev/null 2>&1';
+    R := RunCommandCapture(Cmd);
+    if R.ExitCode = 0 then
+    begin
+      Inc(DeviceCount);
+      BestDevice := I;
+      Result := True;
+    end;
+    if (DeviceCount = 0) and (I >= 2) then
+      Break;
+  end;
+{$ELSE}
+  BestDevice := -1;
+  DeviceCount := 0;
+  Result := False;
+{$ENDIF}
+end;
+
 { --------------------------------------------------------------------------
   Hardware codec support detection (cached)
   -------------------------------------------------------------------------- }
@@ -197,15 +313,23 @@ var
   I: Integer;
   VulkanBest: Integer;
   VulkanCount: Integer;
+  VHwBest, VHwCount: Integer;
+  BestHwCount: Integer;
 begin
   Result.HasVaapiH264 := False;
   Result.HasVaapiHEVC := False;
   Result.HasNVENC := False;
   Result.HasAMF := False;
+  Result.HasAV1AMF := False;
   Result.HasQSV := False;
   Result.HasVulkan := False;
   Result.VulkanDeviceIndex := 0;
   Result.VulkanDeviceCount := 0;
+  Result.HasVulkanH264 := False;
+  Result.HasVulkanHEVC := False;
+  Result.HasVulkanAV1 := False;
+  Result.VulkanHwDeviceIndex := 0;
+  Result.VulkanHwDeviceCount := 0;
   Result.HasMkvmerge := False;
   Result.HasMp4Box := False;
   Result.VaapiRenderNode := '';
@@ -244,17 +368,55 @@ begin
   Result.HasAMF := ProbeSimpleEncoder(FfmpegBin, 'h264_amf') or
                    ProbeSimpleEncoder(FfmpegBin, 'hevc_amf');
 
+  { AV1 AMF — pre-filter via -encoders before a real probe (av1_amf is a
+    newer/rarer encoder than h264_amf/hevc_amf). }
+  if FfmpegHasEncoder(FfmpegBin, 'av1_amf') then
+    Result.HasAV1AMF := ProbeSimpleEncoder(FfmpegBin, 'av1_amf');
+
   { QSV — Intel (no device path required) }
   Result.HasQSV := ProbeSimpleEncoder(FfmpegBin, 'h264_qsv') or
                    ProbeSimpleEncoder(FfmpegBin, 'hevc_qsv');
 
-  { Vulkan — any GPU with Vulkan 1.1+ }
+  { Vulkan — any GPU with Vulkan 1.1+ (prores_ks_vulkan probe, kept as-is) }
   Result.HasVulkan := ProbeVulkanEncoder(FfmpegBin, VulkanBest, VulkanCount);
   Result.VulkanDeviceCount := VulkanCount;
   if VulkanBest >= 0 then
     Result.VulkanDeviceIndex := VulkanBest
   else
     Result.VulkanDeviceIndex := 0;
+
+  { Phase 2: hardware Vulkan video encoders (h264_vulkan/hevc_vulkan/av1_vulkan).
+    Each is pre-filtered via -encoders, then probed independently; the shared
+    "best device" stats keep whichever codec found the most working devices. }
+  BestHwCount := 0;
+  if FfmpegHasEncoder(FfmpegBin, 'h264_vulkan') then
+  begin
+    Result.HasVulkanH264 := ProbeVulkanHwEncoder(FfmpegBin, 'h264_vulkan', VHwBest, VHwCount);
+    if VHwCount > BestHwCount then
+    begin
+      BestHwCount := VHwCount;
+      Result.VulkanHwDeviceIndex := VHwBest;
+    end;
+  end;
+  if FfmpegHasEncoder(FfmpegBin, 'hevc_vulkan') then
+  begin
+    Result.HasVulkanHEVC := ProbeVulkanHwEncoder(FfmpegBin, 'hevc_vulkan', VHwBest, VHwCount);
+    if VHwCount > BestHwCount then
+    begin
+      BestHwCount := VHwCount;
+      Result.VulkanHwDeviceIndex := VHwBest;
+    end;
+  end;
+  if FfmpegHasEncoder(FfmpegBin, 'av1_vulkan') then
+  begin
+    Result.HasVulkanAV1 := ProbeVulkanHwEncoder(FfmpegBin, 'av1_vulkan', VHwBest, VHwCount);
+    if VHwCount > BestHwCount then
+    begin
+      BestHwCount := VHwCount;
+      Result.VulkanHwDeviceIndex := VHwBest;
+    end;
+  end;
+  Result.VulkanHwDeviceCount := BestHwCount;
 {$ENDIF}
 end;
 

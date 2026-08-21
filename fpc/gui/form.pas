@@ -809,23 +809,31 @@ function CodecIsLinuxHW(const Codec: string): Boolean;
 begin
   Result := (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') or
             (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
-            (Codec = 'h264_amf')   or (Codec = 'hevc_amf')   or
+            (Codec = 'h264_amf')   or (Codec = 'hevc_amf')   or (Codec = 'av1_amf') or
             (Codec = 'h264_qsv')   or (Codec = 'hevc_qsv')   or
-            (Codec = 'prores_ks_vulkan');
+            (Codec = 'prores_ks_vulkan') or
+            (Codec = 'h264_vulkan') or (Codec = 'hevc_vulkan') or (Codec = 'av1_vulkan');
 end;
 {$ENDIF}
 
 function CodecIsWindowsHW(const Codec: string): Boolean;
 begin
   Result := (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
-            (Codec = 'h264_amf')   or (Codec = 'hevc_amf')   or
+            (Codec = 'h264_amf')   or (Codec = 'hevc_amf')   or (Codec = 'av1_amf') or
             (Codec = 'h264_qsv')   or (Codec = 'hevc_qsv')   or
-            (Codec = 'prores_ks_vulkan');
+            (Codec = 'prores_ks_vulkan') or
+            (Codec = 'h264_vulkan') or (Codec = 'hevc_vulkan') or (Codec = 'av1_vulkan');
 end;
 
 function CodecIsVulkanProres(const Codec: string): Boolean;
 begin
   Result := Codec = 'prores_ks_vulkan';
+end;
+
+function CodecIsAnyVulkan(const Codec: string): Boolean;
+begin
+  Result := (Codec = 'prores_ks_vulkan') or
+            (Codec = 'h264_vulkan') or (Codec = 'hevc_vulkan') or (Codec = 'av1_vulkan');
 end;
 
 function VulkanDeviceDisplayText(Index: Integer): string;
@@ -1020,7 +1028,7 @@ begin
   Opts.genre := cmbGenre.ItemIndex + 1;
   Opts.overwrite := Ord(chkOverwrite.Checked);
 
-  if CodecIsVulkanProres(CodecText) then
+  if CodecIsAnyVulkan(CodecText) then
   begin
     if FVulkanDeviceIndex >= 0 then
       Opts.vulkan_device := FVulkanDeviceIndex
@@ -1032,7 +1040,7 @@ begin
       Opts.vulkan_device := 0;
   end
   else
-    Opts.vulkan_device := 0;  { only used by prores_ks_vulkan }
+    Opts.vulkan_device := 0;  { only used by vulkan codecs }
 
   if EnsureOutputDirWritable(FOutputDir, ResolvedDir, DirError) then
   begin
@@ -1057,7 +1065,9 @@ begin
 
   PopulatePresetsCombo;
 
-  cmbProfile.Enabled := CodecUsesSoftwareProres(CodecText);
+  { cmbProfile is data-driven from presets.json (via PopulatePresetsCombo) —
+    enable it whenever the current codec has more than one preset. }
+  cmbProfile.Enabled := cmbProfile.Items.Count > 1;
   cmbDeblock.Enabled := CodecUsesSoftwareProres(CodecText);
   cmbGenre.Enabled := (AudioNormText = 'loudness_norm_2pass');
 
@@ -1073,8 +1083,8 @@ begin
   {$IF defined(Linux) or defined(Windows)}
   if Assigned(lblVulkanDevice) and Assigned(cmbVulkanDevice) then
   begin
-    lblVulkanDevice.Visible := CodecIsVulkanProres(CodecText);
-    cmbVulkanDevice.Visible := CodecIsVulkanProres(CodecText);
+    lblVulkanDevice.Visible := CodecIsAnyVulkan(CodecText);
+    cmbVulkanDevice.Visible := CodecIsAnyVulkan(CodecText);
   end;
   {$ENDIF}
 end;
@@ -1197,6 +1207,8 @@ begin
     cmbCodec.Items.Add('h264_amf');
     cmbCodec.Items.Add('hevc_amf');
   end;
+  if FLinuxSupport.HasAV1AMF then
+    cmbCodec.Items.Add('av1_amf');
   if FLinuxSupport.HasQSV then
   begin
     cmbCodec.Items.Add('h264_qsv');
@@ -1204,10 +1216,17 @@ begin
   end;
   if FLinuxSupport.HasVulkan then
     cmbCodec.Items.Add('prores_ks_vulkan');
+  if FLinuxSupport.HasVulkanH264 then
+    cmbCodec.Items.Add('h264_vulkan');
+  if FLinuxSupport.HasVulkanHEVC then
+    cmbCodec.Items.Add('hevc_vulkan');
+  if FLinuxSupport.HasVulkanAV1 then
+    cmbCodec.Items.Add('av1_vulkan');
 
   if Assigned(cmbVulkanDevice) then
   begin
-    if FLinuxSupport.HasVulkan then
+    if FLinuxSupport.HasVulkan or FLinuxSupport.HasVulkanH264 or
+       FLinuxSupport.HasVulkanHEVC or FLinuxSupport.HasVulkanAV1 then
       PopulateVulkanDeviceCombo(FLinuxSupport.VulkanDeviceCount)
     else
       PopulateVulkanDeviceCombo(0);
@@ -1253,6 +1272,8 @@ begin
     cmbCodec.Items.Add('h264_amf');
     cmbCodec.Items.Add('hevc_amf');
   end;
+  if FWindowsHW.HasAV1AMF then
+    cmbCodec.Items.Add('av1_amf');
   if FWindowsHW.HasQSV then
   begin
     cmbCodec.Items.Add('h264_qsv');
@@ -1260,11 +1281,18 @@ begin
   end;
   if FWindowsHW.HasVulkan then
     cmbCodec.Items.Add('prores_ks_vulkan');
+  if FWindowsHW.HasVulkanH264 then
+    cmbCodec.Items.Add('h264_vulkan');
+  if FWindowsHW.HasVulkanHEVC then
+    cmbCodec.Items.Add('hevc_vulkan');
+  if FWindowsHW.HasVulkanAV1 then
+    cmbCodec.Items.Add('av1_vulkan');
 
   { Populate Vulkan device combobox }
   if Assigned(cmbVulkanDevice) then
   begin
-    if FWindowsHW.HasVulkan then
+    if FWindowsHW.HasVulkan or FWindowsHW.HasVulkanH264 or
+       FWindowsHW.HasVulkanHEVC or FWindowsHW.HasVulkanAV1 then
       PopulateVulkanDeviceCombo(FWindowsHW.VulkanDeviceCount)
     else
       PopulateVulkanDeviceCombo(0);

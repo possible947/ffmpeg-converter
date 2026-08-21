@@ -13,9 +13,14 @@ type
   TWindowsHWInfo = record
     HasNVENC:         Boolean;
     HasAMF:           Boolean;
+    HasAV1AMF:        Boolean;
     HasQSV:           Boolean;
     HasVulkan:        Boolean;
     VulkanDeviceCount: Integer;
+    { Phase 2: hardware Vulkan video encoders. }
+    HasVulkanH264:    Boolean;
+    HasVulkanHEVC:    Boolean;
+    HasVulkanAV1:     Boolean;
     HasMkvmerge:      Boolean;
   end;
 
@@ -90,12 +95,16 @@ begin
 
   Result.HasNVENC  := ProbeEncoder(Bin, 'h264_nvenc');
   Result.HasAMF    := ProbeEncoder(Bin, 'h264_amf');
+  Result.HasAV1AMF := ProbeEncoder(Bin, 'av1_amf');
   Result.HasQSV    := ProbeEncoder(Bin, 'h264_qsv');
   Result.HasVulkan := ProbeVulkanEncoder(Bin);
   if Result.HasVulkan then
     Result.VulkanDeviceCount := ProbeVulkanDeviceCount(Bin)
   else
     Result.VulkanDeviceCount := 0;
+  Result.HasVulkanH264 := ProbeVulkanHwEncoder(Bin, 'h264_vulkan');
+  Result.HasVulkanHEVC := ProbeVulkanHwEncoder(Bin, 'hevc_vulkan');
+  Result.HasVulkanAV1  := ProbeVulkanHwEncoder(Bin, 'av1_vulkan');
   Result.HasMkvmerge := FindMkvmergeBin <> '';
 {$ENDIF}
 end;
