@@ -1,4 +1,4 @@
-# ffmpeg_converter 3.0 (Phase 1 Complete)
+# ffmpeg_converter 3.0 (Phases 1 and 2)
 
 Cross-platform media conversion and mux tool with CLI and GUI for building and
 running optimized `ffmpeg` workflows. Version 3.0 Phase 1 introduces a
@@ -20,7 +20,8 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **CLI/GUI validation** now enforces valid codec + preset combinations.
 - **GTK4/Lazarus preset combo boxes** now update dynamically on codec change.
 - **Linux VAAPI picker** now shows friendly GPU names instead of raw render-node paths.
-- **Preset bundling completed** for C builds, Pascal builds, and AppImage packaging.
+- **Preset bundling completed** for C and Pascal builds, Linux AppImage bundles,
+  and the macOS native app bundle.
 
 ## Version 3.0 Phase 2 Updates
 
@@ -36,7 +37,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **Speed/balance/quality preset tiers** added for existing GPU codecs
   (`h264_vaapi`, `hevc_vaapi`, `h264_nvenc`, `hevc_nvenc`, `h264_amf`,
   `hevc_amf`, `h264_qsv`, `hevc_qsv`) alongside the unchanged `default` tier —
-  selectable via `-p/--profile` (CLI) or the preset combo box (GUI), same as
+  selectable via `-p/--preset` (CLI; `--profile` is a deprecated alias) or the preset combo box (GUI), same as
   the existing ProRes `lt/standard/hq/4444` tiers. `default` behavior is
   byte-for-byte unchanged from Phase 1 for full backward compatibility.
 - **Linux runtime probing** now performs a software-Vulkan-device exclusion
@@ -135,11 +136,12 @@ Two independent implementations share the same conversion logic and CLI behavior
 - VAAPI codec runtime probing in both implementations.
 - AppImage packaging support (C and FPC).
 
-### Windows (C CLI primary, C/Pascal GUI options)
+### Windows (C CLI primary, Pascal GUI)
 - **C CLI is the most complete version** — full functionality, MSVC build, bundled
   binaries, new PowerShell/CMD build scripts.
-- **Windows Pascal CLI and GUI** — complete and tested, feature-matched with C CLI,
-  with native Vulkan ProRes encoder support in GUI.
+- **Windows Pascal CLI and GUI** — feature-matched implementation with native
+  Vulkan ProRes support in GUI. Windows build and runtime validation remain
+  required before release; see the verification checklist below.
 - New build system: unified CMake integration with FPC targets.
 - Codec support: CPU ProRes, GPU accelerators (NVIDIA/AMD/Intel/Vulkan), AV1
   input decoding, mux mode, Apple M4V creator.
@@ -350,6 +352,22 @@ GUI:
 - **macOS (C)**: `open build/install/ffmpeg_converter_gui_macos.app`
 - **Windows (C CLI)**: `build-msvc/src/cli/Release/ffmpeg_converter.exe` (CLI only, most complete)
 - **Windows (Pascal)**: GUI: `fpc/gui/ffmpeg_converter_gui.exe` or CLI: `fpc/cli/ffmpeg_converter_windows.exe`
+
+## Release Verification Status
+
+**Linux complete (2026-08-21):** C CLI/GTK4 GUI and Pascal CLI/Lazarus GUI
+build checks passed. C and Pascal AppImages were built with `appimagetool`,
+then extracted to verify `presets.json`, `PRESETS_PATH`, executable names, and
+desktop/icon assets.
+
+**Windows required before release:** build the C MSVC CLI and Pascal CLI/GUI on
+Windows; verify `presets.json` beside staged Pascal executables; run `--help`,
+`--codecs-list`, codec/preset validation, Vulkan auto/manual device selection,
+and one conversion per detected backend.
+
+**macOS required before release:** build `macos_cli` and `macos_gui_native` with
+Xcode; verify `Contents/Resources/presets.json`; test dynamic Cocoa preset
+selection, runtime-gated VideoToolbox codecs, application launch, and Apple M4V.
 
 ---
 

@@ -9,7 +9,8 @@ available for **Linux and Windows only**. macOS support was discontinued in vers
   C/GTK4 implementation** (`src/gui/`); the Pascal/LCL GUI on Linux is legacy and kept only
   for feature parity testing — it is built with the GTK3 widgetset and has no GTK4 support.
 - **Windows**: CLI + Lazarus/LCL GUI (native win32/win64 widgetset) with Vulkan GPU support.
-  This is the **only GUI on Windows**.
+  This is the **only GUI on Windows**; Windows build and runtime verification
+  remain required before release.
 - **macOS**: Discontinued in v2.4 (use C/CMake native Cocoa GUI instead).
 
 > Conclusion of the Linux audit (P4): the Pascal GUI is **not** developed further for Linux —
@@ -50,6 +51,8 @@ Prefer the Makefile (`make -C fpc/build ...`); it handles platform-specific flag
 ```bash
 make -C fpc/build cli        # → fpc/bin/ffmpeg_converter
 ```
+
+The direct `cli` and `gui` targets stage `presets.json` next to their binaries.
 
 Direct invocation:
 
@@ -189,3 +192,17 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
   invalid/unwritable targets.
 - The interactive menu (Linux/Windows) builds its codec list dynamically from the runtime
   probe — only codecs that are actually available are offered.
+- `--codecs-list`, CLI parsing, and the interactive preset step read the same
+  `presets.json` database; `--profile` remains a deprecated alias for `--preset`.
+
+## Windows Release Verification Required
+
+Run these checks on a real Windows host before release:
+
+1. Run `scripts/windows_build_fpc.ps1` for CLI and GUI, then confirm
+  `fpc/bin/presets.json` is staged beside the executables.
+2. Run `scripts/windows_build.ps1 -BuildFPC -BuildGUI`, then confirm
+  `build-msvc/fpc/presets.json` is present for the legacy combined path.
+3. Verify `--help`, `--codecs-list`, valid and invalid codec/preset pairs,
+  and Vulkan auto/manual device selection.
+4. Smoke-test each detected NVENC, AMF, QSV, and Vulkan codec on real hardware.

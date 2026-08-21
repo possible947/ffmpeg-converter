@@ -5,6 +5,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Preset Delivery and Windows Validation (2026-08-21)
+
+### Fixed
+- Direct Linux `cli` and `gui` Makefile targets now stage `presets.json` into
+  `fpc/bin`; Pascal CLI list/parser/menu and Lazarus preset selector consume
+  the runtime database rather than fixed profile tiers.
+- Windows Pascal build scripts now stage `presets.json` for both the dedicated
+  `windows_build_fpc.ps1` flow and the legacy combined `windows_build.ps1` FPC
+  output. Windows `--codecs-list` is data-driven and runtime-gated.
+- Pascal AppImage packaging now bundles presets, exports `PRESETS_PATH`, and
+  uses the same `ffmpeg-converter` desktop/icon asset names as the C AppImage.
+
+### Verification Required Before Release
+- Build the Windows Pascal CLI and Lazarus GUI on Windows, confirm staged
+  presets, then test `--help`, `--codecs-list`, codec/preset validation and
+  automatic/manual Vulkan device selection.
+- Run real-hardware conversions for every detected NVENC, AMF, QSV, and Vulkan
+  backend; Linux-only compilation cannot validate Windows FPC/LCL behavior.
+
 ## [Unreleased] — Phase 2 bug fixes (2026-08-21)
 
 ### Fixed

@@ -1,4 +1,4 @@
-# C Implementation (src) — Version 3.0 (Phase 1)
+# C Implementation (src) — Version 3.0 (Phases 1 and 2)
 
 This directory contains the C/CMake implementation of ffmpeg_converter, the primary
 implementation across all platforms.
@@ -35,6 +35,7 @@ cmake --install build
 Notes:
 - Linux GUI target is controlled by `ENABLE_LINUX_GUI`.
 - Native macOS GUI target is controlled by `ENABLE_MACOS_NATIVE_GUI`.
+- The macOS native GUI bundle places `presets.json` in `Contents/Resources`.
 
 ## CLI Behavior (Current)
 
@@ -62,6 +63,7 @@ Important:
 - Inputs are positional files, not `--input` pairs.
 - Codec/preset pairs are validated before execution.
 - Presets are loaded from `presets.json` (bundled next to binaries by build targets).
+- `--profile` remains a deprecated alias for `--preset`.
 - `-o/--output` sets output directory, not a single output filename.
 - If output directory is not set, converter uses default `$HOME/ffmpeg_converter`
   and creates it when missing.
@@ -107,6 +109,20 @@ Linux Apple M4V creator behavior:
   - optional chapter transfer from source metadata (`ffmpeg -map_chapters`)
 - Input preflight currently allows only `h264`, `hevc`, or `prores` video streams.
 
+Preset UI behavior:
+- The GTK label is **Preset**.
+- The combo is populated from `presets.json` for the selected codec.
+- It is enabled for every codec with more than one preset, including GPU tiers.
+- VAAPI device entries, including the recommended automatic choice, use a
+  friendly GPU name when sysfs supplies one; the internal `/dev/dri/*` node is
+  retained only for conversion.
+
+Linux AppImage verification performed on 2026-08-21:
+- C and Pascal AppImages were built with `appimagetool` and extracted.
+- Both contain `usr/share/ffmpeg_converter/presets.json`, export
+  `PRESETS_PATH`, launch `ffmpeg_converter_gui`, and provide matching
+  `ffmpeg-converter.desktop` / icon assets.
+
 ## macOS Native GUI Notes
 
 `src/gui_macos_native` supports:
@@ -118,11 +134,33 @@ Linux Apple M4V creator behavior:
 At runtime it resolves/bundles:
 - `ffmpeg`, `ffprobe`.
 - `MP4Box` (for Apple M4V).
+- `presets.json` in the application Resources directory. The Cocoa preset
+  popup is data-driven; VideoToolbox codecs are shown only after runtime probe.
+
+## Release Verification
+
+Linux verification completed on 2026-08-21:
+- `linux_cli` and `linux_gui` build successfully.
+- Pascal CLI/GUI build successfully; direct Pascal CLI/GUI targets stage
+  `fpc/bin/presets.json`.
+- C and Pascal AppImages pass bundle-content verification.
+
+Windows verification required before release:
+- Build C `windows_cli` with MSVC and Pascal CLI/GUI with Lazarus/FPC.
+- Confirm `presets.json` is staged beside every Pascal executable by both
+  PowerShell build scripts.
+- Run `--help`, `--codecs-list`, preset validation, and `--dry-run`/conversion
+  smoke tests for each runtime-detected backend and Vulkan device choice.
+
+macOS verification required before release:
+- Build `macos_cli` and `macos_gui_native` with Xcode.
+- Confirm `Contents/Resources/presets.json`, then verify Cocoa codec/preset
+  selection for software ProRes and detected VideoToolbox codecs.
+- Run bundle-launch and Apple M4V smoke tests with bundled tools.
 
 Linux builds now place the CLI, GTK GUI, `ffmpeg`, and `ffprobe` together in `build/bin`
 so the toolset can be copied or symlinked as a single folder on the same machine.
 
 ## Known Non-Goals in C Path
 
-- No `--dry-run` option in current C CLI.
 - Windows GUI is not implemented in C path.

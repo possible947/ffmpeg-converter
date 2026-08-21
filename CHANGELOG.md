@@ -5,6 +5,27 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Preset UX and Platform Validation Follow-up (2026-08-21)
+
+### Fixed
+- Linux GTK4 now labels the selector **Preset**, enables it for every
+  multi-preset codec, preserves the selected preset in conversion options, and
+  uses a friendly GPU name for the VAAPI automatic recommendation.
+- The macOS Cocoa bridge now uses `ConvertOptions.preset` instead of the
+  removed integer profile field. Cocoa codec/preset menus load from bundled
+  `presets.json`; `prores_videotoolbox` and `hevc_videotoolbox` are runtime-gated.
+- The macOS app bundle includes `presets.json` in `Contents/Resources` and
+  exports `PRESETS_PATH` before conversion/probing.
+- Linux C and Pascal AppImage bundles now carry presets, export
+  `PRESETS_PATH`, and use consistent `ffmpeg-converter` desktop/icon assets.
+
+### Verification Required Before Release
+- **Windows:** build C/MSVC and Pascal CLI/GUI, verify staged presets for both
+  Pascal PowerShell build paths, and run codec/preset, Vulkan-device, and
+  real-hardware conversion smoke tests.
+- **macOS:** build CLI and native Cocoa GUI with Xcode, verify bundled presets,
+  dynamic preset selection, VideoToolbox probe gating, and Apple M4V workflow.
+
 ## [3.0.0-Phase2.2] — 2026-08-21 (Development)
 
 ### Fixed
