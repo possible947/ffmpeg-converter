@@ -40,10 +40,22 @@ else
 fi
 
 rm -rf "${APPDIR}"
-mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/lib" "${APPDIR}/usr/share/applications" "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/lib" "${APPDIR}/usr/share/applications" \
+  "${APPDIR}/usr/share/ffmpeg_converter" \
+  "${APPDIR}/usr/share/icons/hicolor/256x256/apps" \
+  "${APPDIR}/usr/share/icons/hicolor/1024x1024/apps"
 
 cp "${GUI_BIN}" "${APPDIR}/usr/bin/ffmpeg_converter_gui"
 chmod +x "${APPDIR}/usr/bin/ffmpeg_converter_gui"
+
+if [ -f "${BIN_DIR}/presets.json" ]; then
+  cp "${BIN_DIR}/presets.json" "${APPDIR}/usr/share/ffmpeg_converter/presets.json"
+elif [ -f "${REPO_ROOT}/presets.json" ]; then
+  cp "${REPO_ROOT}/presets.json" "${APPDIR}/usr/share/ffmpeg_converter/presets.json"
+else
+  echo "ERROR: presets.json not found"
+  exit 1
+fi
 
 cp "${PROJECT_TOOLS_DIR}/ffmpeg" "${APPDIR}/usr/bin/ffmpeg"
 cp "${PROJECT_TOOLS_DIR}/ffprobe" "${APPDIR}/usr/bin/ffprobe"
@@ -118,26 +130,36 @@ if [ -x "${APPDIR}/usr/bin/MP4Box" ]; then
   export MP4BOX="${APPDIR}/usr/bin/MP4Box"
   export MP4BOX_BIN="${APPDIR}/usr/bin/MP4Box"
 fi
+if [ -f "${APPDIR}/usr/share/ffmpeg_converter/presets.json" ]; then
+  export PRESETS_PATH="${APPDIR}/usr/share/ffmpeg_converter"
+fi
 exec "${APPDIR}/usr/bin/ffmpeg_converter_gui" "$@"
 EOF
 chmod +x "${APPDIR}/AppRun"
 
-cat > "${APPDIR}/ffmpeg_converter_gui.desktop" << 'EOF'
+ICON_NAME="ffmpeg-converter"
+ICON_SOURCE="${REPO_ROOT}/src/gui/icon.png"
+if [ ! -f "${ICON_SOURCE}" ]; then
+  echo "ERROR: icon.png not found at ${ICON_SOURCE}"
+  exit 1
+fi
+cp "${ICON_SOURCE}" "${APPDIR}/usr/share/icons/hicolor/1024x1024/apps/${ICON_NAME}.png"
+cp "${ICON_SOURCE}" "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${ICON_NAME}.png"
+cp "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${ICON_NAME}.png" "${APPDIR}/${ICON_NAME}.png"
+cp "${APPDIR}/${ICON_NAME}.png" "${APPDIR}/.DirIcon"
+
+cat > "${APPDIR}/${ICON_NAME}.desktop" << EOF
 [Desktop Entry]
 Type=Application
 Name=FFmpeg Converter (FPC)
 Comment=Convert video/audio using FFmpeg
 Exec=ffmpeg_converter_gui
+Icon=${ICON_NAME}
 Categories=AudioVideo;Video;
 Terminal=false
 StartupWMClass=ffmpeg_converter_gui
 EOF
-
-if [ -f "${REPO_ROOT}/src/gui/icon.png" ]; then
-  cp "${REPO_ROOT}/src/gui/icon.png" "${APPDIR}/usr/share/icons/hicolor/256x256/apps/ffmpeg_converter.png"
-  sed -i '/^Exec=/a Icon=ffmpeg_converter' "${APPDIR}/ffmpeg_converter_gui.desktop"
-  ln -sf "usr/share/icons/hicolor/256x256/apps/ffmpeg_converter.png" "${APPDIR}/ffmpeg_converter.png"
-fi
+cp "${APPDIR}/${ICON_NAME}.desktop" "${APPDIR}/usr/share/applications/${ICON_NAME}.desktop"
 
 "${APPIMAGETOOL_BIN}" "${APPDIR}" "${APPIMAGE_PATH}"
 echo "Created ${APPIMAGE_PATH}"

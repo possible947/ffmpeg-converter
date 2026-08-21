@@ -22,10 +22,34 @@ uses
   {$ENDIF}
   tool_paths,
   fs_utils,
-  SysUtils;
+  SysUtils,
+  preset_loader;
 
 type
   TCodecNameArray = array of string;
+
+function CurrentPlatformName: string;
+begin
+{$IFDEF Windows}
+  Result := 'windows';
+{$ELSE}
+  Result := 'linux';
+{$ENDIF}
+end;
+
+function GetPresetNames(const Codec: string): TStringArray;
+var
+  PresetDb: TPresetDb;
+begin
+  SetLength(Result, 0);
+  PresetDb := TPresetDb.Create;
+  try
+    PresetDb.Load;
+    Result := PresetDb.ListPresets(CurrentPlatformName, Codec);
+  finally
+    PresetDb.Free;
+  end;
+end;
 
 { Build the list of codecs that are actually available on this platform
   (mirrors the C CLI's platform_get_codec_entries).  The interactive menu
@@ -372,6 +396,7 @@ var
   ChoiceNum: Integer;
   I: Integer;
   Preset: string;
+  PresetNames: TStringArray;
   Deblock: LongInt;
   AudioNorm: LongInt;
   AudioOutput: LongInt;
@@ -390,7 +415,8 @@ begin
   Step := 1;
   CodecNames := BuildCodecList;
   CodecIdx := 0;
-  Preset := 'standard';
+  Preset := 'default';
+  PresetNames := nil;
   Deblock := 1;
   AudioNorm := 3;
   AudioOutput := 1;
@@ -423,11 +449,16 @@ begin
           else if ChoiceNum > 0 then
           begin
             CodecIdx := ChoiceNum - 1;
-            if CodecNames[CodecIdx] = 'mux' then
-              Step := 8
+            PresetNames := GetPresetNames(CodecNames[CodecIdx]);
+            if Length(PresetNames) > 0 then
+              Preset := PresetNames[0]
+            else
+              Preset := 'default';
+            if Length(PresetNames) > 1 then
+              Step := 2
             else if (CodecNames[CodecIdx] = 'prores') or
                     (CodecNames[CodecIdx] = 'prores_ks') then
-              Step := 2
+              Step := 3
             else
               Step := 4;
           end
@@ -447,48 +478,43 @@ begin
           ClearScreen;
           WriteLn('----ffmpeg_converter_simple_gui----');
           WriteLn;
-          WriteLn('select profile');
+          WriteLn('select preset');
           WriteLn('-----------------------');
-          WriteLn('  1. lt');
-          WriteLn('  2. standard (default)');
-          WriteLn('  3. hq');
-          WriteLn('  4. 4444');
+          for I := 0 to High(PresetNames) do
+          begin
+            if I = 0 then
+              WriteLn(Format('  %d. %s (default)', [I + 1, PresetNames[I]]))
+            else
+              WriteLn(Format('  %d. %s', [I + 1, PresetNames[I]]));
+          end;
           WriteLn('-----------------------');
           Write('select: number->choice,Enter->(default),c->cancel,b->back');
           WriteLn;
           Write('>');
-          Ch := ReadChoice;
-          if Ch = #10 then
+          ChoiceNum := ReadChoiceNum(Length(PresetNames));
+          if ChoiceNum = 0 then
           begin
-            Preset := 'standard';
-            Step := 3;
+            if (CodecNames[CodecIdx] = 'prores') or
+               (CodecNames[CodecIdx] = 'prores_ks') then
+              Step := 3
+            else
+              Step := 4;
           end
-          else if Ch = '1' then
+          else if ChoiceNum > 0 then
           begin
-            Preset := 'lt';
-            Step := 3;
+            Preset := PresetNames[ChoiceNum - 1];
+            if (CodecNames[CodecIdx] = 'prores') or
+               (CodecNames[CodecIdx] = 'prores_ks') then
+              Step := 3
+            else
+              Step := 4;
           end
-          else if Ch = '2' then
-          begin
-            Preset := 'standard';
-            Step := 3;
-          end
-          else if Ch = '3' then
-          begin
-            Preset := 'hq';
-            Step := 3;
-          end
-          else if Ch = '4' then
-          begin
-            Preset := '4444';
-            Step := 3;
-          end
-          else if (Ch = 'c') or (Ch = 'C') then
+          else if ChoiceNum = -1 then
           begin
             ClearAllocated(Files, TempFileCount);
             Exit(False);
           end
-          else if (Ch = 'b') or (Ch = 'B') then
+          else if ChoiceNum = -2 then
             Step := 1
           else
             WriteLn('Invalid choice');
@@ -594,10 +620,8 @@ begin
           end
           else if (Ch = 'b') or (Ch = 'B') then
           begin
-            if (CodecIdx >= 0) and (CodecIdx <= High(CodecNames)) and
-               ((CodecNames[CodecIdx] = 'prores') or
-                (CodecNames[CodecIdx] = 'prores_ks')) then
-              Step := 3
+            if Length(PresetNames) > 1 then
+              Step := 2
             else
               Step := 1;
           end

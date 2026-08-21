@@ -937,11 +937,6 @@ begin
 {$ENDIF}
 
   cmbProfile.Items.Clear;
-  cmbProfile.Items.Add('lt');
-  cmbProfile.Items.Add('standard');
-  cmbProfile.Items.Add('hq');
-  cmbProfile.Items.Add('4444');
-  cmbProfile.ItemIndex := 1;
 
   cmbDeblock.Items.Clear;
   cmbDeblock.Items.Add('none');
@@ -1113,6 +1108,8 @@ begin
   begin
     GPresetDb := TPresetDb.Create;
     GPresetDb.Load;
+    if GPresetDb.GetLastError <> 'No error' then
+      UiLog('WARNING: ' + GPresetDb.GetLastError);
   end;
 
   { Get platform name for preset lookup }

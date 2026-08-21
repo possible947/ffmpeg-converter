@@ -113,7 +113,7 @@ GUI_DEPS := \
 # is the native C/Cocoa GUI (src/gui_macos_native).  The FPC Makefile now
 # only supports Linux and Windows builds.
 ifeq ($(UNAME_S),Darwin)
-.PHONY: all cli lib tests apple-test gui gui-app appimage clean
+.PHONY: all cli lib tests apple-test gui gui-app appimage clean stage-presets
 
 all cli lib tests apple-test gui gui-app appimage:
 	@echo "ERROR: Pascal/FPC macOS build is no longer supported."
@@ -129,7 +129,7 @@ else
 
 all: cli lib tests copy-binaries
 
-cli: $(CLI_BIN)
+cli: $(CLI_BIN) stage-presets
 
 lib: $(LIB_OUT)
 
@@ -142,7 +142,12 @@ endif
 
 apple-test: $(ROOT)/fpc/test/run_apple_m4v_test$(EXEEXT)
 
-gui: $(GUI_BIN)
+gui: $(GUI_BIN) stage-presets
+
+stage-presets:
+	@mkdir -p "$(BIN_DIR)"
+	@test -f "$(ROOT)/presets.json" || { echo "ERROR: presets.json not found at $(ROOT)/presets.json"; exit 1; }
+	@cp -f "$(ROOT)/presets.json" "$(BIN_DIR)/presets.json"
 
 copy-binaries:
 	@mkdir -p "$(BIN_DIR)"

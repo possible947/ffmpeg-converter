@@ -28,7 +28,8 @@ uses
   linux_probe,
   {$ENDIF}
   tool_paths,
-  fs_utils;
+  fs_utils,
+  preset_loader;
 
   {$IFDEF Windows}
 var
@@ -125,6 +126,32 @@ begin
   Result := (Codec = 'copy') or (Codec = 'prores') or (Codec = 'prores_ks') or (Codec = 'mux');
   {$ENDIF}
 {$ENDIF}
+end;
+
+function CurrentPlatformName: string;
+begin
+{$IFDEF Windows}
+  Result := 'windows';
+{$ELSE}
+  {$IFDEF Linux}
+  Result := 'linux';
+  {$ELSE}
+  Result := 'macos';
+  {$ENDIF}
+{$ENDIF}
+end;
+
+function IsPresetAllowed(const Codec, Preset: string): Boolean;
+var
+  PresetDb: TPresetDb;
+begin
+  PresetDb := TPresetDb.Create;
+  try
+    PresetDb.Load;
+    Result := PresetDb.GetPreset(CurrentPlatformName, Codec, Preset) <> nil;
+  finally
+    PresetDb.Free;
+  end;
 end;
 
 procedure SetAnsiField(var Dest: array of AnsiChar; const S: string);
@@ -237,7 +264,8 @@ begin
   WriteLn('  -c, --codec <copy|prores|prores_ks|mux>');
   {$ENDIF}
 {$ENDIF}
-  WriteLn('  -p, --profile <lt|standard|hq|4444>');
+  WriteLn('  -p, --preset <preset>     Codec-specific preset (use --codecs-list for available presets)');
+  WriteLn('      --profile <preset>     Deprecated alias for --preset');
   WriteLn('  -d, --deblock <none|weak|strong>');
   WriteLn('  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>');
   WriteLn('      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>');
@@ -279,6 +307,10 @@ end;
 
 procedure PrintCodecsList;
 var
+  PresetDb: TPresetDb;
+  CodecNames: TStringArray;
+  PresetNames: TStringArray;
+  I, J: Integer;
 {$IFDEF Windows}
   WinCaps: TWindowsCodecSupport;
 {$ELSE}
@@ -287,6 +319,33 @@ var
   {$ENDIF}
 {$ENDIF}
 begin
+{$IFDEF Linux}
+  PresetDb := TPresetDb.Create;
+  try
+    PresetDb.Load;
+    CodecNames := PresetDb.ListCodecs('linux');
+    WriteLn;
+    WriteLn('Available Codecs and Presets:');
+    WriteLn('============================');
+    WriteLn;
+    for I := 0 to Length(CodecNames) - 1 do
+    begin
+      if not IsCodecAllowedOnCurrentPlatform(CodecNames[I]) then
+        Continue;
+      PresetNames := PresetDb.ListPresets('linux', CodecNames[I]);
+      if Length(PresetNames) = 0 then
+        Continue;
+      WriteLn(CodecNames[I]);
+      for J := 0 to Length(PresetNames) - 1 do
+        WriteLn('  - ', PresetNames[J]);
+      WriteLn;
+    end;
+  finally
+    PresetDb.Free;
+  end;
+  Exit;
+{$ENDIF}
+
   WriteLn;
   WriteLn('Available Codecs and Presets:');
   WriteLn('============================');
@@ -643,16 +702,13 @@ begin
       Continue;
     end;
 
-    if (S = '--preset') or (S = '-p') then
+    if (S = '--preset') or (S = '-p') or (S = '--profile') then
     begin
       if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
       S := Args[I];
-      if (S = 'lt') or (S = 'standard') or (S = 'hq') or (S = '4444') or (S = 'default') then
-        StrPLCopy(@Opts.preset[0], S, High(Opts.preset))
-      else
-        Exit(False);
+      SetAnsiField(Opts.preset, S);
       Inc(I);
       Continue;
     end;
@@ -889,6 +945,14 @@ begin
   end;
 
   Codec := ArrToStr(Opts.codec);
+  if not IsPresetAllowed(Codec, ArrToStr(Opts.preset)) then
+  begin
+    WriteLn(StdErr, 'Error: preset ''', ArrToStr(Opts.preset),
+      ''' is not available for codec ''', Codec,
+      '''. Use --codecs-list to see valid combinations.');
+    Exit(False);
+  end;
+
   if Codec = 'mux' then
   begin
     if FileCount <> 1 then

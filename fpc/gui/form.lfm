@@ -36,7 +36,7 @@ object MainForm: TMainForm
     Top = 7
     Width = 46
     AutoSize = False
-    Caption = 'Profile:'
+    Caption = 'Preset:'
     Font.Height = 14
     Layout = tlCenter
     ParentFont = False

@@ -159,6 +159,7 @@ static void populate_vaapi_device_combo(AppWidgets *w)
     DIR *dir;
     struct dirent *entry;
     char auto_label[1100];
+    char recommended_name[512];
 
     if (!w || !w->vaapi_device_combo)
         return;
@@ -178,9 +179,14 @@ static void populate_vaapi_device_combo(AppWidgets *w)
 
     /* "auto" entry — index 0, maps to "" (converter auto-selects the node). */
     if (w->linux_codec_support.default_render_node[0] != '\0') {
-        snprintf(auto_label, sizeof(auto_label),
-                 "auto (recommended: %s)",
-                 w->linux_codec_support.default_render_node);
+        if (linux_get_vaapi_device_name(
+                w->linux_codec_support.default_render_node,
+                recommended_name, sizeof(recommended_name)) == 0) {
+            snprintf(auto_label, sizeof(auto_label),
+                     "auto (recommended: %s)", recommended_name);
+        } else {
+            g_strlcpy(auto_label, "auto", sizeof(auto_label));
+        }
     } else {
         g_strlcpy(auto_label, "auto", sizeof(auto_label));
     }
@@ -611,7 +617,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_widget_set_tooltip_text(w->codec_combo,
         "Video codec. Hardware codecs (VAAPI, Vulkan) are detected at startup.");
     gtk_widget_set_tooltip_text(w->profile_combo,
-        "ProRes profile: lt (low bitrate), standard, hq (high quality), 4444.");
+        "Codec-specific conversion preset.");
     gtk_widget_set_tooltip_text(w->deblock_combo,
         "Deblock filter strength applied during encoding.");
     gtk_widget_set_tooltip_text(w->audio_norm_combo,
@@ -646,7 +652,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Codec:"), 0, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->codec_combo, 1, r, 1, 1);
 
-    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Profile:"), 2, r, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Preset:"), 2, r, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), w->profile_combo, 3, r, 1, 1);
 
     gtk_grid_attach(GTK_GRID(grid), gtk_label_new("Deblock:"), 4, r, 1, 1);
@@ -850,11 +856,11 @@ static void update_dependent_widgets(AppWidgets *w)
     /* Update preset combo with presets for the selected codec */
     populate_preset_combo(w);
 
-    /* Profile: software ProRes and Vulkan ProRes (profile:v mapping).
-     * Deblock: software ProRes encoders only; hardware encoders skip it. */
-    gboolean profile_sensitive = codec_uses_software_prores(codec) ||
-                                 codec_uses_vulkan_prores(codec);
-    gtk_widget_set_sensitive(w->profile_combo, profile_sensitive);
+    /* A codec with one preset has nothing to choose; all multi-preset
+     * codecs, including GPU encoders, must expose their preset tiers. */
+    gtk_widget_set_sensitive(
+        w->profile_combo,
+        g_list_model_get_n_items(G_LIST_MODEL(w->preset_list)) > 1);
     gtk_widget_set_sensitive(w->deblock_combo, codec_uses_software_prores(codec));
 
     gtk_widget_set_sensitive(w->add_files_btn,
@@ -1261,13 +1267,11 @@ void collect_options_from_gui(AppWidgets *w,
     g_strlcpy(opts->codec, codec ? codec : "", sizeof(opts->codec));
     g_free(codec);
 
-    /* ----- profile (preset) ----- */
-    if (gtk_widget_get_sensitive(w->profile_combo)) {
+    /* ----- preset ----- */
+    {
         char *preset = get_dropdown_text(w->profile_combo);
         g_strlcpy(opts->preset, preset ? preset : "default", sizeof(opts->preset));
         g_free(preset);
-    } else {
-        g_strlcpy(opts->preset, "default", sizeof(opts->preset));
     }
 
     /* ----- deblock ----- */
