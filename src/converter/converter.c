@@ -26,7 +26,11 @@ static int codec_is_vaapi(const char* codec) {
 }
 
 static int codec_is_vulkan(const char* codec) {
-    return codec && strcmp(codec, "prores_ks_vulkan") == 0;
+    return codec &&
+           (strcmp(codec, "prores_ks_vulkan") == 0 ||
+            strcmp(codec, "h264_vulkan") == 0 ||
+            strcmp(codec, "hevc_vulkan") == 0 ||
+            strcmp(codec, "av1_vulkan") == 0);
 }
 
 static int codec_uses_mov_container(const char* codec) {

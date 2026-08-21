@@ -243,9 +243,13 @@ int platform_supports_codec(const char* codec) {
         if (strcmp(codec, "hevc_nvenc")       == 0) return support.has_hevc_nvenc;
         if (strcmp(codec, "h264_amf")         == 0) return support.has_h264_amf;
         if (strcmp(codec, "hevc_amf")         == 0) return support.has_hevc_amf;
+        if (strcmp(codec, "av1_amf")          == 0) return support.has_av1_amf;
         if (strcmp(codec, "h264_qsv")         == 0) return support.has_h264_qsv;
         if (strcmp(codec, "hevc_qsv")         == 0) return support.has_hevc_qsv;
         if (strcmp(codec, "prores_ks_vulkan") == 0) return support.has_prores_ks_vulkan;
+        if (strcmp(codec, "h264_vulkan")      == 0) return support.has_h264_vulkan;
+        if (strcmp(codec, "hevc_vulkan")      == 0) return support.has_hevc_vulkan;
+        if (strcmp(codec, "av1_vulkan")       == 0) return support.has_av1_vulkan;
     }
 
     return 0;
@@ -261,24 +265,103 @@ const char* platform_get_video_codec_flags(const char* codec,
 
     if (!codec) return NULL;
 
-    if (strcmp(codec, "h264_vaapi") == 0)
-        return "-c:v h264_vaapi -rc_mode auto ";
-    if (strcmp(codec, "hevc_vaapi") == 0)
-        return "-c:v hevc_vaapi -rc_mode auto ";
-    if (strcmp(codec, "h264_nvenc") == 0)
-        return "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 ";
-    if (strcmp(codec, "hevc_nvenc") == 0)
-        return "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto ";
-    if (strcmp(codec, "h264_amf") == 0)
-        return "-c:v h264_amf ";
-    if (strcmp(codec, "hevc_amf") == 0)
-        return "-c:v hevc_amf ";
-    if (strcmp(codec, "h264_qsv") == 0)
-        return "-c:v h264_qsv -global_quality 22 -preset slower "
-               "-look_ahead 1 -look_ahead_depth 40 -extbrc 1 ";
-    if (strcmp(codec, "hevc_qsv") == 0)
-        return "-c:v hevc_qsv -global_quality 25 -preset slow "
-               "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ";
+    /* Speed/balance/quality preset tiers for GPU codecs (Phase 2).
+     * `default` strings are byte-for-byte identical to pre-Phase-2 behavior —
+     * zero regression for existing users/scripts. Values mirror presets.json
+     * Section 5 (v3.0-Phase2.md) and must be kept in sync with it. */
+    {
+        typedef struct {
+            const char* codec;
+            const char* def;
+            const char* speed;
+            const char* balance;
+            const char* quality;
+        } HwPreset;
+
+        static const HwPreset hw_presets[] = {
+            { "h264_vaapi",
+              "-c:v h264_vaapi -rc_mode auto ",
+              "-c:v h264_vaapi -rc_mode CQP -qp 28 ",
+              "-c:v h264_vaapi -rc_mode CQP -qp 24 ",
+              "-c:v h264_vaapi -rc_mode CQP -qp 20 " },
+            { "hevc_vaapi",
+              "-c:v hevc_vaapi -rc_mode auto ",
+              "-c:v hevc_vaapi -rc_mode CQP -qp 28 ",
+              "-c:v hevc_vaapi -rc_mode CQP -qp 24 ",
+              "-c:v hevc_vaapi -rc_mode CQP -qp 20 " },
+            { "h264_nvenc",
+              "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 ",
+              "-c:v h264_nvenc -preset p1 -qp 22 -spatial_aq 1 -temporal_aq 1 ",
+              "-c:v h264_nvenc -preset p4 -qp 22 -spatial_aq 1 -temporal_aq 1 ",
+              "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 " },
+            { "hevc_nvenc",
+              "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto ",
+              "-c:v hevc_nvenc -preset p1 -cq 25 -lookahead_level 0 ",
+              "-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto ",
+              "-c:v hevc_nvenc -preset p7 -cq 25 -lookahead_level auto " },
+            { "h264_amf",
+              "-c:v h264_amf ",
+              "-c:v h264_amf -quality speed ",
+              "-c:v h264_amf -quality balanced ",
+              "-c:v h264_amf -quality quality " },
+            { "hevc_amf",
+              "-c:v hevc_amf ",
+              "-c:v hevc_amf -quality speed ",
+              "-c:v hevc_amf -quality balanced ",
+              "-c:v hevc_amf -quality quality " },
+            { "av1_amf",
+              "-c:v av1_amf ",
+              "-c:v av1_amf -quality speed ",
+              "-c:v av1_amf -quality balanced ",
+              "-c:v av1_amf -quality quality " },
+            { "h264_qsv",
+              "-c:v h264_qsv -global_quality 22 -preset slower "
+              "-look_ahead 1 -look_ahead_depth 40 -extbrc 1 ",
+              "-c:v h264_qsv -global_quality 22 -preset veryfast -extbrc 1 ",
+              "-c:v h264_qsv -global_quality 22 -preset medium "
+              "-look_ahead 1 -look_ahead_depth 40 -extbrc 1 ",
+              "-c:v h264_qsv -global_quality 22 -preset slower "
+              "-look_ahead 1 -look_ahead_depth 40 -extbrc 1 " },
+            { "hevc_qsv",
+              "-c:v hevc_qsv -global_quality 25 -preset slow "
+              "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
+              "-c:v hevc_qsv -global_quality 25 -preset fast -g 240 -bf 4 ",
+              "-c:v hevc_qsv -global_quality 25 -preset medium "
+              "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
+              "-c:v hevc_qsv -global_quality 25 -preset slow "
+              "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 " },
+            { "h264_vulkan",
+              "-c:v h264_vulkan -qp 18 ",
+              "-c:v h264_vulkan -qp 28 ",
+              "-c:v h264_vulkan -qp 23 ",
+              "-c:v h264_vulkan -qp 18 " },
+            { "hevc_vulkan",
+              "-c:v hevc_vulkan -qp 18 ",
+              "-c:v hevc_vulkan -qp 28 ",
+              "-c:v hevc_vulkan -qp 23 ",
+              "-c:v hevc_vulkan -qp 18 " },
+            { "av1_vulkan",
+              "-c:v av1_vulkan -qp 60 ",
+              "-c:v av1_vulkan -qp 120 ",
+              "-c:v av1_vulkan -qp 90 ",
+              "-c:v av1_vulkan -qp 60 " },
+        };
+        size_t i;
+
+        for (i = 0; i < sizeof(hw_presets) / sizeof(hw_presets[0]); i++) {
+            if (strcmp(codec, hw_presets[i].codec) != 0)
+                continue;
+            if (copt && copt->preset[0] != '\0') {
+                if (strcmp((const char*)copt->preset, "speed") == 0)
+                    return hw_presets[i].speed;
+                if (strcmp((const char*)copt->preset, "balance") == 0)
+                    return hw_presets[i].balance;
+                if (strcmp((const char*)copt->preset, "quality") == 0)
+                    return hw_presets[i].quality;
+            }
+            return hw_presets[i].def;
+        }
+    }
 
     if (strcmp(codec, "prores_ks_vulkan") == 0) {
         const char* profile_name = "hq"; /* default: HQ (preserves pre-refactor behavior) */
@@ -308,9 +391,13 @@ int platform_detect_gpu_support(void) {
     if (support.has_hevc_nvenc)       caps |= PLAT_CAP_NVENC_HEVC;
     if (support.has_h264_amf)         caps |= PLAT_CAP_AMF_H264;
     if (support.has_hevc_amf)         caps |= PLAT_CAP_AMF_HEVC;
+    if (support.has_av1_amf)          caps |= PLAT_CAP_AMF_AV1;
     if (support.has_h264_qsv)         caps |= PLAT_CAP_QSV_H264;
     if (support.has_hevc_qsv)         caps |= PLAT_CAP_QSV_HEVC;
     if (support.has_prores_ks_vulkan) caps |= PLAT_CAP_VULKAN_PRORES;
+    if (support.has_h264_vulkan)      caps |= PLAT_CAP_VULKAN_H264;
+    if (support.has_hevc_vulkan)      caps |= PLAT_CAP_VULKAN_HEVC;
+    if (support.has_av1_vulkan)       caps |= PLAT_CAP_VULKAN_AV1;
 
     /* Probe decoders: libdav1d (software AV1) and av1_qsv (Intel QSV).
      * libdav1d is a pure-software AV1 decoder with no hardware dependency —
@@ -389,7 +476,14 @@ int platform_get_video_info(const char* input_path,
 }
 
 const char* platform_get_preinput_hw_flags(const char* codec, const void* opts) {
-    if (codec && strcmp(codec, "prores_ks_vulkan") == 0) {
+    /* All *_vulkan codecs (compute-shader ProRes and hardware h264/hevc/av1)
+     * share the same pre-input device init pattern and the same probed
+     * --vk_device index. */
+    if (codec &&
+        (strcmp(codec, "prores_ks_vulkan") == 0 ||
+         strcmp(codec, "h264_vulkan") == 0 ||
+         strcmp(codec, "hevc_vulkan") == 0 ||
+         strcmp(codec, "av1_vulkan") == 0)) {
         static char vk_flag[64];
         const ConvertOptions* copt = (const ConvertOptions*)opts;
         int vk_idx = (copt && copt->vulkan_device >= 0) ? copt->vulkan_device : 1;
@@ -403,7 +497,9 @@ const char* platform_get_preinput_hw_flags(const char* codec, const void* opts) 
 
 const char* platform_get_hw_vfilter(const char* codec, const void* opts) {
     if (codec &&
-        (strcmp(codec, "h264_vaapi") == 0 || strcmp(codec, "hevc_vaapi") == 0))
+        (strcmp(codec, "h264_vaapi") == 0 || strcmp(codec, "hevc_vaapi") == 0 ||
+         strcmp(codec, "h264_vulkan") == 0 || strcmp(codec, "hevc_vulkan") == 0 ||
+         strcmp(codec, "av1_vulkan") == 0))
         return "nv12,hwupload";
     if (codec && strcmp(codec, "prores_ks_vulkan") == 0) {
         const ConvertOptions* copt = (const ConvertOptions*)opts;

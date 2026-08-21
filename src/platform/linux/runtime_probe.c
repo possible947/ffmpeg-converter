@@ -339,6 +339,150 @@ static int probe_vulkan_prores(const char *ffmpeg_bin,
     return best;
 }
 
+/**
+ * ffmpeg_has_encoder()
+ * Cheap pre-filter: checks `ffmpeg -encoders` output for encoder_name before
+ * running an expensive one-frame probe. Keeps startup time flat on systems
+ * where the encoder is not present in the bundled ffmpeg build at all.
+ */
+static int ffmpeg_has_encoder(const char *ffmpeg_bin, const char *encoder_name)
+{
+    char cmd[1024];
+    char *q;
+    char line[1024];
+    FILE *fp;
+    int found = 0;
+    size_t name_len;
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0' || !encoder_name)
+        return 0;
+
+    q = posix_shell_quote(ffmpeg_bin);
+    if (!q) return 0;
+
+    snprintf(cmd, sizeof(cmd), "%s -hide_banner -v error -encoders 2>/dev/null", q);
+    free(q);
+
+    fp = popen(cmd, "r");
+    if (!fp) return 0;
+
+    name_len = strlen(encoder_name);
+    while (fgets(line, sizeof(line), fp)) {
+        char *pos = strstr(line, encoder_name);
+        if (pos && (pos == line || pos[-1] == ' ') &&
+            (pos[name_len] == ' ' || pos[name_len] == '\n' || pos[name_len] == '\0')) {
+            found = 1;
+            break;
+        }
+    }
+    pclose(fp);
+    return found;
+}
+
+/**
+ * vulkan_device_is_software()
+ * Fixes the known llvmpipe issue: a CPU-only "software" Vulkan device
+ * (Mesa lavapipe/llvmpipe) can otherwise report a "working" encoder in the
+ * one-frame probe, which is never usable in practice. Parses `vulkaninfo`
+ * device listing and skips devices whose name/type indicates a software
+ * implementation. If vulkaninfo is unavailable, fails open (returns 0) —
+ * the one-frame probe itself remains the final authority.
+ */
+static int vulkan_device_is_software(int device_index)
+{
+    FILE *fp;
+    char line[1024];
+    int current_index = -1;
+    int result = 0;
+
+    fp = popen("vulkaninfo --summary 2>/dev/null", "r");
+    if (!fp)
+        return 0;
+
+    while (fgets(line, sizeof(line), fp)) {
+        /* vulkaninfo --summary prints one "GPU<N>:" heading per device,
+         * followed by indented "deviceName" and "deviceType" fields. */
+        int scanned_index;
+        if (sscanf(line, " GPU%d :", &scanned_index) == 1 ||
+            sscanf(line, " GPU%d:", &scanned_index) == 1) {
+            current_index = scanned_index;
+            continue;
+        }
+        if (current_index != device_index)
+            continue;
+
+        if ((strstr(line, "deviceType") && strstr(line, "CPU")) ||
+            strstr(line, "llvmpipe") ||
+            strstr(line, "lavapipe")) {
+            result = 1;
+            break;
+        }
+    }
+    pclose(fp);
+    return result;
+}
+
+/**
+ * probe_vulkan_encoder()
+ * Generic hardware Vulkan video encoder probe (h264_vulkan, hevc_vulkan,
+ * av1_vulkan), modeled on probe_vulkan_prores(). Scans vk:0..7, skipping
+ * devices identified as software (llvmpipe/lavapipe) by
+ * vulkan_device_is_software(). Returns the highest working device index,
+ * or -1 if no device passes.
+ */
+static int probe_vulkan_encoder(const char *ffmpeg_bin,
+                                const char *encoder_name,
+                                int *out_working_mask,
+                                int *out_device_count)
+{
+    int i, mask = 0, count = 0, best = -1;
+    char *q;
+
+    if (out_working_mask)  *out_working_mask  = 0;
+    if (out_device_count)  *out_device_count  = 0;
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0' || !encoder_name) return -1;
+
+    q = posix_shell_quote(ffmpeg_bin);
+    if (!q) return -1;
+
+    for (i = 0; i < LINUX_VULKAN_MAX_DEVICES; i++) {
+        char cmd[8192];
+        int  rc;
+
+        if (vulkan_device_is_software(i))
+            continue;
+
+        snprintf(cmd, sizeof(cmd),
+                 "%s -v error -hide_banner "
+                 "-init_hw_device vulkan=vk:%d -filter_hw_device vk "
+                 "-f lavfi -i color=size=1920x1080:rate=1 "
+                 "-frames:v 1 "
+                 "-vf format=nv12,hwupload "
+                 "-c:v %s -f null - >/dev/null 2>&1",
+                 q, i, encoder_name);
+
+        rc = system(cmd);
+        if (rc == -1)
+            break;  /* system() failure — stop scanning */
+
+        if (WIFEXITED(rc) && WEXITSTATUS(rc) == 0) {
+            mask |= (1 << i);
+            best = i;
+            count++;
+        } else if (count == 0 && i >= 2) {
+            /* No successes after 3 attempts — no working Vulkan encode GPU */
+            break;
+        }
+    }
+
+    free(q);
+
+    if (out_working_mask)  *out_working_mask  = mask;
+    if (out_device_count)  *out_device_count  = count;
+    return best;
+}
+
 static int probe_vaapi_encoder(const char *ffmpeg_bin,
                                const char *render_node,
                                const char *encoder_name)
@@ -451,12 +595,16 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
     /* AMF — AMD (no device path required) */
     detected.has_h264_amf = probe_simple_encoder(detected.ffmpeg_bin, "h264_amf");
     detected.has_hevc_amf = probe_simple_encoder(detected.ffmpeg_bin, "hevc_amf");
+    /* av1_amf requires RDNA3+ (RX 7000 series); pre-filter on -encoders text
+     * scan first, since older GPUs will fail the one-frame probe anyway. */
+    detected.has_av1_amf = ffmpeg_has_encoder(detected.ffmpeg_bin, "av1_amf") &&
+                           probe_simple_encoder(detected.ffmpeg_bin, "av1_amf");
 
     /* QSV — Intel (no device path required) */
     detected.has_h264_qsv = probe_simple_encoder(detected.ffmpeg_bin, "h264_qsv");
     detected.has_hevc_qsv = probe_simple_encoder(detected.ffmpeg_bin, "hevc_qsv");
 
-    /* Vulkan — any GPU with Vulkan 1.1+ */
+    /* Vulkan — any GPU with Vulkan 1.1+ (compute-shader ProRes) */
     {
         int mask = 0, count = 0;
         int best = probe_vulkan_prores(detected.ffmpeg_bin, &mask, &count);
@@ -464,6 +612,45 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
         detected.vulkan_working_mask  = mask;
         detected.vulkan_device_index  = (best >= 0) ? best : 0;
         detected.vulkan_device_count  = count;
+    }
+
+    /* Vulkan hardware video encoders — h264_vulkan/hevc_vulkan (RDNA3+,
+     * Turing+) and av1_vulkan (RDNA3+ / Turing+, ffmpeg >= 8.0). Each is
+     * pre-filtered against `ffmpeg -encoders` before the one-frame probe
+     * to keep startup time flat on systems without the hardware. */
+    {
+        int mask = 0, count = 0, best = -1;
+
+        if (ffmpeg_has_encoder(detected.ffmpeg_bin, "h264_vulkan"))
+            best = probe_vulkan_encoder(detected.ffmpeg_bin, "h264_vulkan", &mask, &count);
+        detected.has_h264_vulkan = (best >= 0) ? 1 : 0;
+        if (best >= 0) {
+            detected.vulkan_hw_working_mask = mask;
+            detected.vulkan_hw_device_index = best;
+            detected.vulkan_hw_device_count = count;
+        }
+
+        if (ffmpeg_has_encoder(detected.ffmpeg_bin, "hevc_vulkan"))
+            best = probe_vulkan_encoder(detected.ffmpeg_bin, "hevc_vulkan", &mask, &count);
+        else
+            best = -1;
+        detected.has_hevc_vulkan = (best >= 0) ? 1 : 0;
+        if (best >= 0 && count > detected.vulkan_hw_device_count) {
+            detected.vulkan_hw_working_mask = mask;
+            detected.vulkan_hw_device_index = best;
+            detected.vulkan_hw_device_count = count;
+        }
+
+        if (ffmpeg_has_encoder(detected.ffmpeg_bin, "av1_vulkan"))
+            best = probe_vulkan_encoder(detected.ffmpeg_bin, "av1_vulkan", &mask, &count);
+        else
+            best = -1;
+        detected.has_av1_vulkan = (best >= 0) ? 1 : 0;
+        if (best >= 0 && count > detected.vulkan_hw_device_count) {
+            detected.vulkan_hw_working_mask = mask;
+            detected.vulkan_hw_device_index = best;
+            detected.vulkan_hw_device_count = count;
+        }
     }
 
     g_cache.support = detected;

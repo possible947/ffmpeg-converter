@@ -59,12 +59,13 @@
 
 /* Maximum codec entries: copy + prores + prores_ks +
  *                        h264_nvenc + hevc_nvenc +
- *                        h264_amf  + hevc_amf  +
+ *                        h264_amf  + hevc_amf  + av1_amf +
  *                        h264_qsv  + hevc_qsv  +
  *                        prores_ks_vulkan +
+ *                        h264_vulkan + hevc_vulkan + av1_vulkan +
  *                        mux +
  *                        m4v                        */
-#define WINDOWS_MAX_CODECS 12
+#define WINDOWS_MAX_CODECS 16
 
 struct CliPlatformHandle {
     WindowsCodecSupport support;
@@ -133,6 +134,12 @@ CliPlatformHandle* cli_platform_init(void) {
         h->entries[h->codec_count].needs_deblock = 0;
         h->codec_count++;
     }
+    if (h->support.has_av1_amf) {
+        h->entries[h->codec_count].name          = "av1_amf";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
 
     /* Intel QSV */
     if (h->support.has_h264_qsv) {
@@ -152,6 +159,26 @@ CliPlatformHandle* cli_platform_init(void) {
     if (h->support.has_prores_ks_vulkan) {
         h->entries[h->codec_count].name          = "prores_ks_vulkan";
         h->entries[h->codec_count].needs_profile = 1;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+
+    /* Vulkan — hardware h264/hevc/av1 encoders (NVIDIA Turing+ on Windows) */
+    if (h->support.has_h264_vulkan) {
+        h->entries[h->codec_count].name          = "h264_vulkan";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+    if (h->support.has_hevc_vulkan) {
+        h->entries[h->codec_count].name          = "hevc_vulkan";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+    if (h->support.has_av1_vulkan) {
+        h->entries[h->codec_count].name          = "av1_vulkan";
+        h->entries[h->codec_count].needs_profile = 0;
         h->entries[h->codec_count].needs_deblock = 0;
         h->codec_count++;
     }
@@ -204,9 +231,13 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
     if (!strcmp(codec, "hevc_nvenc"))       return h->support.has_hevc_nvenc;
     if (!strcmp(codec, "h264_amf"))         return h->support.has_h264_amf;
     if (!strcmp(codec, "hevc_amf"))         return h->support.has_hevc_amf;
+    if (!strcmp(codec, "av1_amf"))          return h->support.has_av1_amf;
     if (!strcmp(codec, "h264_qsv"))         return h->support.has_h264_qsv;
     if (!strcmp(codec, "hevc_qsv"))         return h->support.has_hevc_qsv;
     if (!strcmp(codec, "prores_ks_vulkan")) return h->support.has_prores_ks_vulkan;
+    if (!strcmp(codec, "h264_vulkan"))      return h->support.has_h264_vulkan;
+    if (!strcmp(codec, "hevc_vulkan"))      return h->support.has_hevc_vulkan;
+    if (!strcmp(codec, "av1_vulkan"))       return h->support.has_av1_vulkan;
     if (!strcmp(codec, "m4v"))              return platform_m4v_is_supported();
 
     return 0;
@@ -260,6 +291,9 @@ void platform_apply_hw_device(ConvertOptions* opts, const CliPlatformHandle* h) 
 int platform_get_default_vulkan_device(const CliPlatformHandle* h) {
     if (h && h->support.has_prores_ks_vulkan)
         return h->support.vulkan_device_index;
+    if (h && (h->support.has_h264_vulkan || h->support.has_hevc_vulkan ||
+              h->support.has_av1_vulkan))
+        return h->support.vulkan_hw_device_index;
     return 1;  /* safe fallback */
 }
 

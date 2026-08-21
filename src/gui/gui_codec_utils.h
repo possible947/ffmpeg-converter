@@ -29,6 +29,18 @@ static inline gboolean codec_uses_vulkan_prores(const char *codec)
     return g_strcmp0(codec, "prores_ks_vulkan") == 0;
 }
 
+static inline gboolean codec_uses_hw_vulkan(const char *codec)
+{
+    return g_strcmp0(codec, "h264_vulkan") == 0 ||
+           g_strcmp0(codec, "hevc_vulkan") == 0 ||
+           g_strcmp0(codec, "av1_vulkan") == 0;
+}
+
+static inline gboolean codec_uses_any_vulkan(const char *codec)
+{
+    return codec_uses_vulkan_prores(codec) || codec_uses_hw_vulkan(codec);
+}
+
 static inline gboolean codec_is_mux(const char *codec)
 {
     return g_strcmp0(codec, "mux") == 0;

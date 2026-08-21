@@ -355,6 +355,93 @@ static int windows_probe_vulkan_prores(const char *ffmpeg_bin,
     return best;
 }
 
+/**
+ * windows_ffmpeg_has_encoder()
+ * Cheap pre-filter: checks `ffmpeg -encoders` for encoder_name before running
+ * an expensive one-frame probe. Keeps startup time flat on systems where the
+ * encoder is not present in the bundled ffmpeg build at all (mirrors the
+ * existing -encoders text-scan approach already used elsewhere on Windows).
+ */
+static int windows_ffmpeg_has_encoder(const char *ffmpeg_bin, const char *encoder_name)
+{
+    char cmd[1024];
+    char line[1024];
+    FILE *fp;
+    int found = 0;
+    size_t name_len;
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0' || !encoder_name)
+        return 0;
+    if (!windows_path_is_cmd_safe(ffmpeg_bin))
+        return 0;
+
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -hide_banner -v error -encoders 2>nul", ffmpeg_bin);
+
+    fp = _popen(cmd, "r");
+    if (!fp) return 0;
+
+    name_len = strlen(encoder_name);
+    while (fgets(line, sizeof(line), fp)) {
+        char *pos = strstr(line, encoder_name);
+        if (pos && (pos == line || pos[-1] == ' ') &&
+            (pos[name_len] == ' ' || pos[name_len] == '\n' || pos[name_len] == '\0')) {
+            found = 1;
+            break;
+        }
+    }
+    _pclose(fp);
+    return found;
+}
+
+/**
+ * windows_probe_vulkan_encoder()
+ * Generic hardware Vulkan video encoder probe (h264_vulkan, hevc_vulkan,
+ * av1_vulkan), modeled on windows_probe_vulkan_prores(). Scans vk:0..7 and
+ * returns the highest working device index, or -1 if no device passes.
+ */
+static int windows_probe_vulkan_encoder(const char *ffmpeg_bin,
+                                        const char *encoder_name,
+                                        int *out_working_mask,
+                                        int *out_device_count)
+{
+    int i, mask = 0, count = 0, best = -1;
+
+    if (out_working_mask)  *out_working_mask  = 0;
+    if (out_device_count)  *out_device_count  = 0;
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0' || !encoder_name) return -1;
+    if (!windows_path_is_cmd_safe(ffmpeg_bin)) return -1;
+
+    for (i = 0; i < WINDOWS_VULKAN_MAX_DEVICES; i++) {
+        char cmd[8192];
+        int  rc;
+
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s\" -v error -hide_banner "
+                 "-init_hw_device vulkan=vk:%d -filter_hw_device vk "
+                 "-f lavfi -i color=size=1920x1080:rate=1 "
+                 "-frames:v 1 "
+                 "-vf format=nv12,hwupload "
+                 "-c:v %s -f null - 2>nul",
+                 ffmpeg_bin, i, encoder_name);
+
+        rc = system(cmd);
+        if (rc == 0) {
+            mask |= (1 << i);
+            best = i;
+            count++;
+        } else if (count == 0 && i >= 2) {
+            /* No successes after 3 attempts — no working Vulkan encode GPU */
+            break;
+        }
+    }
+
+    if (out_working_mask)  *out_working_mask  = mask;
+    if (out_device_count)  *out_device_count  = count;
+    return best;
+}
+
 /* ---- Main Probe Function ----------------------------------------------- */
 
 /**
@@ -388,6 +475,11 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "h264_amf");
     g_cache.support.has_hevc_amf =
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_amf");
+    /* av1_amf requires RDNA3+ (RX 7000 series); pre-filter on -encoders text
+     * scan first, since older GPUs will fail the one-frame probe anyway. */
+    g_cache.support.has_av1_amf =
+        windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_amf") &&
+        windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "av1_amf");
 
     /* Probe Intel QSV encoders */
     g_cache.support.has_h264_qsv =
@@ -404,6 +496,46 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
         g_cache.support.vulkan_working_mask  = mask;
         g_cache.support.vulkan_device_index  = (best >= 0) ? best : 0;
         g_cache.support.vulkan_device_count  = count;
+    }
+
+    /* Probe Vulkan hardware video encoders (h264_vulkan/hevc_vulkan needs
+     * ffmpeg >= 7.1; av1_vulkan needs ffmpeg >= 8.0 and RDNA3+/Turing+).
+     * Each is pre-filtered against `ffmpeg -encoders` first to keep startup
+     * time flat on systems without the hardware. */
+    {
+        int mask = 0, count = 0, best = -1;
+
+        if (windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "h264_vulkan"))
+            best = windows_probe_vulkan_encoder(g_cache.support.bins.ffmpeg_bin,
+                                                "h264_vulkan", &mask, &count);
+        g_cache.support.has_h264_vulkan = (best >= 0) ? 1 : 0;
+        if (best >= 0) {
+            g_cache.support.vulkan_hw_working_mask = mask;
+            g_cache.support.vulkan_hw_device_index = best;
+            g_cache.support.vulkan_hw_device_count = count;
+        }
+
+        best = -1;
+        if (windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_vulkan"))
+            best = windows_probe_vulkan_encoder(g_cache.support.bins.ffmpeg_bin,
+                                                "hevc_vulkan", &mask, &count);
+        g_cache.support.has_hevc_vulkan = (best >= 0) ? 1 : 0;
+        if (best >= 0 && count > g_cache.support.vulkan_hw_device_count) {
+            g_cache.support.vulkan_hw_working_mask = mask;
+            g_cache.support.vulkan_hw_device_index = best;
+            g_cache.support.vulkan_hw_device_count = count;
+        }
+
+        best = -1;
+        if (windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_vulkan"))
+            best = windows_probe_vulkan_encoder(g_cache.support.bins.ffmpeg_bin,
+                                                "av1_vulkan", &mask, &count);
+        g_cache.support.has_av1_vulkan = (best >= 0) ? 1 : 0;
+        if (best >= 0 && count > g_cache.support.vulkan_hw_device_count) {
+            g_cache.support.vulkan_hw_working_mask = mask;
+            g_cache.support.vulkan_hw_device_index = best;
+            g_cache.support.vulkan_hw_device_count = count;
+        }
     }
 
     /* Resolve remaining tool binaries */

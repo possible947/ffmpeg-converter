@@ -256,6 +256,10 @@ int platform_get_video_info(const char* input_path,
 #define PLAT_CAP_VULKAN_PRORES   (1 << 11) /* prores_ks_vulkan (GPU-accelerated ProRes via Vulkan) */
 #define PLAT_CAP_AV1_QSV_DEC    (1 << 12) /* av1_qsv decoder available (Intel QSV/D3D11VA AV1 decode) */
 #define PLAT_CAP_LIBDAV1D_DEC   (1 << 13) /* libdav1d decoder available (pure software AV1 decode) */
+#define PLAT_CAP_AMF_AV1        (1 << 14) /* av1_amf (AMD AMF AV1 encode, RDNA3+) */
+#define PLAT_CAP_VULKAN_H264    (1 << 15) /* h264_vulkan (hardware Vulkan video encode) */
+#define PLAT_CAP_VULKAN_HEVC    (1 << 16) /* hevc_vulkan (hardware Vulkan video encode) */
+#define PLAT_CAP_VULKAN_AV1     (1 << 17) /* av1_vulkan (hardware Vulkan video encode) */
 
 /**
  * Returns pre-input hardware device initialization flags for the given codec.

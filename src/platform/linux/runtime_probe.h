@@ -20,6 +20,7 @@ typedef struct {
     /* AMD AMF */
     int has_h264_amf;
     int has_hevc_amf;
+    int has_av1_amf;    /* av1_amf — requires RDNA3+ (RX 7000 series) */
 
     /* Intel QSV */
     int has_h264_qsv;
@@ -30,6 +31,14 @@ typedef struct {
     int vulkan_working_mask;   /* bit N = 1 if vk:N passed the probe */
     int vulkan_device_index;   /* recommended default (highest working index) */
     int vulkan_device_count;   /* total working Vulkan devices found */
+
+    /* Vulkan hardware video encoders (h264_vulkan/hevc_vulkan/av1_vulkan) */
+    int has_h264_vulkan;
+    int has_hevc_vulkan;
+    int has_av1_vulkan;
+    int vulkan_hw_working_mask;  /* bit N = 1 if vk:N passed the hw-encode probe */
+    int vulkan_hw_device_index;  /* recommended default (highest working index) */
+    int vulkan_hw_device_count;  /* total working Vulkan hw-encode devices found */
 
     /* Binary paths */
     char ffmpeg_bin[1024];

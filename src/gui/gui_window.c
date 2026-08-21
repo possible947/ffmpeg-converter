@@ -232,12 +232,20 @@ static void populate_codec_combo(AppWidgets *w)
         gtk_string_list_append(w->codec_list, "h264_amf");
     if (w->linux_codec_support.has_hevc_amf)
         gtk_string_list_append(w->codec_list, "hevc_amf");
+    if (w->linux_codec_support.has_av1_amf)
+        gtk_string_list_append(w->codec_list, "av1_amf");
     if (w->linux_codec_support.has_h264_qsv)
         gtk_string_list_append(w->codec_list, "h264_qsv");
     if (w->linux_codec_support.has_hevc_qsv)
         gtk_string_list_append(w->codec_list, "hevc_qsv");
     if (w->linux_codec_support.has_prores_ks_vulkan)
         gtk_string_list_append(w->codec_list, "prores_ks_vulkan");
+    if (w->linux_codec_support.has_h264_vulkan)
+        gtk_string_list_append(w->codec_list, "h264_vulkan");
+    if (w->linux_codec_support.has_hevc_vulkan)
+        gtk_string_list_append(w->codec_list, "hevc_vulkan");
+    if (w->linux_codec_support.has_av1_vulkan)
+        gtk_string_list_append(w->codec_list, "av1_vulkan");
 
     gtk_drop_down_set_selected(GTK_DROP_DOWN(w->codec_combo), 0);
 }
@@ -838,8 +846,11 @@ static void update_dependent_widgets(AppWidgets *w)
 
     {
         gboolean show_vulkan_device =
-            codec_uses_vulkan_prores(codec) &&
-            w->linux_codec_support.has_prores_ks_vulkan;
+            codec_uses_any_vulkan(codec) &&
+            (w->linux_codec_support.has_prores_ks_vulkan ||
+             w->linux_codec_support.has_h264_vulkan ||
+             w->linux_codec_support.has_hevc_vulkan ||
+             w->linux_codec_support.has_av1_vulkan);
         gtk_widget_set_visible(w->vulkan_device_label, show_vulkan_device);
         gtk_widget_set_visible(w->vulkan_device_combo, show_vulkan_device);
     }
@@ -1275,7 +1286,7 @@ void collect_options_from_gui(AppWidgets *w,
         get_selected_vaapi_device(w, opts->hw_device, sizeof(opts->hw_device));
     }
 
-    if (codec_uses_vulkan_prores(opts->codec)) {
+    if (codec_uses_any_vulkan(opts->codec)) {
         int selected_device = get_selected_vulkan_device_index(w);
         if (selected_device >= 0) {
             opts->vulkan_device = selected_device;

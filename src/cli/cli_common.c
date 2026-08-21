@@ -107,8 +107,12 @@ void print_usage(const CliPlatformHandle* h) {
     printf("  --overwrite        overwrite output files\n");
     printf("  --dry-run          print the conversion plan without running ffmpeg\n");
     printf("  --version          show version and exit\n");
-    if (platform_codec_is_available(h, "prores_ks_vulkan"))
-        printf("      --vk_device <N>    Vulkan adapter index for prores_ks_vulkan"
+    if (platform_codec_is_available(h, "prores_ks_vulkan") ||
+        platform_codec_is_available(h, "h264_vulkan") ||
+        platform_codec_is_available(h, "hevc_vulkan") ||
+        platform_codec_is_available(h, "av1_vulkan"))
+        printf("      --vk_device <N>    Vulkan adapter index for prores_ks_vulkan,"
+               " h264_vulkan, hevc_vulkan, av1_vulkan"
                " (default: %d)\n",
                platform_get_default_vulkan_device(h));
     if (platform_codec_is_available(h, "h264_vaapi") ||
