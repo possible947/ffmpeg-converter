@@ -150,6 +150,14 @@ static void cb_on_complete(void) {
 
 @implementation ConverterBridge
 
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        [self configureBundledToolsEnvironment];
+    }
+    return self;
+}
+
 static NSString *appleOutputNameForSource(NSString *sourcePath, NSString *outputDir) {
     NSString *base = [[sourcePath lastPathComponent] stringByDeletingPathExtension];
     NSString *name = [base stringByAppendingString:@".m4v"];
@@ -206,6 +214,7 @@ static int locale_is_utf8(const char *value) {
     NSString *ffprobePath = [binDir stringByAppendingPathComponent:@"ffprobe"];
     NSString *mp4boxPath = [binDir stringByAppendingPathComponent:@"MP4Box"];
     NSString *mkvmergePath = [binDir stringByAppendingPathComponent:@"mkvmerge"];
+    NSString *presetsPath = [resourcePath stringByAppendingPathComponent:@"presets.json"];
 
     NSFileManager *fm = [NSFileManager defaultManager];
     BOOL hasFfmpeg = [fm isExecutableFileAtPath:ffmpegPath];
@@ -226,6 +235,9 @@ static int locale_is_utf8(const char *value) {
     }
     if (hasMkvmerge) {
         setenv("MKVMERGE_BIN", mkvmergePath.UTF8String, 1);
+    }
+    if ([fm fileExistsAtPath:presetsPath]) {
+        setenv("PRESETS_PATH", resourcePath.UTF8String, 1);
     }
 
     if (hasFfmpeg || hasFfprobe || hasMp4box || hasMkvmerge) {
@@ -282,7 +294,7 @@ static int locale_is_utf8(const char *value) {
 }
 
 - (ConvertOptions)makeOptionsWithCodec:(NSString *)codec
-                                                             profile:(NSInteger)profile
+                                                              preset:(NSString *)preset
                                                              deblock:(NSInteger)deblock
                              audioNorm:(NSString *)audioNorm
                          audioOutputMode:(NSString *)audioOutputMode
@@ -311,7 +323,11 @@ static int locale_is_utf8(const char *value) {
         strncpy(opts.video_track_path, videoTrackPath.UTF8String, sizeof(opts.video_track_path) - 1);
     }
 
-    opts.profile = (int)profile;
+    if (preset.length > 0) {
+        strncpy(opts.preset, preset.UTF8String, sizeof(opts.preset) - 1);
+    } else {
+        strncpy(opts.preset, "default", sizeof(opts.preset) - 1);
+    }
     opts.deblock = (int)deblock;
     opts.genre = (int)genre;
 
@@ -425,7 +441,7 @@ static int locale_is_utf8(const char *value) {
             }
 
             strcpy(workOpts.codec, "copy");
-            workOpts.profile = 0;
+            strcpy(workOpts.preset, "default");
             workOpts.deblock = 0;
         }
 

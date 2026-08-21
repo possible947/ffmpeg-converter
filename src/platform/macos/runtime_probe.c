@@ -296,6 +296,9 @@ int macos_probe_codec_support(MacosCodecSupport *out_support)
     g_cache.support.has_hevc_videotoolbox =
         macos_probe_vt_encoder(g_cache.support.bins.ffmpeg_bin,
                                "hevc_videotoolbox");
+    g_cache.support.has_prores_videotoolbox =
+        macos_probe_vt_encoder(g_cache.support.bins.ffmpeg_bin,
+                               "prores_videotoolbox");
 
     /* Resolve remaining tool binaries */
     resolve_preferred_binary("FFPROBE", "FFPROBE_BIN", "ffprobe",

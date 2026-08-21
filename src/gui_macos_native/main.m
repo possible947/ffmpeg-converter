@@ -1,8 +1,11 @@
 #import <Cocoa/Cocoa.h>
 #import "converter_bridge.h"
+#include "preset_loader.h"
+#include "macos/runtime_probe.h"
 #include <string.h>
 
 typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
+static PresetDb *gPresetDb = NULL;
 
 @interface DropWindow : NSWindow
 @property (copy, nonatomic) DropPathsHandler dropHandler;
@@ -94,6 +97,8 @@ typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
  - (void)addInputPaths:(NSArray<NSString *> *)paths;
  - (void)onAddTrackClicked:(id)sender;
  - (BOOL)promptAppleM4VOptions:(AppleM4VOptions *)options;
+ - (void)populateCodecPopup;
+ - (void)populatePresetPopup;
 @end
 
 @implementation AppDelegate
@@ -129,6 +134,21 @@ static NSString *formatEtaHMS(double etaSeconds) {
     long seconds = total % 60;
 
     return [NSString stringWithFormat:@"%02ld:%02ld:%02ld", hours, minutes, seconds];
+}
+
+static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *support) {
+    if (!codec) {
+        return NO;
+    }
+    if (strcmp(codec, "hevc_videotoolbox") == 0) {
+        return support && support->has_hevc_videotoolbox;
+    }
+    if (strcmp(codec, "prores_videotoolbox") == 0) {
+        return support && support->has_prores_videotoolbox;
+    }
+    return strcmp(codec, "copy") == 0 ||
+           strcmp(codec, "prores") == 0 ||
+           strcmp(codec, "prores_ks") == 0;
 }
 
 - (void)setRunningUIState:(BOOL)running {
@@ -190,6 +210,8 @@ static NSString *formatEtaHMS(double etaSeconds) {
 
     self.bridge = [[ConverterBridge alloc] init];
     self.filePaths = [[NSMutableArray alloc] init];
+    NSString *resourcePath = [[NSBundle mainBundle] resourcePath];
+    gPresetDb = preset_db_load(resourcePath.UTF8String);
     NSError *dirError = nil;
     [self.bridge ensureDefaultOutputDirectoryExists:&dirError];
 
@@ -222,22 +244,21 @@ static NSString *formatEtaHMS(double etaSeconds) {
     [content addSubview:codecLabel];
 
     self.codecPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(82, 554, 160, 28) pullsDown:NO];
-    [self.codecPopup addItemsWithTitles:@[@"copy", @"prores", @"prores_ks", @"prores_videotoolbox", @"hevc_videotoolbox", @"mux"]];
     [self.codecPopup setTarget:self];
     [self.codecPopup setAction:@selector(onCodecChanged:)];
+    [self populateCodecPopup];
     [content addSubview:self.codecPopup];
 
     NSTextField *profileLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 522, 60, 24)];
-    [profileLabel setStringValue:@"Profile:"];
+    [profileLabel setStringValue:@"Preset:"];
     [profileLabel setBezeled:NO];
     [profileLabel setEditable:NO];
     [profileLabel setDrawsBackground:NO];
     [content addSubview:profileLabel];
 
     self.profilePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(82, 520, 150, 28) pullsDown:NO];
-    [self.profilePopup addItemsWithTitles:@[@"lt", @"standard", @"hq", @"4444"]];
-    [self.profilePopup selectItemAtIndex:1];
     [content addSubview:self.profilePopup];
+    [self populatePresetPopup];
 
     NSTextField *deblockLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(248, 522, 80, 24)];
     [deblockLabel setStringValue:@"Deblock:"];
@@ -449,7 +470,7 @@ static NSString *formatEtaHMS(double etaSeconds) {
     }
 
     NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
-    NSInteger profile = self.profilePopup.isEnabled ? (NSInteger)self.profilePopup.indexOfSelectedItem + 1 : 0;
+    NSString *preset = self.profilePopup.titleOfSelectedItem ?: @"default";
     NSInteger deblock = self.deblockPopup.isEnabled ? (NSInteger)self.deblockPopup.indexOfSelectedItem + 1 : 0;
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     NSString *audioOutputMode = self.audioOutputPopup.titleOfSelectedItem ?: @"pcm";
@@ -475,7 +496,7 @@ static NSString *formatEtaHMS(double etaSeconds) {
     }
 
     ConvertOptions opts = [self.bridge makeOptionsWithCodec:codec
-                                                    profile:profile
+                                                     preset:preset
                                                     deblock:deblock
                                                   audioNorm:audioNorm
                                                                                             audioOutputMode:audioOutputMode
@@ -592,14 +613,14 @@ static NSString *formatEtaHMS(double etaSeconds) {
     }
 
     NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
-    NSInteger profile = self.profilePopup.isEnabled ? (NSInteger)self.profilePopup.indexOfSelectedItem + 1 : 0;
+    NSString *preset = self.profilePopup.titleOfSelectedItem ?: @"default";
     NSInteger deblock = self.deblockPopup.isEnabled ? (NSInteger)self.deblockPopup.indexOfSelectedItem + 1 : 0;
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     NSString *audioOutputMode = self.audioOutputPopup.titleOfSelectedItem ?: @"pcm";
     NSInteger genre = self.genrePopup.isEnabled ? (NSInteger)self.genrePopup.indexOfSelectedItem + 1 : 0;
 
     ConvertOptions convertOptions = [self.bridge makeOptionsWithCodec:codec
-                                                               profile:profile
+                                                                preset:preset
                                                                deblock:deblock
                                                              audioNorm:audioNorm
                                                                                                                  audioOutputMode:audioOutputMode
@@ -854,13 +875,55 @@ static NSString *formatEtaHMS(double etaSeconds) {
     [self updateDependentControls];
 }
 
+- (void)populateCodecPopup {
+    NSString *selectedCodec = self.codecPopup.titleOfSelectedItem;
+    const char **codecs = NULL;
+    MacosCodecSupport support;
+    memset(&support, 0, sizeof(support));
+    macos_probe_codec_support(&support);
+
+    [self.codecPopup removeAllItems];
+    int count = gPresetDb ? preset_db_list_codecs(gPresetDb, "macos", &codecs) : 0;
+    for (int index = 0; index < count; index++) {
+        if (macGuiSupportsCodec(codecs[index], &support)) {
+            [self.codecPopup addItemWithTitle:[NSString stringWithUTF8String:codecs[index]]];
+        }
+    }
+    if (self.codecPopup.numberOfItems == 0) {
+        [self.codecPopup addItemWithTitle:@"copy"];
+    }
+    if (selectedCodec.length > 0 && [self.codecPopup itemWithTitle:selectedCodec]) {
+        [self.codecPopup selectItemWithTitle:selectedCodec];
+    } else {
+        [self.codecPopup selectItemAtIndex:0];
+    }
+}
+
+- (void)populatePresetPopup {
+    NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *selectedPreset = self.profilePopup.titleOfSelectedItem;
+    const char **presets = NULL;
+    int count = gPresetDb ? preset_db_list_presets(gPresetDb, "macos", codec.UTF8String, &presets) : 0;
+
+    [self.profilePopup removeAllItems];
+    for (int index = 0; index < count; index++) {
+        [self.profilePopup addItemWithTitle:[NSString stringWithUTF8String:presets[index]]];
+    }
+    if (self.profilePopup.numberOfItems == 0) {
+        [self.profilePopup addItemWithTitle:@"default"];
+    }
+    if (selectedPreset.length > 0 && [self.profilePopup itemWithTitle:selectedPreset]) {
+        [self.profilePopup selectItemWithTitle:selectedPreset];
+    } else {
+        [self.profilePopup selectItemAtIndex:0];
+    }
+}
+
 - (void)updateDependentControls {
     NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
     BOOL isMux = [codec isEqualToString:@"mux"];
-    // Profile: prores software and prores_videotoolbox hardware share same profiles
-    BOOL profileEnabled = ([codec isEqualToString:@"prores"] ||
-                           [codec isEqualToString:@"prores_ks"] ||
-                           [codec isEqualToString:@"prores_videotoolbox"]);
+    [self populatePresetPopup];
+    BOOL profileEnabled = self.profilePopup.numberOfItems > 1;
     // Deblock: software prores encoders only; hardware encoders skip
     BOOL deblockEnabled = ([codec isEqualToString:@"prores"] ||
                            [codec isEqualToString:@"prores_ks"]);

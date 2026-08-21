@@ -18,7 +18,7 @@ typedef void (^BridgeCompletionHandler)(BOOL success, NSString *message);
 - (NSString *)defaultOutputDirectory;
 - (BOOL)ensureDefaultOutputDirectoryExists:(NSError * _Nullable * _Nullable)error;
 - (ConvertOptions)makeOptionsWithCodec:(NSString *)codec
-                                                             profile:(NSInteger)profile
+                                                              preset:(NSString *)preset
                                                              deblock:(NSInteger)deblock
                              audioNorm:(NSString *)audioNorm
                          audioOutputMode:(NSString *)audioOutputMode

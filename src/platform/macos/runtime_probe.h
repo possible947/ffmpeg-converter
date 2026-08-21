@@ -19,6 +19,7 @@ typedef struct {
     /* Apple VideoToolbox encoders */
     int has_h264_videotoolbox;
     int has_hevc_videotoolbox;
+    int has_prores_videotoolbox;
 } MacosCodecSupport;
 
 /* macOS-specific public API */
