@@ -170,13 +170,22 @@ static void populate_vaapi_device_combo(AppWidgets *w)
     if (dir) {
         while ((entry = readdir(dir)) != NULL) {
             char node[PATH_MAX];
+            char friendly_name[512];
             gchar *dup;
             if (strncmp(entry->d_name, "renderD", 7) != 0)
                 continue;
             snprintf(node, sizeof(node), "%s/%s", dir_path, entry->d_name);
             if (access(node, R_OK | W_OK) != 0)
                 continue;
-            gtk_string_list_append(w->vaapi_device_list, node);
+
+            /* Get friendly device name (e.g., "Intel UHD Graphics (renderD128)") */
+            if (linux_get_vaapi_device_name(node, friendly_name, sizeof(friendly_name)) == 0) {
+                gtk_string_list_append(w->vaapi_device_list, friendly_name);
+            } else {
+                /* Fallback to full path if name lookup fails */
+                gtk_string_list_append(w->vaapi_device_list, node);
+            }
+
             dup = g_strdup(node);
             g_array_append_val(w->vaapi_device_nodes, dup);
         }

@@ -1,6 +1,8 @@
 #ifndef LINUX_RUNTIME_PROBE_H
 #define LINUX_RUNTIME_PROBE_H
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -49,6 +51,16 @@ const char *linux_get_preferred_ffmpeg_bin(void);
 const char *linux_get_preferred_ffprobe_bin(void);
 const char *linux_get_preferred_mkvmerge_bin(void);
 const char *linux_get_preferred_mp4box_bin(void);
+
+/**
+ * Get a friendly name for a VAAPI render device.
+ * Attempts to read device name from sysfs, falls back to device node name.
+ * @param device_path Full path like "/dev/dri/renderD128"
+ * @param out_name Output buffer for friendly name (e.g., "Intel UHD 630")
+ * @param out_sz Size of output buffer
+ * @return 0 on success, -1 on error; out_name is always null-terminated
+ */
+int linux_get_vaapi_device_name(const char *device_path, char *out_name, size_t out_sz);
 
 #ifdef __cplusplus
 }

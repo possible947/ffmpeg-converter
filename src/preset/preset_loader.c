@@ -140,6 +140,7 @@ static json_t *load_presets_json(const char *search_path) {
     json_error_t error;
     json_t *root = NULL;
     
+    /* 1. Use provided search path (highest priority) */
     if (search_path) {
         char full_path[4096];
         snprintf(full_path, sizeof(full_path), "%s/presets.json", search_path);
@@ -151,7 +152,22 @@ static json_t *load_presets_json(const char *search_path) {
             }
         }
     }
-    
+
+    /* 2. Check PRESETS_PATH environment variable (for AppImage) */
+    const char *env_path = getenv("PRESETS_PATH");
+    if (env_path) {
+        char full_path[4096];
+        snprintf(full_path, sizeof(full_path), "%s/presets.json", env_path);
+        
+        if (file_exists(full_path)) {
+            root = json_load_file(full_path, 0, &error);
+            if (root) {
+                return root;
+            }
+        }
+    }
+
+    /* 3. Look in executable directory (e.g., ./build/bin/) */
     char *exe_dir = get_executable_dir();
     if (exe_dir) {
         char full_path[4096];
@@ -164,7 +180,8 @@ static json_t *load_presets_json(const char *search_path) {
             }
         }
     }
-    
+
+    /* 4. Look in config directory */
     char *config_dir = get_config_dir();
     if (config_dir) {
         char full_path[4096];
@@ -177,7 +194,8 @@ static json_t *load_presets_json(const char *search_path) {
             }
         }
     }
-    
+
+    /* 5. Fall back to built-in minimal presets */
     set_error("presets.json not found, using built-in fallback");
     root = json_loads(BUILTIN_PRESETS_JSON, 0, &error);
     

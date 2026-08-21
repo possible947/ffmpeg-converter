@@ -155,6 +155,9 @@ copy-binaries:
 	@if [ -d "$(ROOT)/src/platform/linux/bin" ]; then \
 		cp -f "$(ROOT)/src/platform/linux/bin/"* "$(BIN_DIR)/"; \
 	fi
+	@if [ -f "$(ROOT)/presets.json" ]; then \
+		cp -f "$(ROOT)/presets.json" "$(BIN_DIR)/presets.json"; \
+	fi
 	@for tool in mkvmerge MP4Box; do \
 		src=""; \
 		if [ -x "$(ROOT)/src/platform/linux/bin/$$tool" ]; then \

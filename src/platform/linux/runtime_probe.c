@@ -526,3 +526,63 @@ const char *linux_get_preferred_mp4box_bin(void)
     linux_probe_codec_support(NULL);
     return g_cache.support.mp4box_bin;
 }
+
+/**
+ * Get a friendly name for a VAAPI render device.
+ * Attempts to read device name from sysfs, or extracts device node name.
+ * Examples:
+ *   Input:  "/dev/dri/renderD128"
+ *   Output: "Intel UHD Graphics 630" (if found in sysfs)
+ *   Fallback: "GPU 0 (renderD128)"
+ */
+int linux_get_vaapi_device_name(const char *device_path, char *out_name, size_t out_sz)
+{
+    char sysfs_path[PATH_MAX];
+    char device_name[256];
+    FILE *fp;
+    int device_num = 0;
+    const char *node_name;
+    static int device_counter = 0;
+
+    if (!device_path || !out_name || out_sz == 0) {
+        if (out_name && out_sz > 0)
+            out_name[0] = '\0';
+        return -1;
+    }
+
+    /* Extract device node name (e.g., "renderD128" from "/dev/dri/renderD128") */
+    node_name = strrchr(device_path, '/');
+    if (node_name)
+        node_name++;
+    else
+        node_name = device_path;
+
+    /* Try to extract device number from node name (renderD128 -> 128) */
+    if (sscanf(node_name, "renderD%d", &device_num) != 1)
+        device_num = device_counter++;
+
+    /* Try to read device name from sysfs */
+    /* Path like: /sys/class/drm/renderD128/name */
+    snprintf(sysfs_path, sizeof(sysfs_path),
+             "/sys/class/drm/renderD%d/name", device_num);
+
+    fp = fopen(sysfs_path, "r");
+    if (fp) {
+        if (fgets(device_name, sizeof(device_name), fp) != NULL) {
+            /* Remove trailing newline */
+            size_t len = strlen(device_name);
+            if (len > 0 && device_name[len - 1] == '\n')
+                device_name[len - 1] = '\0';
+
+            /* Use the sysfs name if we got it */
+            snprintf(out_name, out_sz, "%s (%s)", device_name, node_name);
+            fclose(fp);
+            return 0;
+        }
+        fclose(fp);
+    }
+
+    /* Fallback: use just the device node name with a simple prefix */
+    snprintf(out_name, out_sz, "GPU %d (%s)", device_counter++, node_name);
+    return 0;
+}

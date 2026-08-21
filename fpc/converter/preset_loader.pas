@@ -502,6 +502,7 @@ procedure TPresetDb.Load(const SearchPath: string = '');
 var
   PresetsPath: string;
   FileFound: Boolean;
+  EnvPath: string;
 begin
   FPlatforms.Clear;
   FileFound := False;
@@ -519,7 +520,22 @@ begin
     end;
   end;
 
-  // 2. Try executable-adjacent
+  // 2. Try PRESETS_PATH environment variable (for AppImage)
+  if not FileFound then
+  begin
+    EnvPath := GetEnvironmentVariable('PRESETS_PATH');
+    if EnvPath <> '' then
+    begin
+      PresetsPath := IncludeTrailingPathDelimiter(EnvPath) + 'presets.json';
+      if FileExists(PresetsPath) then
+      begin
+        if LoadFromFile(PresetsPath) then
+          FileFound := True;
+      end;
+    end;
+  end;
+
+  // 3. Try executable-adjacent
   if not FileFound then
   begin
     PresetsPath := IncludeTrailingPathDelimiter(GetExecutableDir) + 'presets.json';
@@ -530,7 +546,7 @@ begin
     end;
   end;
 
-  // 3. Try config directory
+  // 4. Try config directory
   if not FileFound then
   begin
     PresetsPath := IncludeTrailingPathDelimiter(GetConfigDir) +
@@ -542,7 +558,7 @@ begin
     end;
   end;
 
-  // 4. Use built-in fallback
+  // 5. Use built-in fallback
   if not FileFound then
   begin
     SetError('presets.json not found, using built-in fallback', []);

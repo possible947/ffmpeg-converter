@@ -113,6 +113,16 @@ else()
     message(WARNING "mkvmerge not found in common Linux locations; linux_gui will rely on MKVMERGE_BIN or PATH.")
 endif()
 
+# Copy presets.json next to GUI binary
+if (EXISTS "${CMAKE_SOURCE_DIR}/presets.json")
+    add_custom_command(TARGET linux_gui POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_gui>/presets.json"
+        COMMENT "Copying presets.json next to linux_gui"
+    )
+else()
+    message(WARNING "presets.json not found at ${CMAKE_SOURCE_DIR}/presets.json; linux_gui will use config directory or built-in fallback.")
+endif()
+
  install(TARGETS linux_gui RUNTIME DESTINATION bin)
 
  # --- AppImage packaging (optional) ---

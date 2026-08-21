@@ -115,6 +115,24 @@ done
 # Collect shared library dependencies
 echo "Resolving shared library dependencies..."
 
+# Copy presets.json to AppDir
+if [ -f "${BIN_DIR}/presets.json" ]; then
+    echo "Copying presets.json..."
+    mkdir -p "${APPDIR}/usr/share/ffmpeg_converter"
+    cp "${BIN_DIR}/presets.json" "${APPDIR}/usr/share/ffmpeg_converter/presets.json"
+    echo "  presets.json → bundled"
+elif [ -f "${SCRIPT_DIR}/../../presets.json" ]; then
+    echo "Copying presets.json..."
+    mkdir -p "${APPDIR}/usr/share/ffmpeg_converter"
+    cp "${SCRIPT_DIR}/../../presets.json" "${APPDIR}/usr/share/ffmpeg_converter/presets.json"
+    echo "  presets.json → bundled from repository root"
+else
+    echo "  WARNING: presets.json not found; AppImage will use built-in fallback"
+fi
+
+# Collect shared library dependencies
+echo "Resolving shared library dependencies..."
+
 # Use associative array to deduplicate
 declare -A LIBS_TO_COPY
 
@@ -184,6 +202,11 @@ fi
 if [ -x "${APPDIR}/usr/bin/MP4Box" ]; then
     export MP4BOX="${APPDIR}/usr/bin/MP4Box"
     export MP4BOX_BIN="${APPDIR}/usr/bin/MP4Box"
+fi
+
+# Set preset search path to bundled presets
+if [ -f "${APPDIR}/usr/share/ffmpeg_converter/presets.json" ]; then
+    export PRESETS_PATH="${APPDIR}/usr/share/ffmpeg_converter"
 fi
 
 # Run GUI with bundled libraries
