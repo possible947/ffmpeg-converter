@@ -5,6 +5,35 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Phase 2 bug fixes (2026-08-21)
+
+### Fixed
+- **Lazarus GUI Vulkan-device selector ignored the hw-Vulkan probe fields**
+  (mirrors the equivalent GTK4/C bug): the device combo and the options-save
+  fallback always used `FLinuxSupport.VulkanDeviceIndex`/`VulkanDeviceCount`
+  (ProRes-only), never `VulkanHwDeviceIndex`/`VulkanHwDeviceCount`, for
+  `h264_vulkan`/`hevc_vulkan`/`av1_vulkan`. The Windows options-save path
+  had **no smart-default branch at all** — "Auto" always resolved to device
+  0. Added `CodecIsHwVulkan`, `RecommendedVulkanDeviceIndex`,
+  `RefreshVulkanDeviceComboForCodec` to `form.pas`; the combo now
+  repopulates on codec change and both Linux/Windows fallbacks pick the
+  correct probe family.
+- **Windows Pascal hw-Vulkan device stats were never tracked at all**:
+  `windows_probe.pas`'s `ProbeVulkanEncoder`/`ProbeVulkanHwEncoder` were
+  boolean-only (no device index/count), unlike the Linux probe. Extended
+  both to return `out BestDevice, DeviceCount`; added
+  `VulkanDeviceIndex`/`VulkanDeviceCount`/`VulkanHwDeviceIndex`/
+  `VulkanHwDeviceCount` to `TWindowsCodecSupport` and `TWindowsHWInfo`
+  (`form_windows.pas`); `DetectWindowsHardware` now merges per-codec-family
+  best-device stats identically to `linux_probe.pas`, and the redundant
+  local `ProbeVulkanDeviceCount` scan in `form_windows.pas` was removed.
+
+See `docs/v3.0-Phase2.md` §15 for full root-cause analysis (found during a
+post-implementation code review of the Phase 2 commits). The CLI-side
+Vulkan-device-default and `--codecs-list` gating bugs identified in the
+same review were C-only (Pascal's `cli_args.pas` was already correctly
+gated) — see `CHANGELOG.md` `[3.0.0-Phase2.2]`.
+
 ## [Unreleased] — Phase 2 (2026-08-21)
 
 ### Added

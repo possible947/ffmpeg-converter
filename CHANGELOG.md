@@ -5,6 +5,34 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [3.0.0-Phase2.2] — 2026-08-21 (Development)
+
+### Fixed
+- **`--codecs-list` was not hardware-gated** (user-confirmed bug):
+  `cli_print_codecs_list()` read only from `presets.json`, listing every
+  codec the build knows about regardless of actual hardware/driver support
+  — unlike `--help`, which correctly gates on `platform_codec_is_available()`.
+  On a box with no AMF/Vulkan-encode support this incorrectly showed
+  `av1_amf`, `h264_vulkan`, `hevc_vulkan`, `av1_vulkan`, NVENC, and QSV.
+  Now filters through `platform_codec_is_available()`, matching `--help`.
+- **`--vk_device` default ignored the selected codec**:
+  `platform_get_default_vulkan_device()` was resolved once at options-init,
+  before `--codec` was parsed, and always prioritized the ProRes-Vulkan
+  probe recommendation over hardware-Vulkan — risking the wrong GPU on
+  multi-GPU systems. Now resolved after the codec is finalized (via a `-1`
+  "unresolved" sentinel on `opts->vulkan_device`, resolved inside
+  `platform_apply_hw_device()`), and codec-aware.
+- **GTK4 GUI Vulkan-device picker ignored the new hw-Vulkan probe fields**:
+  `populate_vulkan_device_combo()` and the options-collection fallback
+  always used the ProRes-only `vulkan_device_index`/`vulkan_working_mask`,
+  making the new `vulkan_hw_device_index`/`vulkan_hw_working_mask` fields
+  dead code for `h264_vulkan`/`hevc_vulkan`/`av1_vulkan`. Now selects the
+  matching probe family via a new `get_vulkan_probe_for_codec()` helper,
+  and repopulates the combo on every codec change.
+
+See `docs/v3.0-Phase2.md` §15 for full root-cause analysis and verification
+details of all three fixes (found during a post-implementation code review).
+
 ## [3.0.0-Phase2.1] — 2026-08-21 (Development)
 
 ### Added
