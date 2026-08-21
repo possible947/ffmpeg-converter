@@ -119,6 +119,8 @@ type
     procedure AudioNormChanged(Sender: TObject);
     procedure VulkanDeviceChanged(Sender: TObject);
     procedure PopulateVulkanDeviceCombo(DeviceCount: Integer);
+    procedure RefreshVulkanDeviceComboForCodec(const CodecText: string);
+    function RecommendedVulkanDeviceIndex(const CodecText: string): Integer;
     {$IFDEF Linux}
     procedure PopulateLinuxCodecs;
     {$ENDIF}
@@ -836,6 +838,11 @@ begin
             (Codec = 'h264_vulkan') or (Codec = 'hevc_vulkan') or (Codec = 'av1_vulkan');
 end;
 
+function CodecIsHwVulkan(const Codec: string): Boolean;
+begin
+  Result := (Codec = 'h264_vulkan') or (Codec = 'hevc_vulkan') or (Codec = 'av1_vulkan');
+end;
+
 function VulkanDeviceDisplayText(Index: Integer): string;
 begin
   if Index < 0 then
@@ -1032,10 +1039,8 @@ begin
   begin
     if FVulkanDeviceIndex >= 0 then
       Opts.vulkan_device := FVulkanDeviceIndex
-    {$IFDEF Linux}
-    else if FLinuxSupport.VulkanDeviceIndex >= 0 then
-      Opts.vulkan_device := FLinuxSupport.VulkanDeviceIndex
-    {$ENDIF}
+    else if RecommendedVulkanDeviceIndex(CodecText) >= 0 then
+      Opts.vulkan_device := RecommendedVulkanDeviceIndex(CodecText)
     else
       Opts.vulkan_device := 0;
   end
@@ -1139,6 +1144,11 @@ end;
 
 procedure TMainForm.CodecChanged(Sender{%H-}: TObject);
 begin
+  { Repopulate before UpdateDependentWidgets so the combo's item list (and
+    the "auto" recommendation) matches the newly selected codec family:
+    prores_ks_vulkan and h264/hevc/av1_vulkan are probed independently and
+    may report different working devices. }
+  RefreshVulkanDeviceComboForCodec(ComboSelectedText(cmbCodec));
   UpdateDependentWidgets;
 end;
 
@@ -1164,6 +1174,53 @@ begin
 
   cmbVulkanDevice.ItemIndex := 0;
   FVulkanDeviceIndex := -1;
+end;
+
+{ Returns the recommended ("auto") Vulkan device index for the given codec.
+  Hardware Vulkan encoders (h264_vulkan/hevc_vulkan/av1_vulkan) are probed
+  independently of prores_ks_vulkan and may only work on a different
+  physical GPU, so the two families must not share a single recommendation. }
+function TMainForm.RecommendedVulkanDeviceIndex(const CodecText: string): Integer;
+begin
+  Result := -1;
+  {$IFDEF Linux}
+  if CodecIsHwVulkan(CodecText) then
+    Result := FLinuxSupport.VulkanHwDeviceIndex
+  else if CodecIsAnyVulkan(CodecText) then
+    Result := FLinuxSupport.VulkanDeviceIndex;
+  {$ENDIF}
+  {$IFDEF Windows}
+  if CodecIsHwVulkan(CodecText) then
+    Result := FWindowsHW.VulkanHwDeviceIndex
+  else if CodecIsAnyVulkan(CodecText) then
+    Result := FWindowsHW.VulkanDeviceIndex;
+  {$ENDIF}
+end;
+
+{ Rebuilds the Vulkan device combo for the codec family currently selected,
+  using the matching (prores vs. hw) device-count probe result. }
+procedure TMainForm.RefreshVulkanDeviceComboForCodec(const CodecText: string);
+var
+  DeviceCount: Integer;
+begin
+  if not Assigned(cmbVulkanDevice) then
+    Exit;
+
+  DeviceCount := 0;
+  {$IFDEF Linux}
+  if CodecIsHwVulkan(CodecText) then
+    DeviceCount := FLinuxSupport.VulkanHwDeviceCount
+  else if CodecIsAnyVulkan(CodecText) then
+    DeviceCount := FLinuxSupport.VulkanDeviceCount;
+  {$ENDIF}
+  {$IFDEF Windows}
+  if CodecIsHwVulkan(CodecText) then
+    DeviceCount := FWindowsHW.VulkanHwDeviceCount
+  else if CodecIsAnyVulkan(CodecText) then
+    DeviceCount := FWindowsHW.VulkanDeviceCount;
+  {$ENDIF}
+
+  PopulateVulkanDeviceCombo(DeviceCount);
 end;
 
 procedure TMainForm.VulkanDeviceChanged(Sender{%H-}: TObject);
@@ -1223,20 +1280,16 @@ begin
   if FLinuxSupport.HasVulkanAV1 then
     cmbCodec.Items.Add('av1_vulkan');
 
-  if Assigned(cmbVulkanDevice) then
-  begin
-    if FLinuxSupport.HasVulkan or FLinuxSupport.HasVulkanH264 or
-       FLinuxSupport.HasVulkanHEVC or FLinuxSupport.HasVulkanAV1 then
-      PopulateVulkanDeviceCombo(FLinuxSupport.VulkanDeviceCount)
-    else
-      PopulateVulkanDeviceCombo(0);
-  end;
-
   I := cmbCodec.Items.IndexOf(PreviousCodec);
   if I >= 0 then
     cmbCodec.ItemIndex := I
   else if cmbCodec.Items.Count > 0 then
     cmbCodec.ItemIndex := 0;
+
+  { Populate using the codec now actually selected (after restoring the
+    previous selection above), so the combo reflects the right prores-vs-hw
+    Vulkan probe family. }
+  RefreshVulkanDeviceComboForCodec(cmbCodec.Text);
 end;
 {$ENDIF}
 
@@ -1288,22 +1341,17 @@ begin
   if FWindowsHW.HasVulkanAV1 then
     cmbCodec.Items.Add('av1_vulkan');
 
-  { Populate Vulkan device combobox }
-  if Assigned(cmbVulkanDevice) then
-  begin
-    if FWindowsHW.HasVulkan or FWindowsHW.HasVulkanH264 or
-       FWindowsHW.HasVulkanHEVC or FWindowsHW.HasVulkanAV1 then
-      PopulateVulkanDeviceCombo(FWindowsHW.VulkanDeviceCount)
-    else
-      PopulateVulkanDeviceCombo(0);
-  end;
-
   { Restore previous codec selection if still available }
   I := cmbCodec.Items.IndexOf(PreviousCodec);
   if I >= 0 then
     cmbCodec.ItemIndex := I
   else if cmbCodec.Items.Count > 0 then
     cmbCodec.ItemIndex := 0;
+
+  { Populate using the codec now actually selected (after restoring the
+    previous selection above), so the combo reflects the right prores-vs-hw
+    Vulkan probe family. }
+  RefreshVulkanDeviceComboForCodec(cmbCodec.Text);
 end;
 
 {$ENDIF}

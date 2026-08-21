@@ -16,11 +16,14 @@ type
     HasAV1AMF:        Boolean;
     HasQSV:           Boolean;
     HasVulkan:        Boolean;
+    VulkanDeviceIndex: Integer;
     VulkanDeviceCount: Integer;
     { Phase 2: hardware Vulkan video encoders. }
     HasVulkanH264:    Boolean;
     HasVulkanHEVC:    Boolean;
     HasVulkanAV1:     Boolean;
+    VulkanHwDeviceIndex: Integer;
+    VulkanHwDeviceCount: Integer;
     HasMkvmerge:      Boolean;
   end;
 
@@ -38,8 +41,7 @@ procedure GetWindowsHardwareLogLines(const HW: TWindowsHWInfo;
 implementation
 
 uses
-  SysUtils,
-  process_utils
+  SysUtils
   {$IFDEF Windows}
   , windows_mkvmerge
   , windows_probe
@@ -53,39 +55,17 @@ begin
   if B then Result := 'yes' else Result := 'no';
 end;
 
-{ Probe how many Vulkan devices are working by testing vulkan:0 .. vulkan:7. }
-function ProbeVulkanDeviceCount(const FfmpegBin: string): Integer;
-{$IFDEF Windows}
-var
-  I: Integer;
-  Cmd: string;
-  R: TRunResult;
-{$ENDIF}
-begin
-  Result := 0;
-{$IFDEF Windows}
-  for I := 0 to 7 do
-  begin
-    Cmd := '"' + FfmpegBin + '" -v error -hide_banner' +
-           ' -init_hw_device vulkan=vk:' + IntToStr(I) + ' -filter_hw_device vk' +
-           ' -f lavfi -i color=size=1920x1080:rate=1 -frames:v 1' +
-           ' -vf format=yuv422p10le,hwupload -c:v prores_ks_vulkan -f null NUL 2>nul';
-    R := RunCommandCapture(Cmd);
-    if R.ExitCode = 0 then
-      Inc(Result)
-    else
-      Break;
-  end;
-{$ENDIF}
-end;
-
 { ---- public API -------------------------------------------------------- }
 
 function DetectWindowsHardware(const FfmpegBin: string): TWindowsHWInfo;
 var
   Bin: string;
+  VulkanBest, VulkanCount: Integer;
+  VHwBest, VHwCount, BestHwCount: Integer;
 begin
   FillChar(Result, SizeOf(Result), 0);
+  Result.VulkanDeviceIndex := -1;
+  Result.VulkanHwDeviceIndex := -1;
 
 {$IFDEF Windows}
   if FfmpegBin = '' then
@@ -97,14 +77,36 @@ begin
   Result.HasAMF    := ProbeEncoder(Bin, 'h264_amf');
   Result.HasAV1AMF := ProbeEncoder(Bin, 'av1_amf');
   Result.HasQSV    := ProbeEncoder(Bin, 'h264_qsv');
-  Result.HasVulkan := ProbeVulkanEncoder(Bin);
-  if Result.HasVulkan then
-    Result.VulkanDeviceCount := ProbeVulkanDeviceCount(Bin)
-  else
-    Result.VulkanDeviceCount := 0;
-  Result.HasVulkanH264 := ProbeVulkanHwEncoder(Bin, 'h264_vulkan');
-  Result.HasVulkanHEVC := ProbeVulkanHwEncoder(Bin, 'hevc_vulkan');
-  Result.HasVulkanAV1  := ProbeVulkanHwEncoder(Bin, 'av1_vulkan');
+
+  Result.HasVulkan := ProbeVulkanEncoder(Bin, VulkanBest, VulkanCount);
+  Result.VulkanDeviceIndex := VulkanBest;
+  Result.VulkanDeviceCount := VulkanCount;
+
+  { Phase 2: hardware Vulkan video encoders, probed independently of the
+    prores_ks_vulkan-only Vulkan stats above — they may only work on a
+    different physical GPU. Keep whichever codec found the most devices,
+    mirroring the Linux probe's merge logic. }
+  BestHwCount := 0;
+  Result.HasVulkanH264 := ProbeVulkanHwEncoder(Bin, 'h264_vulkan', VHwBest, VHwCount);
+  if VHwCount > BestHwCount then
+  begin
+    BestHwCount := VHwCount;
+    Result.VulkanHwDeviceIndex := VHwBest;
+  end;
+  Result.HasVulkanHEVC := ProbeVulkanHwEncoder(Bin, 'hevc_vulkan', VHwBest, VHwCount);
+  if VHwCount > BestHwCount then
+  begin
+    BestHwCount := VHwCount;
+    Result.VulkanHwDeviceIndex := VHwBest;
+  end;
+  Result.HasVulkanAV1 := ProbeVulkanHwEncoder(Bin, 'av1_vulkan', VHwBest, VHwCount);
+  if VHwCount > BestHwCount then
+  begin
+    BestHwCount := VHwCount;
+    Result.VulkanHwDeviceIndex := VHwBest;
+  end;
+  Result.VulkanHwDeviceCount := BestHwCount;
+
   Result.HasMkvmerge := FindMkvmergeBin <> '';
 {$ENDIF}
 end;
@@ -129,6 +131,9 @@ begin
       '  Vulkan='             + YesNo(HW.HasVulkan));
   if HW.HasVulkan then
     Add('HW detection: Vulkan device count=' + IntToStr(HW.VulkanDeviceCount));
+  if HW.HasVulkanH264 or HW.HasVulkanHEVC or HW.HasVulkanAV1 then
+    Add('HW detection: HW Vulkan (h264/hevc/av1) device count=' +
+        IntToStr(HW.VulkanHwDeviceCount));
   if HW.HasMkvmerge then
     Add('HW detection: mkvmerge=found')
   else
