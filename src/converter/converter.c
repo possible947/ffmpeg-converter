@@ -509,6 +509,14 @@ static void make_output_name(
     const char *ext;
     if (strcmp(opts->codec, "copy") == 0)
         ext = "mkv";
+    else if (strcmp(opts->codec, "mux") == 0) {
+        if (!strcmp(opts->preset, "mov"))
+            ext = "mov";
+        else if (!strcmp(opts->preset, "m4v"))
+            ext = "m4v";
+        else
+            ext = "mkv";
+    }
     else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
         ext = "mp4";
     else if (codec_uses_mov_container(opts->codec))

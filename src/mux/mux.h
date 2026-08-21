@@ -20,6 +20,15 @@ ConverterError mux_run_postprocess(
     const ConverterCallbacks* callbacks
 );
 
+/* Preset-aware mux entry point: dispatches to the correct final container
+ * (mkv/mov/m4v) based on convert_opts->preset. See mux.c for details. */
+ConverterError mux_run_postprocess_for_preset(
+    const MuxOptions* opts,
+    const ConvertOptions* convert_opts,
+    const char* final_output_file,
+    const ConverterCallbacks* callbacks
+);
+
 #ifdef __cplusplus
 }
 #endif

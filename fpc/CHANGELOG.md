@@ -5,6 +5,43 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Mux/M4V and Build Staging Fixes (2026-08-22)
+
+### Fixed
+- **`codec=mux` ignored the `preset` (mkv/mov/m4v)**, always producing an
+  `.mkv` via the legacy mkvmerge-only path: `RunMuxPostprocess`
+  (`mux_postprocess.pas`) now dispatches on `Opts.preset` after the mkvmerge
+  merge — `mkv` is unchanged, `mov` remuxes via ffmpeg, `m4v` runs the Apple
+  M4V pipeline on the merged file. `MakeOutputName` (`path_utils.pas`) gained
+  an optional `Preset` parameter so `codec=mux` resolves the correct final
+  extension.
+- **`mux` codec was missing from the Lazarus GUI codec combo on Linux**:
+  `PopulateLinuxCodecs` (`form.pas`) never added it (unlike the Windows
+  population code), making mux mode unreachable from the GUI.
+- **Apple M4V (`CreateAppleM4V`) always wrote its output to the default
+  `$HOME/ffmpeg_converter` directory, ignoring the requested output
+  directory**: it called `EnsureOutputDirWritable(EffectiveOutputDir,
+  EffectiveOutputDir, ...)` with the same variable as both the `const`
+  request and the `out` result — the `out` parameter is cleared by the
+  compiler before the body runs, wiping the request and forcing the
+  default-directory fallback every time.
+- **Pascal CLI `--preset` validation (added in the previous preset-fix pass)
+  rejected the compile-time default preset `'standard'` for any codec that
+  doesn't define it** (`m4v`, `mux`, most GPU codecs), causing an immediate
+  "preset not available" error before conversion even started when `-p` was
+  omitted. `cli_args.pas` now auto-resolves an omitted preset from
+  `presets.json` (preferring `standard`, then `default`, then the first
+  entry); the interactive menu (`cli_menu.pas`) uses the same preference
+  order for its "press Enter for default" preset instead of always assuming
+  index 0 (which could silently select `lt` instead of `standard` for the
+  ProRes family).
+- **Direct `make -C fpc/build cli` / `gui` did not copy `ffmpeg`, `ffprobe`,
+  `mkvmerge`, or `MP4Box` into `fpc/bin`** — only the combined `all` target
+  ran `copy-binaries`; `cli`/`gui` depended solely on the presets-only
+  `stage-presets`. Both targets now depend on `copy-binaries`, and that
+  target fails loudly (matching the old `stage-presets` behavior) if
+  `presets.json` is missing instead of silently skipping it.
+
 ## [Unreleased] — Preset Delivery and Windows Validation (2026-08-21)
 
 ### Fixed

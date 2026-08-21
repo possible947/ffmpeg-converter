@@ -154,6 +154,38 @@ begin
   end;
 end;
 
+{ Returns the preferred default preset for Codec on the current platform when
+  the user did not pass --preset explicitly. Prefers 'standard' (the historic
+  compile-time default, still expected for the ProRes family), then 'default'
+  (used by codecs with a single preset), then falls back to the first entry
+  presets.json actually defines; 'default' if the codec has no entries at all
+  (e.g. presets.json missing). }
+function DefaultPresetForCodec(const Codec: string): string;
+var
+  PresetDb: TPresetDb;
+  Presets: TStringArray;
+  I: Integer;
+begin
+  Result := 'default';
+  PresetDb := TPresetDb.Create;
+  try
+    PresetDb.Load;
+    Presets := PresetDb.ListPresets(CurrentPlatformName, Codec);
+    if Length(Presets) = 0 then
+      Exit;
+
+    for I := 0 to Length(Presets) - 1 do
+      if Presets[I] = 'standard' then
+        Exit('standard');
+    for I := 0 to Length(Presets) - 1 do
+      if Presets[I] = 'default' then
+        Exit('default');
+    Result := Presets[0];
+  finally
+    PresetDb.Free;
+  end;
+end;
+
 procedure SetAnsiField(var Dest: array of AnsiChar; const S: string);
 var
   N: SizeInt;
@@ -634,6 +666,7 @@ var
   M4VLang: string;
   M4VAddChapters: Boolean;
   ParsedInt: Integer;
+  PresetExplicitlySet: Boolean;
   {$IFDEF Linux}
   LinuxCaps: TLinuxCodecSupport;
   {$ENDIF}
@@ -646,6 +679,7 @@ begin
   M4VLang := 'rus';
   M4VAddChapters := True;
   OutputDirExplicitlySet := False;
+  PresetExplicitlySet := False;
 
   for I := 0 to High(Files) do
     Files[I] := nil;
@@ -707,6 +741,7 @@ begin
       Inc(I);
       S := Args[I];
       SetAnsiField(Opts.preset, S);
+      PresetExplicitlySet := True;
       Inc(I);
       Continue;
     end;
@@ -943,7 +978,12 @@ begin
   end;
 
   Codec := ArrToStr(Opts.codec);
-  if not IsPresetAllowed(Codec, ArrToStr(Opts.preset)) then
+  if not PresetExplicitlySet then
+    { No --preset/-p/--profile on the command line: the compile-time default
+      ('standard') only applies to the ProRes family, so resolve the codec's
+      own first preset instead of validating an unrelated fixed value. }
+    SetAnsiField(Opts.preset, DefaultPresetForCodec(Codec))
+  else if not IsPresetAllowed(Codec, ArrToStr(Opts.preset)) then
   begin
     WriteLn(StdErr, 'Error: preset ''', ArrToStr(Opts.preset),
       ''' is not available for codec ''', Codec,

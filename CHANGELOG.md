@@ -5,6 +5,28 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Mux/M4V Pipeline Fixes (2026-08-22)
+
+### Fixed
+- **Apple M4V audio disposition step regressed to running MP4Box instead of
+  ffmpeg**: `m4v.c` reused the `quoted_tool` scratch buffer from the
+  preceding MP4Box mux step without resetting it to the ffmpeg binary before
+  building the disposition command, so step 5/6 always failed with
+  `Apple M4V audio disposition failed` even though the muxed file itself was
+  already complete and valid.
+- **`codec=mux` ignored the `preset` (mkv/mov/m4v) and always produced an
+  `.mkv`** via the legacy mkvmerge-only path: added
+  `mux_run_postprocess_for_preset()` (`src/mux/mux.c`/`mux.h`), which keeps
+  the `mkv` preset unchanged and adds `mov` (ffmpeg stream-copy remux) and
+  `m4v` (Apple M4V pipeline on the merged intermediate) as real final
+  containers. Wired into the Linux/Windows CLI mux post-process
+  (`cli_linux.c`, `cli_windows.c`), the GTK4 GUI (`gui_callbacks.c`), and the
+  macOS Cocoa bridge (`converter_bridge.m`); `converter_make_output_name()`
+  now derives the correct extension for `codec=mux` from `preset`.
+- Restored the `mux` codec entry to the macOS Cocoa codec picker
+  (`main.m`), which had been dropped when the popup became data-driven,
+  before its preset dispatch was fully wired.
+
 ## [Unreleased] — Preset UX and Platform Validation Follow-up (2026-08-21)
 
 ### Fixed

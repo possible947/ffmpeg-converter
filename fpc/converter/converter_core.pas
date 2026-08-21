@@ -413,7 +413,7 @@ begin
       Continue;
     end;
 
-    OutputFile := MakeOutputName(InputFile, Codec, EffectiveOutDir);
+    OutputFile := MakeOutputName(InputFile, Codec, EffectiveOutDir, ArrToStr(Ctx^.Opts.preset));
     Err := CheckOutputExists(Ctx, OutputFile);
     if Err = ERR_OUTPUT_EXISTS then
     begin

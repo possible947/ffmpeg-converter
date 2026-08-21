@@ -505,6 +505,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     }
 
     emit_stage(callbacks, "Apple M4V step 5/6: set audio disposition");
+    m4v_platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
     m4v_platform_shell_quote(disposition_m4v, quoted_disposition_m4v, sizeof(quoted_disposition_m4v));
     snprintf(cmd,
              sizeof(cmd),

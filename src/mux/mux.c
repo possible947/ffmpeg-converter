@@ -1,6 +1,7 @@
 #include "mux.h"
 #include "mux_platform.h"
 #include "converter_platform.h"
+#include "m4v.h"
 
 #include <ctype.h>
 #include <stdint.h>
@@ -337,4 +338,102 @@ ConverterError mux_run_postprocess(
 
     emit_message(callbacks, "Post-mux completed");
     return ERR_OK;
+}
+
+/* Stream-copy remux of a finished mkvmerge output into another container
+ * (used for the mux "mov" preset). */
+static ConverterError mux_remux_container(const char* input_file,
+                                          const char* output_file,
+                                          const char* container_fmt,
+                                          const ConverterCallbacks* callbacks)
+{
+    const char* ffmpeg_bin = platform_get_ffmpeg_bin();
+    char cmd[8192];
+    char quoted_tool[2048];
+    char quoted_input[2048];
+    char quoted_output[2048];
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0') {
+        emit_error(callbacks, "post-mux failed: ffmpeg not found", ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
+
+    platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
+    platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
+    platform_shell_quote(output_file, quoted_output, sizeof(quoted_output));
+
+    snprintf(cmd, sizeof(cmd), "%s -y -nostdin -i %s -c copy -f %s %s 2>&1",
+             quoted_tool, quoted_input, container_fmt, quoted_output);
+
+    emit_stage(callbacks, "Post-mux: remux to .mov");
+    if (run_mux_command(cmd, callbacks) != 0) {
+        emit_error(callbacks, "post-mux failed: container remux returned error", ERR_FFMPEG_FAILED);
+        return ERR_FFMPEG_FAILED;
+    }
+    return ERR_OK;
+}
+
+/* Preset-aware entry point for the "mux" codec: opts->output_file is ignored
+ * and computed internally from final_output_file + convert_opts->preset.
+ *   "mkv" (default/unset) — unchanged mkvmerge-in-place behavior.
+ *   "mov" — mkvmerge into a temp .mkv, then ffmpeg stream-copy remux to .mov.
+ *   "m4v" — mkvmerge into a temp .mkv, then the Apple M4V pipeline on it. */
+ConverterError mux_run_postprocess_for_preset(
+    const MuxOptions* opts,
+    const ConvertOptions* convert_opts,
+    const char* final_output_file,
+    const ConverterCallbacks* callbacks
+) {
+    MuxOptions local_opts;
+    const char* preset;
+    char temp_mkv[1200];
+    ConverterError err;
+
+    if (!opts || !final_output_file)
+        return ERR_INVALID_OPTIONS;
+
+    preset = (convert_opts && convert_opts->preset[0] != '\0') ? convert_opts->preset : "mkv";
+    local_opts = *opts;
+
+    if (!strcmp(preset, "mkv")) {
+        strncpy(local_opts.output_file, final_output_file, sizeof(local_opts.output_file) - 1);
+        local_opts.output_file[sizeof(local_opts.output_file) - 1] = '\0';
+        return mux_run_postprocess(&local_opts, convert_opts, callbacks);
+    }
+
+    snprintf(temp_mkv, sizeof(temp_mkv), "%s.mux_tmp.mkv", final_output_file);
+    strncpy(local_opts.output_file, temp_mkv, sizeof(local_opts.output_file) - 1);
+    local_opts.output_file[sizeof(local_opts.output_file) - 1] = '\0';
+
+    err = mux_run_postprocess(&local_opts, convert_opts, callbacks);
+    if (err != ERR_OK)
+        return err;
+
+    if (!strcmp(preset, "mov")) {
+        err = mux_remux_container(temp_mkv, final_output_file, "mov", callbacks);
+    } else if (!strcmp(preset, "m4v")) {
+        M4VOptions m4v_opts;
+        char detail[256];
+
+        emit_stage(callbacks, "Post-mux: Apple M4V pipeline");
+        m4v_default_options(&m4v_opts);
+        detail[0] = '\0';
+        err = m4v_create_from_input(temp_mkv, final_output_file, &m4v_opts,
+                                   opts->overwrite, NULL, callbacks,
+                                   detail, sizeof(detail));
+        if (err != ERR_OK)
+            emit_error(callbacks, detail[0] != '\0' ? detail : "Apple M4V pipeline failed", err);
+    } else {
+        /* Unrecognized preset value: keep the mkvmerge result rather than
+         * silently discarding a completed mux. */
+        if (platform_rename(temp_mkv, final_output_file) != 0) {
+            emit_error(callbacks, "post-mux failed: could not finalize output", ERR_UNKNOWN);
+            err = ERR_UNKNOWN;
+        } else {
+            err = ERR_OK;
+        }
+    }
+
+    platform_unlink(temp_mkv);
+    return err;
 }

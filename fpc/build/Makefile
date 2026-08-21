@@ -129,7 +129,7 @@ else
 
 all: cli lib tests copy-binaries
 
-cli: $(CLI_BIN) stage-presets
+cli: $(CLI_BIN) copy-binaries
 
 lib: $(LIB_OUT)
 
@@ -142,7 +142,7 @@ endif
 
 apple-test: $(ROOT)/fpc/test/run_apple_m4v_test$(EXEEXT)
 
-gui: $(GUI_BIN) stage-presets
+gui: $(GUI_BIN) copy-binaries
 
 stage-presets:
 	@mkdir -p "$(BIN_DIR)"
@@ -160,9 +160,8 @@ copy-binaries:
 	@if [ -d "$(ROOT)/src/platform/linux/bin" ]; then \
 		cp -f "$(ROOT)/src/platform/linux/bin/"* "$(BIN_DIR)/"; \
 	fi
-	@if [ -f "$(ROOT)/presets.json" ]; then \
-		cp -f "$(ROOT)/presets.json" "$(BIN_DIR)/presets.json"; \
-	fi
+	@test -f "$(ROOT)/presets.json" || { echo "ERROR: presets.json not found at $(ROOT)/presets.json"; exit 1; }
+	@cp -f "$(ROOT)/presets.json" "$(BIN_DIR)/presets.json"
 	@for tool in mkvmerge MP4Box; do \
 		src=""; \
 		if [ -x "$(ROOT)/src/platform/linux/bin/$$tool" ]; then \

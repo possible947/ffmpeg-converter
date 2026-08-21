@@ -368,8 +368,10 @@ ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
                                             const char* input_file)
 {
     ConvertOptions file_opts;
+    ConvertOptions final_name_opts;
     MuxOptions     mux_opts;
     char effective_output_dir[4096];
+    char final_output_file[1200];
 
     if (!opts || !cb || !input_file)
         return ERR_INVALID_OPTIONS;
@@ -399,12 +401,18 @@ ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
     strncpy(mux_opts.video_track_file, opts->video_track_path,
             sizeof(mux_opts.video_track_file) - 1);
     mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
-    strncpy(mux_opts.output_file, mux_opts.intermediate_file,
-            sizeof(mux_opts.output_file) - 1);
-    mux_opts.output_file[sizeof(mux_opts.output_file) - 1] = '\0';
     mux_opts.overwrite = opts->overwrite;
 
-    return mux_run_postprocess(&mux_opts, opts, cb);
+    /* Final container/extension depends on opts->preset (mkv/mov/m4v);
+     * keep codec="mux" here so converter_make_output_name() picks it up. */
+    final_name_opts = *opts;
+    strncpy(final_name_opts.output_dir, effective_output_dir,
+            sizeof(final_name_opts.output_dir) - 1);
+    final_name_opts.output_dir[sizeof(final_name_opts.output_dir) - 1] = '\0';
+    converter_make_output_name(input_file, &final_name_opts,
+                               final_output_file, sizeof(final_output_file));
+
+    return mux_run_postprocess_for_preset(&mux_opts, opts, final_output_file, cb);
 }
 
 char** platform_utf8_argv(int argc, char** argv, int* needs_free)

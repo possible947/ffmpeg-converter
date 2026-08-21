@@ -148,7 +148,8 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     }
     return strcmp(codec, "copy") == 0 ||
            strcmp(codec, "prores") == 0 ||
-           strcmp(codec, "prores_ks") == 0;
+           strcmp(codec, "prores_ks") == 0 ||
+           strcmp(codec, "mux") == 0;
 }
 
 - (void)setRunningUIState:(BOOL)running {

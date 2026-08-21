@@ -70,7 +70,9 @@ Important:
 - On Linux, hardware codecs are exposed only when runtime probing confirms
   `h264_vaapi` or `hevc_vaapi` on an accessible render node.
 - On Linux, `codec=mux` is a one-source-file workflow that requires
-  `--video-track <file>` and produces final `.mkv` output through `mkvmerge`.
+  `--video-track <file>`; the final container is selected by `--preset`
+  (`mkv` — mkvmerge, default; `mov` — ffmpeg remux; `m4v` — Apple M4V pipeline
+  on the merged mkvmerge output).
 
 ## Converter Engine Notes
 

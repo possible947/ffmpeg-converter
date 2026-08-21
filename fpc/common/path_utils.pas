@@ -5,7 +5,7 @@ unit path_utils;
 interface
 
 function QuoteForShell(const S: string): string;
-function MakeOutputName(const InputPath, Codec, OutputDir: string): string;
+function MakeOutputName(const InputPath, Codec, OutputDir: string; const Preset: string = ''): string;
 
 implementation
 
@@ -28,7 +28,7 @@ begin
 {$ENDIF}
 end;
 
-function MakeOutputName(const InputPath, Codec, OutputDir: string): string;
+function MakeOutputName(const InputPath, Codec, OutputDir: string; const Preset: string = ''): string;
 var
   BaseName: string;
   Ext: string;
@@ -39,10 +39,21 @@ begin
     Ext := '.mp4'
   else if Codec = 'm4v' then
     Ext := '.m4v'
+  else if Codec = 'mux' then
+  begin
+    { Final container depends on the mux preset (mkv/mov/m4v); default 'mkv'
+      matches the pre-Phase-1 behavior for callers that don't pass Preset. }
+    if Preset = 'mov' then
+      Ext := '.mov'
+    else if Preset = 'm4v' then
+      Ext := '.m4v'
+    else
+      Ext := '.mkv';
+  end
   else if (Codec = 'prores') or (Codec = 'prores_ks') or
           (Codec = 'prores_videotoolbox') or (Codec = 'prores_ks_vulkan') then
     Ext := '.mov'
-  else if (Codec = 'copy') or (Codec = 'mux') or
+  else if (Codec = 'copy') or
            (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
     Ext := '.mkv'
   else if (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or

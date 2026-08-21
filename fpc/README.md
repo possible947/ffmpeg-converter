@@ -30,7 +30,8 @@ available for **Linux and Windows only**. macOS support was discontinued in vers
 - Platform-aware codecs: Linux (`h264_vaapi`, `hevc_vaapi`), Windows (`*_nvenc`, `*_amf`,
   `*_qsv`, `prores_ks_vulkan`), both via runtime probing
 - Audio output modes: `pcm`, `fdk_aac_320`, `fdk_aac_320_ac3_640`
-- Mux mode parity: `-c mux --video-track <file>` with mkvmerge post-process pipeline
+- Mux mode parity: `-c mux --video-track <file>` with a preset-selected final
+  container (`mkv` mkvmerge, `mov` ffmpeg remux, `m4v` Apple M4V pipeline)
 
 ## Folder Layout
 

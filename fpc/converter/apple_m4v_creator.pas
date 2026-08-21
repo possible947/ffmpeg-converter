@@ -308,7 +308,11 @@ begin
   end;
 
   EffectiveOutputDir := ExtractFileDir(OutputFile);
-  if not EnsureOutputDirWritable(EffectiveOutputDir, EffectiveOutputDir, OutDirError) then
+  { EnsureOutputDirWritable's ResolvedDir is an `out` parameter: the compiler
+    clears it on entry, so passing the same variable as RequestedDir here
+    would wipe it before it is read, always falling back to DefaultOutputDir.
+    Use a distinct requested-dir value to avoid that aliasing. }
+  if not EnsureOutputDirWritable(ExtractFileDir(OutputFile), EffectiveOutputDir, OutDirError) then
   begin
     ErrorText := 'Output preflight failed: ' + OutDirError;
     Exit(False);

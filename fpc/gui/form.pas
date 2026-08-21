@@ -1247,6 +1247,13 @@ begin
     Dec(I);
   end;
 
+  { 'mux' is not a Linux-HW entry (CodecIsLinuxHW does not match it) and was
+    missing from the static SetupControls list, leaving mux mode entirely
+    unreachable in the GUI. Matches the always-offered 'mux' entry in the
+    C/GTK4 codec combo and the Windows codec population below. }
+  if cmbCodec.Items.IndexOf('mux') < 0 then
+    cmbCodec.Items.Add('mux');
+
   if FLinuxSupport.HasVaapiH264 then
     cmbCodec.Items.Add('h264_vaapi');
   if FLinuxSupport.HasVaapiHEVC then

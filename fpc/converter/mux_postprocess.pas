@@ -15,6 +15,7 @@ uses
   SysUtils,
   process_utils,
   path_utils,
+  apple_m4v_creator,
   {$IFDEF Linux}
   tool_paths,
   {$ENDIF}
@@ -73,6 +74,11 @@ var
   MuxCmd: string;
   CmdRes: TRunResult;
   EffectiveOutputDir: string;
+  Preset: string;
+  FinalOutputFile: string;
+  RemuxCmd: string;
+  M4VOpts: TAppleM4VOptions;
+  M4VErrorText: string;
 {$IFDEF Linux}
   MuxRate: string;
   ProbeCmd: string;
@@ -203,6 +209,37 @@ begin
   end;
 
   SafeWriteLn('Mux successful: ' + IntermediateFile);
+
+  { The mkvmerge step above always produces an .mkv. For 'mov'/'m4v' presets,
+    convert that merged file into the correct final container; the default
+    'mkv' preset keeps IntermediateFile as the final output unchanged. }
+  Preset := ArrToStr(Opts.preset);
+  if Preset = 'mov' then
+  begin
+    FinalOutputFile := MakeOutputName(InputFile, 'mux', EffectiveOutputDir, Preset);
+    RemuxCmd := QuoteForShell(Tools.FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(IntermediateFile) +
+                ' -c copy -f mov ' + QuoteForShell(FinalOutputFile) + ' 2>&1';
+    SafeWriteLn('Running mux container remux (mov)...');
+    CmdRes := RunCommandCapture(RemuxCmd);
+    if CmdRes.ExitCode <> 0 then
+    begin
+      SafeWriteErr('Error: mov remux failed: ' + CmdRes.OutputText);
+      Exit(ERR_FFMPEG_FAILED);
+    end;
+    SysUtils.DeleteFile(IntermediateFile);
+  end
+  else if Preset = 'm4v' then
+  begin
+    FinalOutputFile := MakeOutputName(InputFile, 'mux', EffectiveOutputDir, Preset);
+    M4VOpts := DefaultAppleM4VOptions;
+    if not CreateAppleM4V(IntermediateFile, FinalOutputFile, M4VOpts, M4VErrorText) then
+    begin
+      SafeWriteErr('Error: Apple M4V pipeline failed: ' + M4VErrorText);
+      Exit(ERR_FFMPEG_FAILED);
+    end;
+    SysUtils.DeleteFile(IntermediateFile);
+  end;
+
   Result := ERR_OK;
 {$ELSE}
 {$IFDEF Windows}
@@ -329,6 +366,37 @@ begin
   end;
 
   SafeWriteLn('Mux successful: ' + IntermediateFile);
+
+  { The mkvmerge step above always produces an .mkv. For 'mov'/'m4v' presets,
+    convert that merged file into the correct final container; the default
+    'mkv' preset keeps IntermediateFile as the final output unchanged. }
+  Preset := ArrToStr(Opts.preset);
+  if Preset = 'mov' then
+  begin
+    FinalOutputFile := MakeOutputName(InputFile, 'mux', EffectiveOutputDir, Preset);
+    RemuxCmd := QuoteForShell(Tools.FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(IntermediateFile) +
+                ' -c copy -f mov ' + QuoteForShell(FinalOutputFile) + ' 2>&1';
+    SafeWriteLn('Running mux container remux (mov)...');
+    CmdRes := RunCommandCapture(RemuxCmd);
+    if CmdRes.ExitCode <> 0 then
+    begin
+      SafeWriteErr('Error: mov remux failed: ' + CmdRes.OutputText);
+      Exit(ERR_FFMPEG_FAILED);
+    end;
+    SysUtils.DeleteFile(IntermediateFile);
+  end
+  else if Preset = 'm4v' then
+  begin
+    FinalOutputFile := MakeOutputName(InputFile, 'mux', EffectiveOutputDir, Preset);
+    M4VOpts := DefaultAppleM4VOptions;
+    if not CreateAppleM4V(IntermediateFile, FinalOutputFile, M4VOpts, M4VErrorText) then
+    begin
+      SafeWriteErr('Error: Apple M4V pipeline failed: ' + M4VErrorText);
+      Exit(ERR_FFMPEG_FAILED);
+    end;
+    SysUtils.DeleteFile(IntermediateFile);
+  end;
+
   Result := ERR_OK;
 {$ELSE}
   SafeWriteErr('Error: mux postprocess is only supported on Linux and Windows');

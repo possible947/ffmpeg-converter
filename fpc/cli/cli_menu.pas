@@ -51,6 +51,22 @@ begin
   end;
 end;
 
+{ Index of the preferred "press Enter for default" preset within PresetNames.
+  Prefers 'standard' (historic default, still expected for the ProRes
+  family), then 'default' (single-preset codecs), then the first entry. }
+function DefaultPresetIndex(const PresetNames: TStringArray): Integer;
+var
+  I: Integer;
+begin
+  Result := 0;
+  for I := 0 to High(PresetNames) do
+    if PresetNames[I] = 'standard' then
+      Exit(I);
+  for I := 0 to High(PresetNames) do
+    if PresetNames[I] = 'default' then
+      Exit(I);
+end;
+
 { Build the list of codecs that are actually available on this platform
   (mirrors the C CLI's platform_get_codec_entries).  The interactive menu
   renders this list dynamically instead of hard-coding entries. }
@@ -451,7 +467,7 @@ begin
             CodecIdx := ChoiceNum - 1;
             PresetNames := GetPresetNames(CodecNames[CodecIdx]);
             if Length(PresetNames) > 0 then
-              Preset := PresetNames[0]
+              Preset := PresetNames[DefaultPresetIndex(PresetNames)]
             else
               Preset := 'default';
             if Length(PresetNames) > 1 then
@@ -482,7 +498,7 @@ begin
           WriteLn('-----------------------');
           for I := 0 to High(PresetNames) do
           begin
-            if I = 0 then
+            if I = DefaultPresetIndex(PresetNames) then
               WriteLn(Format('  %d. %s (default)', [I + 1, PresetNames[I]]))
             else
               WriteLn(Format('  %d. %s', [I + 1, PresetNames[I]]));

@@ -16,4 +16,5 @@ endif()
 
 target_link_libraries(mux PUBLIC
     converter
+    m4v
 )
