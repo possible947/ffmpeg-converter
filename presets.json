@@ -1,0 +1,415 @@
+{
+  "version": "1.0",
+  "description": "FFmpeg Converter v3.0 codec preset definitions (behavior-preserving)",
+  "linux": {
+    "copy": {
+      "default": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "mkv"
+      }
+    },
+    "prores": {
+      "lt": {
+        "ffmpeg_args": "-c:v prores -profile:v 1",
+        "container": "mov"
+      },
+      "standard": {
+        "ffmpeg_args": "-c:v prores -profile:v 2",
+        "container": "mov"
+      },
+      "hq": {
+        "ffmpeg_args": "-c:v prores -profile:v 3",
+        "container": "mov"
+      },
+      "4444": {
+        "ffmpeg_args": "-c:v prores -profile:v 4",
+        "pix_fmt": "yuv444p10le",
+        "container": "mov"
+      }
+    },
+    "prores_ks": {
+      "lt": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v lt",
+        "container": "mov"
+      },
+      "standard": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v standard",
+        "container": "mov"
+      },
+      "hq": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v hq",
+        "container": "mov"
+      },
+      "4444": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v 4444",
+        "pix_fmt": "yuv444p10le",
+        "container": "mov"
+      }
+    },
+    "h264_vaapi": {
+      "default": {
+        "ffmpeg_args": "-c:v h264_vaapi -rc_mode auto",
+        "pre_input_args": "-vaapi_device {vaapi_device}",
+        "video_filter": "format=nv12,hwupload",
+        "container": "mkv",
+        "requires": ["h264_vaapi"]
+      }
+    },
+    "hevc_vaapi": {
+      "default": {
+        "ffmpeg_args": "-c:v hevc_vaapi -rc_mode auto",
+        "pre_input_args": "-vaapi_device {vaapi_device}",
+        "video_filter": "format=nv12,hwupload",
+        "container": "mkv",
+        "requires": ["hevc_vaapi"]
+      }
+    },
+    "prores_ks_vulkan": {
+      "lt": {
+        "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v lt",
+        "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
+        "video_filter": "format=yuv422p10le,hwupload",
+        "container": "mov",
+        "requires": ["prores_ks_vulkan"]
+      },
+      "standard": {
+        "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v standard",
+        "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
+        "video_filter": "format=yuv422p10le,hwupload",
+        "container": "mov",
+        "requires": ["prores_ks_vulkan"]
+      },
+      "hq": {
+        "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v hq",
+        "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
+        "video_filter": "format=yuv422p10le,hwupload",
+        "container": "mov",
+        "requires": ["prores_ks_vulkan"]
+      },
+      "4444": {
+        "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v 4444",
+        "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
+        "video_filter": "format=yuv444p10le,hwupload",
+        "container": "mov",
+        "requires": ["prores_ks_vulkan"]
+      }
+    },
+    "h264_nvenc": {
+      "default": {
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "container": "mkv",
+        "requires": ["h264_nvenc"]
+      }
+    },
+    "hevc_nvenc": {
+      "default": {
+        "ffmpeg_args": "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto",
+        "container": "mkv",
+        "requires": ["hevc_nvenc"]
+      }
+    },
+    "h264_amf": {
+      "default": {
+        "ffmpeg_args": "-c:v h264_amf",
+        "container": "mkv",
+        "requires": ["h264_amf"]
+      }
+    },
+    "hevc_amf": {
+      "default": {
+        "ffmpeg_args": "-c:v hevc_amf",
+        "container": "mkv",
+        "requires": ["hevc_amf"]
+      }
+    },
+    "h264_qsv": {
+      "default": {
+        "ffmpeg_args": "-c:v h264_qsv -global_quality 22 -preset slower -look_ahead 1 -look_ahead_depth 40 -extbrc 1",
+        "container": "mkv",
+        "requires": ["h264_qsv"]
+      }
+    },
+    "hevc_qsv": {
+      "default": {
+        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "container": "mkv",
+        "requires": ["hevc_qsv"]
+      }
+    },
+    "mux": {
+      "mkv": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "mkv",
+        "requires": ["mkvmerge"]
+      },
+      "mov": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "mov"
+      },
+      "m4v": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "m4v",
+        "pipeline": "m4v_direct",
+        "requires": ["mp4box", "libfdk_aac"]
+      }
+    },
+    "m4v": {
+      "default": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "m4v",
+        "pipeline": "m4v_direct",
+        "requires": ["mp4box", "libfdk_aac"]
+      }
+    }
+  },
+  "macos": {
+    "copy": {
+      "default": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "mov"
+      }
+    },
+    "prores": {
+      "lt": {
+        "ffmpeg_args": "-c:v prores -profile:v 1",
+        "container": "mov"
+      },
+      "standard": {
+        "ffmpeg_args": "-c:v prores -profile:v 2",
+        "container": "mov"
+      },
+      "hq": {
+        "ffmpeg_args": "-c:v prores -profile:v 3",
+        "container": "mov"
+      },
+      "4444": {
+        "ffmpeg_args": "-c:v prores -profile:v 4",
+        "pix_fmt": "yuv444p10le",
+        "container": "mov"
+      }
+    },
+    "prores_ks": {
+      "lt": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v lt",
+        "container": "mov"
+      },
+      "standard": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v standard",
+        "container": "mov"
+      },
+      "hq": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v hq",
+        "container": "mov"
+      },
+      "4444": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v 4444",
+        "pix_fmt": "yuv444p10le",
+        "container": "mov"
+      }
+    },
+    "prores_videotoolbox": {
+      "lt": {
+        "ffmpeg_args": "-c:v prores_videotoolbox -profile:v 1 -allow_sw 1",
+        "container": "mov",
+        "requires": ["prores_videotoolbox"]
+      },
+      "standard": {
+        "ffmpeg_args": "-c:v prores_videotoolbox -profile:v 2 -allow_sw 1",
+        "container": "mov",
+        "requires": ["prores_videotoolbox"]
+      },
+      "hq": {
+        "ffmpeg_args": "-c:v prores_videotoolbox -profile:v 3 -allow_sw 1",
+        "container": "mov",
+        "requires": ["prores_videotoolbox"]
+      },
+      "4444": {
+        "ffmpeg_args": "-c:v prores_videotoolbox -profile:v 4 -allow_sw 1",
+        "container": "mov",
+        "requires": ["prores_videotoolbox"]
+      }
+    },
+    "hevc_videotoolbox": {
+      "default": {
+        "ffmpeg_args": "-c:v hevc_videotoolbox -b:v {vt_bitrate} -tag:v hvc1 -spatial_aq 1",
+        "container": "mov",
+        "requires": ["hevc_videotoolbox"]
+      }
+    },
+    "h264_vaapi": {
+      "default": {
+        "ffmpeg_args": "-c:v h264_vaapi -rc_mode auto",
+        "container": "mkv",
+        "requires": ["h264_vaapi"]
+      }
+    },
+    "mux": {
+      "mkv": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "mkv",
+        "requires": ["mkvmerge"]
+      },
+      "mov": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "mov"
+      },
+      "m4v": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "m4v",
+        "pipeline": "m4v_direct",
+        "requires": ["mp4box", "libfdk_aac"]
+      }
+    },
+    "m4v": {
+      "default": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "m4v",
+        "pipeline": "m4v_direct",
+        "requires": ["mp4box", "libfdk_aac"]
+      }
+    }
+  },
+  "windows": {
+    "copy": {
+      "default": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "mkv"
+      }
+    },
+    "prores": {
+      "lt": {
+        "ffmpeg_args": "-c:v prores -profile:v 1",
+        "container": "mov"
+      },
+      "standard": {
+        "ffmpeg_args": "-c:v prores -profile:v 2",
+        "container": "mov"
+      },
+      "hq": {
+        "ffmpeg_args": "-c:v prores -profile:v 3",
+        "container": "mov"
+      },
+      "4444": {
+        "ffmpeg_args": "-c:v prores -profile:v 4",
+        "pix_fmt": "yuv444p10le",
+        "container": "mov"
+      }
+    },
+    "prores_ks": {
+      "lt": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v lt",
+        "container": "mov"
+      },
+      "standard": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v standard",
+        "container": "mov"
+      },
+      "hq": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v hq",
+        "container": "mov"
+      },
+      "4444": {
+        "ffmpeg_args": "-c:v prores_ks -profile:v 4444",
+        "pix_fmt": "yuv444p10le",
+        "container": "mov"
+      }
+    },
+    "prores_ks_vulkan": {
+      "lt": {
+        "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v lt",
+        "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
+        "video_filter": "format=yuv422p10le,hwupload",
+        "container": "mov",
+        "requires": ["prores_ks_vulkan"]
+      },
+      "standard": {
+        "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v standard",
+        "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
+        "video_filter": "format=yuv422p10le,hwupload",
+        "container": "mov",
+        "requires": ["prores_ks_vulkan"]
+      },
+      "hq": {
+        "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v hq",
+        "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
+        "video_filter": "format=yuv422p10le,hwupload",
+        "container": "mov",
+        "requires": ["prores_ks_vulkan"]
+      },
+      "4444": {
+        "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v 4444",
+        "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
+        "video_filter": "format=yuv444p10le,hwupload",
+        "container": "mov",
+        "requires": ["prores_ks_vulkan"]
+      }
+    },
+    "h264_nvenc": {
+      "default": {
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "container": "mkv",
+        "requires": ["h264_nvenc"]
+      }
+    },
+    "hevc_nvenc": {
+      "default": {
+        "ffmpeg_args": "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto",
+        "container": "mkv",
+        "requires": ["hevc_nvenc"]
+      }
+    },
+    "h264_amf": {
+      "default": {
+        "ffmpeg_args": "-c:v h264_amf",
+        "container": "mkv",
+        "requires": ["h264_amf"]
+      }
+    },
+    "hevc_amf": {
+      "default": {
+        "ffmpeg_args": "-c:v hevc_amf",
+        "container": "mkv",
+        "requires": ["hevc_amf"]
+      }
+    },
+    "h264_qsv": {
+      "default": {
+        "ffmpeg_args": "-c:v h264_qsv -global_quality 22 -preset slower -look_ahead 1 -look_ahead_depth 40 -extbrc 1",
+        "container": "mkv",
+        "requires": ["h264_qsv"]
+      }
+    },
+    "hevc_qsv": {
+      "default": {
+        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "container": "mkv",
+        "requires": ["hevc_qsv"]
+      }
+    },
+    "mux": {
+      "mkv": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "mkv",
+        "requires": ["mkvmerge"]
+      },
+      "mov": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "mov"
+      },
+      "m4v": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "m4v",
+        "pipeline": "m4v_direct",
+        "requires": ["mp4box", "libfdk_aac"]
+      }
+    },
+    "m4v": {
+      "default": {
+        "ffmpeg_args": "-c:v copy",
+        "container": "m4v",
+        "pipeline": "m4v_direct",
+        "requires": ["mp4box", "libfdk_aac"]
+      }
+    }
+  }
+}
