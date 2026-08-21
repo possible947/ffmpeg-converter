@@ -101,6 +101,14 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     else()
         message(WARNING "mkvmerge not found in common Linux locations; linux_cli will rely on MKVMERGE_BIN or PATH.")
     endif()
+
+    # Copy presets.json next to CLI binary
+    if (EXISTS "${CMAKE_SOURCE_DIR}/presets.json")
+        add_custom_command(TARGET linux_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_cli>/presets.json"
+            COMMENT "Copying presets.json next to linux_cli"
+        )
+    endif()
 endif()
 
 # --- MACOS CLI ---
@@ -138,6 +146,14 @@ if (APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MACOS_BUNDLED_FFPROBE}" "$<TARGET_FILE_DIR:macos_cli>/ffprobe"
         COMMENT "Copying bundled ffmpeg/ffprobe next to macos_cli"
     )
+
+    # Copy presets.json next to CLI binary
+    if (EXISTS "${CMAKE_SOURCE_DIR}/presets.json")
+        add_custom_command(TARGET macos_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/presets.json" "$<TARGET_FILE_DIR:macos_cli>/presets.json"
+            COMMENT "Copying presets.json next to macos_cli"
+        )
+    endif()
 endif()
 
 # --- WINDOWS CLI ---
@@ -176,5 +192,13 @@ if (WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${WINDOWS_BUNDLED_BIN_DIR}" "$<TARGET_FILE_DIR:windows_cli>"
         COMMENT "Copying bundled ffmpeg/ffprobe and dependencies next to windows_cli"
     )
+
+    # Copy presets.json next to CLI binary
+    if (EXISTS "${CMAKE_SOURCE_DIR}/presets.json")
+        add_custom_command(TARGET windows_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/presets.json" "$<TARGET_FILE_DIR:windows_cli>/presets.json"
+            COMMENT "Copying presets.json next to windows_cli"
+        )
+    endif()
 endif()
 

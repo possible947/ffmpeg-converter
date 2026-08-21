@@ -17,6 +17,7 @@
 #include "progress.h"
 #include "cli_common.h"
 #include "cli_platform.h"
+#include "preset_loader.h"
 
 /* ---------------------------------------------------------------
  *  CLI Callbacks
@@ -77,6 +78,10 @@ void print_usage(const CliPlatformHandle* h) {
 
     printf("Usage: ffmpeg_converter [options] file1 file2 ...\n\n");
     printf("Options:\n");
+    printf("  -h, --help                Show this help message\n");
+    printf("      --codecs-list         List all available codecs and presets\n");
+    printf("      --version             Show version information\n");
+    printf("\n");
 
     count   = platform_get_codec_count(h);
     entries = platform_get_codec_entries(h);
@@ -91,7 +96,7 @@ void print_usage(const CliPlatformHandle* h) {
     for (i = 0; i < count; i++)
         printf("      %-26s\n", entries[i].name);
 
-    printf("  -p, --profile <lt|standard|hq|4444>\n");
+    printf("  -p, --preset <preset>     Codec-specific preset (use --codecs-list for available presets)\n");
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
     printf("      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>\n");
@@ -582,6 +587,145 @@ int verify_all_files(const char** files, int file_count) {
 }
 
 /* ---------------------------------------------------------------
+ *  Codec/Preset listing and validation (Task 4)
+ * --------------------------------------------------------------- */
+
+static const char* get_platform_name(void) {
+#if defined(__APPLE__)
+    return "macos";
+#elif defined(_WIN32)
+    return "windows";
+#else
+    return "linux";
+#endif
+}
+
+void cli_print_codecs_list(void) {
+    PresetDb *db;
+    const char *platform;
+    int codec_count, preset_count;
+    const char **codecs;
+    const char **presets;
+    int i, j;
+    
+    db = preset_db_load(NULL);
+    if (!db) {
+        fprintf(stderr, "Error: Could not load preset database\n");
+        return;
+    }
+    
+    platform = get_platform_name();
+    codec_count = preset_db_list_codecs(db, platform, &codecs);
+    
+    if (codec_count <= 0) {
+        fprintf(stderr, "Error: No codecs found for platform '%s'\n", platform);
+        preset_db_free(db);
+        return;
+    }
+    
+    printf("\nAvailable Codecs and Presets for %s:\n", platform);
+    printf("=====================================\n\n");
+    
+    for (i = 0; i < codec_count; i++) {
+        printf("%s\n", codecs[i]);
+        
+        preset_count = preset_db_list_presets(db, platform, codecs[i], &presets);
+        if (preset_count > 0) {
+            for (j = 0; j < preset_count; j++) {
+                printf("  - %s\n", presets[j]);
+            }
+            free(presets);
+        }
+        printf("\n");
+    }
+    
+    free(codecs);
+    preset_db_free(db);
+}
+
+int cli_validate_codec_preset(const char* codec, const char* preset) {
+    PresetDb *db;
+    const char *platform;
+    const PresetInfo *info;
+    int result = 0;
+    
+    if (!codec || !preset) {
+        fprintf(stderr, "Error: codec and preset must not be NULL\n");
+        return 0;
+    }
+    
+    db = preset_db_load(NULL);
+    if (!db) {
+        fprintf(stderr, "Error: Could not load preset database\n");
+        return 0;
+    }
+    
+    platform = get_platform_name();
+    info = preset_db_get(db, platform, codec, preset);
+    if (info) {
+        result = 1;
+    } else {
+        fprintf(stderr, "Error: preset '%s' is not available for codec '%s'\n",
+                preset, codec);
+    }
+    
+    preset_db_free(db);
+    return result;
+}
+
+char* cli_choose_preset_for_codec(const char* codec) {
+    PresetDb *db;
+    const char *platform;
+    const char **presets;
+    int preset_count;
+    int choice = 0;
+    char *result = NULL;
+    
+    if (!codec) return NULL;
+    
+    db = preset_db_load(NULL);
+    if (!db) {
+        fprintf(stderr, "Error: Could not load preset database\n");
+        return NULL;
+    }
+    
+    platform = get_platform_name();
+    preset_count = preset_db_list_presets(db, platform, codec, &presets);
+    
+    if (preset_count == 0) {
+        fprintf(stderr, "Error: No presets available for codec '%s'\n", codec);
+        preset_db_free(db);
+        return NULL;
+    }
+    
+    if (preset_count == 1) {
+        /* Only one preset, use it automatically */
+        result = malloc(strlen(presets[0]) + 1);
+        if (result) strcpy(result, presets[0]);
+        preset_db_free(db);
+        return result;
+    }
+    
+    printf("Available presets for %s:\n", codec);
+    for (int i = 0; i < preset_count; i++) {
+        printf("  [%d] %s\n", i, presets[i]);
+    }
+    printf("Select preset [0-%d]: ", preset_count - 1);
+    
+    if (scanf("%d", &choice) != 1 || choice < 0 || choice >= preset_count) {
+        fprintf(stderr, "Invalid choice\n");
+        preset_db_free(db);
+        return NULL;
+    }
+    
+    result = malloc(strlen(presets[choice]) + 1);
+    if (result) strcpy(result, presets[choice]);
+    
+    preset_db_free(db);
+    return result;
+}
+
+/* ---------------------------------------------------------------
  *  Argument parsing
  * --------------------------------------------------------------- */
 
@@ -625,6 +769,16 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             return 0;
         }
 
+        if (!strcmp(argv[i], "--codecs-list")) {
+            cli_print_codecs_list();
+            return 0;
+        }
+
+        if (!strcmp(argv[i], "--version") || !strcmp(argv[i], "-v")) {
+            print_version();
+            return 0;
+        }
+
         if (!strcmp(argv[i], "--codec") || !strcmp(argv[i], "-c")) {
             if (i + 1 >= argc) return 0;
             i++;
@@ -638,9 +792,8 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         if (!strcmp(argv[i], "--preset") || !strcmp(argv[i], "-p")) {
             if (i + 1 >= argc) return 0;
             i++;
-            if (!strcmp(argv[i], "lt") || !strcmp(argv[i], "standard") || 
-                !strcmp(argv[i], "hq") || !strcmp(argv[i], "4444") ||
-                !strcmp(argv[i], "default")) {
+            /* Now validate the preset against the codec using preset loader */
+            if (cli_validate_codec_preset(opts->codec, argv[i])) {
                 strncpy(opts->preset, argv[i], sizeof(opts->preset) - 1);
                 opts->preset[sizeof(opts->preset) - 1] = '\0';
             } else {
@@ -909,24 +1062,60 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
         /* ---- Step 2: profile ---- */
         case 2: {
             int ch;
+            PresetDb *db;
+            const char *platform;
+            const char **presets;
+            int preset_count, j;
+            
+            db = preset_db_load(NULL);
+            if (!db) {
+                printf("Error: Could not load preset database\n");
+                printf("Using default preset\n");
+                strcpy(preset, "standard");
+                step = entries[codec_idx].needs_deblock ? 3 : 4;
+                break;
+            }
+            
+            platform = get_platform_name();
+            preset_count = preset_db_list_presets(db, platform,
+                                                  entries[codec_idx].name, 
+                                                  &presets);
+            
+            if (preset_count == 0) {
+                printf("Error: No presets available for codec '%s'\n",
+                       entries[codec_idx].name);
+                strcpy(preset, "default");
+                preset_db_free(db);
+                step = entries[codec_idx].needs_deblock ? 3 : 4;
+                break;
+            }
+            
             clear_screen();
             printf("----ffmpeg_converter_simple_gui----\n\n");
-            printf("select profile\n");
+            printf("select profile for %s\n", entries[codec_idx].name);
             printf("-----------------------\n");
-            printf("  1. lt\n");
-            printf("  2. standard (default)\n");
-            printf("  3. hq\n");
+            
+            for (j = 0; j < preset_count; j++) {
+                printf("  %d. %s%s\n", j + 1, presets[j],
+                       j == 1 || (j == 0 && preset_count == 1) ? " (default)" : "");
+            }
             printf("-----------------------\n");
             printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
+            
             ch = read_choice();
             {
                 int next = entries[codec_idx].needs_deblock ? 3 : 4;
-                if      (ch == '\n') { strcpy(preset, "standard"); step = next; }
-                else if (ch == '1') { strcpy(preset, "lt"); step = next; }
-                else if (ch == '2') { strcpy(preset, "standard"); step = next; }
-                else if (ch == '3') { strcpy(preset, "hq"); step = next; }
-                else if (ch == 'c' || ch == 'C') {
+                int default_idx = preset_count > 1 ? 1 : 0;
+                
+                if (ch == '\n') {
+                    strcpy(preset, presets[default_idx]);
+                    step = next;
+                } else if (ch >= '1' && ch < '1' + preset_count) {
+                    strcpy(preset, presets[ch - '1']);
+                    step = next;
+                } else if (ch == 'c' || ch == 'C') {
                     free_temp_files(temp_files, temp_file_count);
+                    preset_db_free(db);
                     return -1;
                 } else if (ch == 'b' || ch == 'B') {
                     step = 1;
@@ -934,6 +1123,8 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
                     printf("Invalid choice\n");
                 }
             }
+            
+            preset_db_free(db);
             break;
         }
 

@@ -14,6 +14,7 @@ type
   TStringArray = array of string;
 
 procedure PrintUsage;
+procedure PrintCodecsList;
 function ParseArgs(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt): Boolean;
 function ParseArgsFromArray(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt; const Args: TStringArray): Boolean;
 procedure PrintSummary(const Opts: TConvertOptions; const Files: array of PAnsiChar; FileCount: LongInt);
@@ -241,6 +242,170 @@ begin
   WriteLn('  ffmpeg_converter -a loudnorm2 -g rock input1.mov input2.mov');
   WriteLn('  ffmpeg_converter -c mux --video-track replacement.hevc input.mkv');
   WriteLn;
+end;
+
+procedure PrintCodecsList;
+var
+{$IFDEF Windows}
+  WinCaps: TWindowsCodecSupport;
+{$ELSE}
+  {$IFDEF Linux}
+  LinuxCaps: TLinuxCodecSupport;
+  {$ENDIF}
+{$ENDIF}
+begin
+  WriteLn;
+  WriteLn('Available Codecs and Presets:');
+  WriteLn('============================');
+  WriteLn;
+  
+  { Software codecs always available }
+  WriteLn('copy');
+  WriteLn('  - default');
+  WriteLn;
+  
+  WriteLn('prores');
+  WriteLn('  - lt');
+  WriteLn('  - standard');
+  WriteLn('  - hq');
+  WriteLn('  - 4444');
+  WriteLn;
+  
+  WriteLn('prores_ks');
+  WriteLn('  - lt');
+  WriteLn('  - standard');
+  WriteLn('  - hq');
+  WriteLn('  - 4444');
+  WriteLn;
+  
+  WriteLn('mux');
+  WriteLn('  - mkv');
+  WriteLn('  - mov');
+  WriteLn('  - m4v');
+  WriteLn;
+
+  { Hardware codecs }
+{$IFDEF Windows}
+  WinCaps := GetWindowsCodecSupport;
+  
+  if WinCaps.HasVulkan then
+  begin
+    WriteLn('prores_ks_vulkan');
+    WriteLn('  - lt');
+    WriteLn('  - standard');
+    WriteLn('  - hq');
+    WriteLn('  - 4444');
+    WriteLn;
+  end;
+  
+  if WinCaps.HasNVENC then
+  begin
+    WriteLn('h264_nvenc');
+    WriteLn('  - default');
+    WriteLn;
+    WriteLn('hevc_nvenc');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+  
+  if WinCaps.HasAMF then
+  begin
+    WriteLn('h264_amf');
+    WriteLn('  - default');
+    WriteLn;
+    WriteLn('hevc_amf');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+  
+  if WinCaps.HasQSV then
+  begin
+    WriteLn('h264_qsv');
+    WriteLn('  - default');
+    WriteLn;
+    WriteLn('hevc_qsv');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+  
+  if WinCaps.HasMkvmerge then
+  begin
+    WriteLn('Note: Additional mux support available');
+    WriteLn;
+  end;
+  
+  if ResolveMp4BoxBin <> '' then
+  begin
+    WriteLn('m4v');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+{$ELSE}
+  {$IFDEF Linux}
+  LinuxCaps := ProbeLinuxCodecSupport;
+  
+  if LinuxCaps.HasVaapiH264 then
+  begin
+    WriteLn('h264_vaapi');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasVaapiHEVC then
+  begin
+    WriteLn('hevc_vaapi');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasVulkan then
+  begin
+    WriteLn('prores_ks_vulkan');
+    WriteLn('  - lt');
+    WriteLn('  - standard');
+    WriteLn('  - hq');
+    WriteLn('  - 4444');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasNVENC then
+  begin
+    WriteLn('h264_nvenc');
+    WriteLn('  - default');
+    WriteLn;
+    WriteLn('hevc_nvenc');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasAMF then
+  begin
+    WriteLn('h264_amf');
+    WriteLn('  - default');
+    WriteLn;
+    WriteLn('hevc_amf');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasQSV then
+  begin
+    WriteLn('h264_qsv');
+    WriteLn('  - default');
+    WriteLn;
+    WriteLn('hevc_qsv');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+  
+  if LinuxCaps.HasMp4Box then
+  begin
+    WriteLn('m4v');
+    WriteLn('  - default');
+    WriteLn;
+  end;
+  {$ENDIF}
+{$ENDIF}
 end;
 
 function ParseArgsFromArray(var Opts: TConvertOptions; out Files: array of PAnsiChar; out FileCount: LongInt; const Args: TStringArray): Boolean;

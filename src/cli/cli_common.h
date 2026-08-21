@@ -125,6 +125,30 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
              CliM4VOptions* m4v_opts,
              const char*** files_ptr, int* file_count);
 
+/* ---------------------------------------------------------------
+ *  Codec/Preset listing and validation (Task 4)
+ * --------------------------------------------------------------- */
+
+/**
+ * Prints all available codecs and their presets for the current platform.
+ * Each codec is listed with its available presets.
+ */
+void cli_print_codecs_list(void);
+
+/**
+ * Validates that a codec/preset combination is valid for the current platform.
+ * Returns 1 if valid, 0 if not.
+ * On error, prints error message to stderr.
+ */
+int cli_validate_codec_preset(const char* codec, const char* preset);
+
+/**
+ * Gets the preset choice menu for a specific codec.
+ * Returns the selected preset name, or NULL on cancel.
+ * Caller must free the returned string.
+ */
+char* cli_choose_preset_for_codec(const char* codec);
+
 #ifdef __cplusplus
 }
 #endif

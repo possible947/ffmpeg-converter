@@ -56,6 +56,14 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    /* Quick-exit codecs list */
+    if (argc == 2 &&
+        (!strcmp(argv[1], "--codecs-list"))) {
+        cli_print_codecs_list();
+        cli_platform_cleanup(h);
+        return 0;
+    }
+
     c = converter_create();
     if (!c) {
         fprintf(stderr, "Failed to create converter.\n");
