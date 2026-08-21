@@ -32,6 +32,8 @@ make -C fpc/build gui        # needs lazbuild; LCL via --ws=gtk3
 make -C fpc/build appimage   # optional packaging
 ```
 
+`scripts/linux_build.sh` is a convenience wrapper over the FPC Makefile (defaults to `--cli`; `--gui`, `--clean` flags). Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat` (distinct from the MSVC `windows_build.ps1`).
+
 ### Hard prerequisites that abort the build
 
 - **macOS**: static `ffmpeg` + `ffprobe` in `src/platform/macos/bin/` — CMake `FATAL_ERROR` if missing. Pass `-DCMAKE_PREFIX_PATH=/opt/local` so MacPorts `jansson` is found (CI uses this).

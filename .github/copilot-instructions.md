@@ -119,3 +119,31 @@ String values used in `ConvertOptions.audio_output_mode` (C) and equivalent Pasc
 ### CI / Releases
 - Workflows in `.github/workflows/` trigger on tags: `macos` tag → macOS build, `windows` tag → Windows MSVC build.
 - Both workflows upload artifacts and create GitHub Releases when triggered by a tag push.
+
+## Verification & Testing
+
+### C Implementation
+- **No C test suite or `ctest`**. Verify C changes by building the relevant target and running `ffmpeg_converter --help`.
+- No lint or typecheck target in the build system.
+
+### Free Pascal Implementation
+- Unit tests entry point: `make -C fpc/build tests`
+- Run a single test: `make -C fpc/build tests TEST_PROGRAMS="test_cmd_builder"`
+- Integration tests: `bash fpc/test/test_cli_args_matrix.sh`
+- Full regression suite: `./fpc/test/run_all_regression_and_capture.sh` (writes report to `/tmp/ffc_regression_<timestamp>/`)
+
+### Build Prerequisites (Hard Blocks)
+- **macOS**: static `ffmpeg` + `ffprobe` in `src/platform/macos/bin/` — CMake `FATAL_ERROR` if missing. Pass `-DCMAKE_PREFIX_PATH=/opt/local` so MacPorts `jansson` is found.
+- **Windows**: `src/platform/windows/bin/` must contain `ffmpeg.exe`, `ffprobe.exe` + DLLs — `FATAL_ERROR` if missing; copied next to the `.exe`.
+- **Linux**: missing bundled binaries only emit a CMake WARNING; runtime falls back to env vars / PATH.
+- `jansson` is vendored under `third_party/`; don't assume a system jansson except macOS/MacPorts.
+
+## Important Edge Cases
+
+- Codec strings vary by platform (`*_vaapi` Linux, `*_videotoolbox` macOS, `prores_ks_vulkan` Windows) and are runtime-probed — check `README.md` Features and `converter.h` comments.
+- `-o/--output` sets an output **directory**, not a filename; default is `$HOME/ffmpeg_converter` (created if missing).
+- `mkvmerge` must be present for mux mode; it is silently disabled if absent.
+- Apple M4V pipeline's AAC encoding is **fixed at CBR 320k** via `libfdk_aac` — not user-configurable.
+- Changes to the Apple M4V pipeline must be made independently in C (`src/m4v/`) and Pascal (`fpc/converter/apple_m4v_creator.pas`) to keep both implementations in sync.
+- When changing the public C ABI (`src/converter/converter.h`), the Pascal export (`fpc/converter/converter_pas.lpr`) must mirror all function signatures exactly.
+- Both C and Pascal converters use the same converter model and CLI interface — breaking changes must be coordinated across both implementations.

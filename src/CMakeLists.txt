@@ -21,6 +21,7 @@ add_subdirectory(converter)
 add_subdirectory(m4v)
 add_subdirectory(mux)
 add_subdirectory(platform)
+add_subdirectory(preset)
 
 # CLI (после объявления библиотек)
 add_subdirectory(cli)
