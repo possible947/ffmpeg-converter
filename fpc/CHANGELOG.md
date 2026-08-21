@@ -7,6 +7,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Phase 1 codec/preset architecture completed** for Pascal CLI/GUI with
+  runtime preset loading from `presets.json`.
+- Added CLI support for `--codecs-list` to print valid codec/preset pairs.
+- Lazarus preset combo now updates dynamically per selected codec.
+
+### Changed
+- Preset loader now supports `PRESETS_PATH` environment override before
+  executable-adjacent and config directory search.
+- `fpc/build/Makefile` now copies `presets.json` to `fpc/bin/` as part of
+  binary staging, aligning runtime behavior with C builds.
+
+### Fixed
+- Preset lookup behavior is now consistent between CLI and GUI flows.
+- Bundled binary execution now loads the full preset database instead of
+  falling back to minimal defaults when `presets.json` is missing nearby.
+
 ### Changed
 - **Qt6 is now the default Linux GUI widgetset (P5)** — `make -C fpc/build
   gui` builds with `--ws=qt6`; GTK3 stays available via `GUI_WS=gtk3`.

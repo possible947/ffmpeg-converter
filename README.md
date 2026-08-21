@@ -1,9 +1,9 @@
-# ffmpeg_converter 2.6
+# ffmpeg_converter 3.0 (Phase 1 Complete)
 
 Cross-platform media conversion and mux tool with CLI and GUI for building and
-running optimized `ffmpeg` workflows. Version 2.6 delivers a complete overhaul
-of the Linux GTK4 GUI: eliminates startup freezes, adds drag-and-drop and keyboard
-shortcuts, modernizes all deprecated GTK APIs, and polishes layout and usability.
+running optimized `ffmpeg` workflows. Version 3.0 Phase 1 introduces a
+data-driven codec/preset architecture that moves encoder parameter logic from
+hardcoded branches into `presets.json`, with dynamic codec/preset UX in CLI and GUI.
 
 Two independent implementations share the same conversion logic and CLI behavior:
 
@@ -11,6 +11,16 @@ Two independent implementations share the same conversion logic and CLI behavior
   Windows CLI (MSVC build).
 - **Free Pascal** (`fpc/`) — complete port with CLI and GUI; available for Linux
   and Windows (macOS version discontinued).
+
+## Version 3.0 Phase 1 Updates
+
+- **Codec → preset model** implemented across C and Pascal implementations.
+- **`presets.json` runtime database** now drives codec/preset definitions.
+- **CLI `--codecs-list`** added for system-aware codec/preset discovery.
+- **CLI/GUI validation** now enforces valid codec + preset combinations.
+- **GTK4/Lazarus preset combo boxes** now update dynamically on codec change.
+- **Linux VAAPI picker** now shows friendly GPU names instead of raw render-node paths.
+- **Preset bundling completed** for C builds, Pascal builds, and AppImage packaging.
 
 ## Version 2.6 Updates
 
@@ -275,6 +285,7 @@ lazbuild fpc/gui/form.lpi
 # CLI examples
 ./build/bin/ffmpeg_converter input.mov
 ./build/bin/ffmpeg_converter -c prores_ks -p hq -a loudnorm2 -g rock input.mov
+./build/bin/ffmpeg_converter --codecs-list
 ./build/bin/ffmpeg_converter -c mux --video-track replacement.hevc input.mkv
 ./build/bin/ffmpeg_converter -o /tmp/out -c hevc_videotoolbox input.mov  # macOS
 ffmpeg_converter.exe -c mux --video-track replacement.hevc input.mkv     # Windows
@@ -282,6 +293,8 @@ ffmpeg_converter.exe -c mux --video-track replacement.hevc input.mkv     # Windo
 
 CLI notes:
 - Input files are positional arguments (`file1 file2 ...`).
+- `-p/--preset` is codec-specific; use `--codecs-list` to inspect valid values.
+- `--profile` is deprecated and kept as a compatibility alias for prores-style presets.
 - `-o/--output` sets an output directory (not a filename).
 - If output directory is not set, converter uses default `$HOME/ffmpeg_converter`
   and creates it if missing.

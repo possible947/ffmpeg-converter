@@ -5,6 +5,36 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [3.0.0-Phase1.10] — 2026-08-21 (Development)
+
+### Added
+- **Phase 1 codec/preset architecture completed** across C and Free Pascal
+  implementations with dynamic preset loading from `presets.json`.
+- New CLI command `--codecs-list` to print valid codec/preset combinations
+  available on the current system.
+- GUI preset combo updates in GTK4 and Lazarus: presets now repopulate
+  dynamically when codec selection changes.
+- Linux VAAPI device picker now shows friendly GPU names (for example
+  `Intel UHD Graphics (renderD128)`) instead of raw `/dev/dri/*` paths.
+
+### Changed
+- `presets.json` is now bundled to runtime binary folders:
+  - C/CMake targets copy to `build/bin/`
+  - Free Pascal targets copy to `fpc/bin/`
+- AppImage packaging includes `presets.json` and exports `PRESETS_PATH`
+  so runtime preset discovery works out of the box.
+- Preset search order now supports explicit `PRESETS_PATH` override before
+  executable-adjacent and config-directory lookup.
+
+### Fixed
+- Resolved fallback-only preset behavior when `presets.json` was not located
+  next to built binaries.
+- Synchronized codec/preset visibility behavior across CLI and GUI flows.
+
+### Phase 1 Status
+- **Complete:** 10/10 planned tasks and approved enhancements finished.
+- **Validated on Linux:** C CLI/GUI and Pascal CLI/GUI build and runtime checks.
+
 ## [3.0.0-Phase1.5] — 2026-08-21 (Development)
 
 ### Phase 1: Data-Driven Preset System Implementation

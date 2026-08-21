@@ -1,7 +1,15 @@
-# ffmpeg_converter — Developer Description (Version 2.5)
+# ffmpeg_converter — Developer Description (Version 3.0 Phase 1)
 
-This document describes the current, factual state of the repository as of v2.5.
+This document describes the current, factual state of the repository as of v3.0 Phase 1.
 It is intentionally concise and aligned with the code and build files.
+
+## Phase 1 Status (v3.0)
+
+- Data-driven **codec → preset** architecture is implemented in both C and Pascal.
+- Runtime preset source is `presets.json`, with executable-adjacent bundling in build outputs.
+- CLI adds `--codecs-list` and validates codec/preset combinations before execution.
+- GTK4 and Lazarus GUIs now populate preset selectors dynamically by selected codec.
+- Linux VAAPI GUI device picker shows friendly GPU names while retaining internal device paths.
 
 ## 1. Project Scope
 
@@ -66,8 +74,9 @@ Both paths provide conversion workflows around external `ffmpeg`/`ffprobe`.
 
 **C ABI export (for library usage):**
 - `fpc/converter/converter_pas.lpr` exports C-compatible shared library
-- 7 exported functions: `converter_create`, `converter_destroy`, `converter_set_callbacks`,
-  `converter_set_options`, `converter_process_files`, `converter_stop`, `converter_error_string`
+- 8 exported functions: `converter_create`, `converter_destroy`, `converter_set_callbacks`,
+  `converter_set_options`, `converter_process_files`, `converter_make_output_name`,
+  `converter_stop`, `converter_error_string`
 
 ## 3. Apple M4V Workflow
 

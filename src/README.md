@@ -1,4 +1,4 @@
-# C Implementation (src) — Version 2.5
+# C Implementation (src) — Version 3.0 (Phase 1)
 
 This directory contains the C/CMake implementation of ffmpeg_converter, the primary
 implementation across all platforms.
@@ -45,12 +45,14 @@ ffmpeg_converter [options] file1 file2 ...
 ```
 
 Supported options:
-- `-c, --codec <copy|prores|prores_ks|mux|h264_vaapi|hevc_vaapi>`
-- `-p, --profile <lt|standard|hq|4444>`
+- `-c, --codec <codec_name>`
+- `-p, --preset <preset_name>`
+- `--profile <lt|standard|hq|4444>` (deprecated alias; compatibility mode)
 - `-d, --deblock <none|weak|strong>`
 - `-a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>`
 - `--audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>`
 - `--video-track <file>` for `codec=mux`
+- `--codecs-list` (prints valid codec/preset combinations for current system)
 - `-g, --genre <edm|rock|hiphop|classical|podcast>`
 - `--overwrite`
 - `-o, --output <directory>`
@@ -58,6 +60,8 @@ Supported options:
 
 Important:
 - Inputs are positional files, not `--input` pairs.
+- Codec/preset pairs are validated before execution.
+- Presets are loaded from `presets.json` (bundled next to binaries by build targets).
 - `-o/--output` sets output directory, not a single output filename.
 - If output directory is not set, converter uses default `$HOME/ffmpeg_converter`
   and creates it when missing.
