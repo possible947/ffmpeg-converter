@@ -61,15 +61,41 @@ static const char *get_platform_name(void)
 #endif
 }
 
+/* Selects the recommended device index and working-device bitmask for the
+ * currently selected codec. Hardware Vulkan encoders (h264_vulkan/
+ * hevc_vulkan/av1_vulkan) are probed independently of prores_ks_vulkan and
+ * may only succeed on a different physical GPU, so each family's device
+ * combo must be built from its own probe result. */
+static void get_vulkan_probe_for_codec(AppWidgets *w, const char *codec,
+                                       int *out_index, int *out_mask)
+{
+    if (codec_uses_hw_vulkan(codec)) {
+        *out_index = w->linux_codec_support.vulkan_hw_device_index;
+        *out_mask  = w->linux_codec_support.vulkan_hw_working_mask;
+    } else {
+        /* prores_ks_vulkan, or no vulkan codec selected yet (initial
+         * population before the codec combo has a meaningful selection). */
+        *out_index = w->linux_codec_support.vulkan_device_index;
+        *out_mask  = w->linux_codec_support.vulkan_working_mask;
+    }
+}
+
 static void populate_vulkan_device_combo(AppWidgets *w)
 {
     int i;
     int added = 0;
     char auto_label[64];
     gint auto_id = -1;
+    char *codec;
+    int device_index = -1;
+    int working_mask = 0;
 
     if (!w || !w->vulkan_device_combo)
         return;
+
+    codec = get_dropdown_text(w->codec_combo);
+    get_vulkan_probe_for_codec(w, codec, &device_index, &working_mask);
+    g_free(codec);
 
     /* Clear both the string model and the parallel device-index array. */
     {
@@ -80,19 +106,18 @@ static void populate_vulkan_device_combo(AppWidgets *w)
     g_array_set_size(w->vulkan_device_ids, 0);
 
     /* "auto" entry — index 0, maps to device -1 (let ffmpeg decide). */
-    if (w->linux_codec_support.vulkan_device_index >= 0) {
+    if (device_index >= 0) {
         snprintf(auto_label, sizeof(auto_label),
-                 "auto (recommended: vk:%d)",
-                 w->linux_codec_support.vulkan_device_index);
+                 "auto (recommended: vk:%d)", device_index);
     } else {
         g_strlcpy(auto_label, "auto", sizeof(auto_label));
     }
     gtk_string_list_append(w->vulkan_device_list, auto_label);
     g_array_append_val(w->vulkan_device_ids, auto_id);
 
-    /* Entries for every working Vulkan device. */
+    /* Entries for every working Vulkan device for this codec family. */
     for (i = 0; i < 32; i++) {
-        if ((((unsigned int)w->linux_codec_support.vulkan_working_mask) & (1u << i)) != 0u) {
+        if ((((unsigned int)working_mask) & (1u << i)) != 0u) {
             char label[32];
             gint dev = i;
             snprintf(label, sizeof(label), "vk:%d", i);
@@ -103,9 +128,9 @@ static void populate_vulkan_device_combo(AppWidgets *w)
     }
 
     /* Fallback: mask empty but a recommended device is known. */
-    if (added == 0 && w->linux_codec_support.vulkan_device_index >= 0) {
+    if (added == 0 && device_index >= 0) {
         char label[32];
-        gint dev = w->linux_codec_support.vulkan_device_index;
+        gint dev = device_index;
         snprintf(label, sizeof(label), "vk:%d", dev);
         gtk_string_list_append(w->vulkan_device_list, label);
         g_array_append_val(w->vulkan_device_ids, dev);
@@ -898,6 +923,10 @@ static void on_codec_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
 {
     (void)obj;
     (void)pspec;
+    /* Repopulate here (rather than in update_dependent_widgets) so that
+     * unrelated dependent-widget refreshes (e.g. audio_norm changes) don't
+     * reset a manually-picked Vulkan device back to "auto" every time. */
+    populate_vulkan_device_combo(w);
     schedule_update_dependent_widgets(w);
 }
 
@@ -1291,9 +1320,10 @@ void collect_options_from_gui(AppWidgets *w,
         if (selected_device >= 0) {
             opts->vulkan_device = selected_device;
         } else {
-            opts->vulkan_device = (w->linux_codec_support.vulkan_device_index >= 0)
-                                      ? w->linux_codec_support.vulkan_device_index
-                                      : 1;
+            int fallback_index, fallback_mask;
+            (void)fallback_mask;
+            get_vulkan_probe_for_codec(w, opts->codec, &fallback_index, &fallback_mask);
+            opts->vulkan_device = (fallback_index >= 0) ? fallback_index : 1;
         }
     } else {
         opts->vulkan_device = 0;

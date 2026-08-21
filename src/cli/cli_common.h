@@ -131,9 +131,12 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
 
 /**
  * Prints all available codecs and their presets for the current platform.
- * Each codec is listed with its available presets.
+ * Only codecs that pass the runtime hardware/tool probe (as reported by
+ * platform_codec_is_available()) are listed — matching the codec set shown
+ * in --help and the interactive menu. `h` may be NULL, in which case only
+ * probe-independent codecs (copy/prores/prores_ks/mux/m4v) are listed.
  */
-void cli_print_codecs_list(void);
+void cli_print_codecs_list(const CliPlatformHandle* h);
 
 /**
  * Validates that a codec/preset combination is valid for the current platform.

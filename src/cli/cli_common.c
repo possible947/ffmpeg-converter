@@ -114,7 +114,7 @@ void print_usage(const CliPlatformHandle* h) {
         printf("      --vk_device <N>    Vulkan adapter index for prores_ks_vulkan,"
                " h264_vulkan, hevc_vulkan, av1_vulkan"
                " (default: %d)\n",
-               platform_get_default_vulkan_device(h));
+               platform_get_default_vulkan_device(h, NULL));
     if (platform_codec_is_available(h, "h264_vaapi") ||
         platform_codec_is_available(h, "hevc_vaapi"))
         printf("      --hw_device <path> VAAPI render node for h264_vaapi/hevc_vaapi"
@@ -604,7 +604,7 @@ static const char* get_platform_name(void) {
 #endif
 }
 
-void cli_print_codecs_list(void) {
+void cli_print_codecs_list(const CliPlatformHandle* h) {
     PresetDb *db;
     const char *platform;
     int codec_count, preset_count;
@@ -631,6 +631,15 @@ void cli_print_codecs_list(void) {
     printf("=====================================\n\n");
     
     for (i = 0; i < codec_count; i++) {
+        /* Only list codecs that actually pass the runtime hardware/tool
+         * probe — presets.json defines every codec the *build* knows about,
+         * but not every codec works on this machine (e.g. av1_amf needs
+         * RDNA3+, h264_vulkan needs a working Vulkan video-encode driver).
+         * This must match the codec set shown in --help / the interactive
+         * menu (platform_get_codec_count()/platform_get_codec_entries()). */
+        if (!platform_codec_is_available(h, codecs[i]))
+            continue;
+
         printf("%s\n", codecs[i]);
         
         preset_count = preset_db_list_presets(db, platform, codecs[i], &presets);
@@ -756,7 +765,10 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
     opts->output_dir[0] = '\0';
     opts->output_dir_status = 0;
     opts->video_track_path[0] = '\0';
-    opts->vulkan_device = platform_get_default_vulkan_device(h);
+        /* -1 = "unresolved": platform_apply_hw_device() fills in the
+         * codec-correct probe recommendation once the final --codec is known.
+         * A user-supplied --vk_device (parsed below) overrides this. */
+        opts->vulkan_device = -1;
 
     /* M4V defaults */
     if (m4v_opts) {
@@ -777,7 +789,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         }
 
         if (!strcmp(argv[i], "--codecs-list")) {
-            cli_print_codecs_list();
+            cli_print_codecs_list(h);
             return 0;
         }
 
@@ -1028,6 +1040,11 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
     memset(opts, 0, sizeof(*opts));
     if (m4v_opts)
         memset(m4v_opts, 0, sizeof(*m4v_opts));
+
+    /* -1 = "unresolved": the interactive menu has no --vk_device equivalent,
+     * so platform_apply_hw_device() (called below, at finalize) always
+     * fills this in from the probe data for whichever codec was chosen. */
+    opts->vulkan_device = -1;
 
     output_dir[0]        = '\0';
     video_track_path[0]  = '\0';

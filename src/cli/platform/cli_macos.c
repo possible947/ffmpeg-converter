@@ -148,9 +148,10 @@ void platform_apply_hw_device(ConvertOptions* opts, const CliPlatformHandle* h) 
     (void)h;
 }
 
-int platform_get_default_vulkan_device(const CliPlatformHandle* h) {
+int platform_get_default_vulkan_device(const CliPlatformHandle* h, const char* codec) {
     /* Vulkan not supported on macOS */
     (void)h;
+    (void)codec;
     return 0;
 }
 

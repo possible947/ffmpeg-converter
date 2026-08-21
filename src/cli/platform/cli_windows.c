@@ -283,12 +283,32 @@ const PlatformCodecEntry* platform_get_codec_entries(const CliPlatformHandle* h)
 
 void platform_apply_hw_device(ConvertOptions* opts, const CliPlatformHandle* h) {
     /* NVENC/AMF/QSV do not require a device path in ffmpeg */
-    /* prores_ks_vulkan: device index used via platform_get_preinput_hw_flags() */
-    (void)opts;
-    (void)h;
+
+    if (!opts || !h)
+        return;
+
+    /* Vulkan device: opts->vulkan_device == -1 is the "unresolved" sentinel
+     * set when the user did not pass an explicit --vk_device. Resolve it
+     * here, now that the final codec is known, so the correct probe result
+     * (ProRes vs. hardware Vulkan encoder) is used. */
+    if (opts->vulkan_device < 0)
+        opts->vulkan_device = platform_get_default_vulkan_device(h, opts->codec);
 }
 
-int platform_get_default_vulkan_device(const CliPlatformHandle* h) {
+int platform_get_default_vulkan_device(const CliPlatformHandle* h, const char* codec) {
+    /* Hardware Vulkan encoders (h264_vulkan/hevc_vulkan/av1_vulkan) are
+     * probed independently of prores_ks_vulkan and may only work on a
+     * different physical GPU. When the caller already knows the codec,
+     * prefer the probe result for that codec family. */
+    int is_hw_vulkan = codec &&
+        (!strcmp(codec, "h264_vulkan") || !strcmp(codec, "hevc_vulkan") ||
+         !strcmp(codec, "av1_vulkan"));
+
+    if (is_hw_vulkan && h &&
+        (h->support.has_h264_vulkan || h->support.has_hevc_vulkan ||
+         h->support.has_av1_vulkan))
+        return h->support.vulkan_hw_device_index;
+
     if (h && h->support.has_prores_ks_vulkan)
         return h->support.vulkan_device_index;
     if (h && (h->support.has_h264_vulkan || h->support.has_hevc_vulkan ||

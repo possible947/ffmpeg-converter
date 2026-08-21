@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
     /* Quick-exit codecs list */
     if (argc == 2 &&
         (!strcmp(argv[1], "--codecs-list"))) {
-        cli_print_codecs_list();
+        cli_print_codecs_list(h);
         cli_platform_cleanup(h);
         return 0;
     }

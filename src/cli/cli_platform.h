@@ -89,13 +89,18 @@ int platform_m4v_is_supported(void);
 
 /**
  * platform_get_default_vulkan_device() — Returns the recommended Vulkan
- * device index for prores_ks_vulkan based on the startup probe result.
- * Returns the highest-indexed device that passed the probe test
+ * device index for the given codec, based on the startup probe result.
+ * `codec` may be NULL (e.g. generic help text printed before any codec is
+ * chosen), in which case the legacy prores_ks_vulkan-first priority is used.
+ * For "h264_vulkan"/"hevc_vulkan"/"av1_vulkan" the hardware-encoder probe
+ * result (vulkan_hw_device_index) is preferred over the ProRes-only probe,
+ * since the two encoder families can succeed on different physical GPUs.
+ * Returns the highest-indexed device that passed the relevant probe test
  * (statistically more likely to be a discrete GPU than vk:0).
  * Returns 1 as a safe fallback if no probe data is available.
  * Returns 0 on platforms that do not support Vulkan (macOS).
  */
-int platform_get_default_vulkan_device(const CliPlatformHandle* h);
+int platform_get_default_vulkan_device(const CliPlatformHandle* h, const char* codec);
 
 /* ---------------------------------------------------------------
  *  Interactive menu codec list
