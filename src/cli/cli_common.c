@@ -163,14 +163,7 @@ void print_summary(const ConvertOptions* opts,
         printf("Deblock:      (mux)\n");
     } else if (!strcmp(opts->codec, "prores") ||
                !strcmp(opts->codec, "prores_ks")) {
-        const char* profile_str = "none";
-        switch (opts->profile) {
-            case 1: profile_str = "lt";       break;
-            case 2: profile_str = "standard"; break;
-            case 3: profile_str = "hq";       break;
-            case 4: profile_str = "4444";     break;
-        }
-        printf("Profile:      %s\n", profile_str);
+        printf("Profile:      %s\n", opts->preset[0] != '\0' ? opts->preset : "standard");
 
         const char* deblock_str = "none";
         switch (opts->deblock) {
@@ -180,14 +173,7 @@ void print_summary(const ConvertOptions* opts,
         }
         printf("Deblock:      %s\n", deblock_str);
     } else if (!strcmp(opts->codec, "prores_videotoolbox")) {
-        const char* profile_str = "none";
-        switch (opts->profile) {
-            case 1: profile_str = "lt";       break;
-            case 2: profile_str = "standard"; break;
-            case 3: profile_str = "hq";       break;
-            case 4: profile_str = "4444";     break;
-        }
-        printf("Profile:      %s\n", profile_str);
+        printf("Profile:      %s\n", opts->preset[0] != '\0' ? opts->preset : "standard");
         printf("Deblock:      (n/a)\n");
     } else if (!strcmp(opts->codec, "h264_vaapi") ||
                !strcmp(opts->codec, "hevc_vaapi")) {
@@ -610,7 +596,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
     memset(opts, 0, sizeof(*opts));
 
     strcpy(opts->codec, "prores_ks");
-    opts->profile   = 2;  /* standard */
+    strcpy(opts->preset, "standard");  /* standard profile */
     opts->deblock   = 1;  /* none */
     strcpy(opts->audio_norm, "peak_norm_2pass");
     strcpy(opts->audio_output_mode, "pcm");
@@ -649,14 +635,17 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             continue;
         }
 
-        if (!strcmp(argv[i], "--profile") || !strcmp(argv[i], "-p")) {
+        if (!strcmp(argv[i], "--preset") || !strcmp(argv[i], "-p")) {
             if (i + 1 >= argc) return 0;
             i++;
-            if      (!strcmp(argv[i], "lt"))       opts->profile = 1;
-            else if (!strcmp(argv[i], "standard")) opts->profile = 2;
-            else if (!strcmp(argv[i], "hq"))       opts->profile = 3;
-            else if (!strcmp(argv[i], "4444"))     opts->profile = 4;
-            else return 0;
+            if (!strcmp(argv[i], "lt") || !strcmp(argv[i], "standard") || 
+                !strcmp(argv[i], "hq") || !strcmp(argv[i], "4444") ||
+                !strcmp(argv[i], "default")) {
+                strncpy(opts->preset, argv[i], sizeof(opts->preset) - 1);
+                opts->preset[sizeof(opts->preset) - 1] = '\0';
+            } else {
+                return 0;
+            }
             continue;
         }
 
@@ -850,7 +839,7 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
 {
     int step        = 1;
     int codec_idx   = 0;   /* index into platform codec entries */
-    int profile     = 2;   /* standard */
+    char preset[32] = "standard";  /* codec-specific preset variant */
     int deblock     = 1;   /* none */
     int audio_norm  = 3;   /* peak 2-pass */
     int audio_output= 1;   /* pcm */
@@ -932,10 +921,10 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             ch = read_choice();
             {
                 int next = entries[codec_idx].needs_deblock ? 3 : 4;
-                if      (ch == '\n') { profile = 2; step = next; }
-                else if (ch == '1') { profile = 1; step = next; }
-                else if (ch == '2') { profile = 2; step = next; }
-                else if (ch == '3') { profile = 3; step = next; }
+                if      (ch == '\n') { strcpy(preset, "standard"); step = next; }
+                else if (ch == '1') { strcpy(preset, "lt"); step = next; }
+                else if (ch == '2') { strcpy(preset, "standard"); step = next; }
+                else if (ch == '3') { strcpy(preset, "hq"); step = next; }
                 else if (ch == 'c' || ch == 'C') {
                     free_temp_files(temp_files, temp_file_count);
                     return -1;
@@ -1169,7 +1158,8 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
                     sizeof(opts->codec) - 1);
             opts->codec[sizeof(opts->codec) - 1] = '\0';
 
-            opts->profile = profile;
+            strncpy(opts->preset, preset, sizeof(opts->preset) - 1);
+            opts->preset[sizeof(opts->preset) - 1] = '\0';
             opts->deblock = deblock;
 
             switch (audio_norm) {

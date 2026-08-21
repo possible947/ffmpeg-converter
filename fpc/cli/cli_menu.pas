@@ -361,7 +361,7 @@ var
   CodecNames: TCodecNameArray;
   ChoiceNum: Integer;
   I: Integer;
-  Profile: LongInt;
+  Preset: string;
   Deblock: LongInt;
   AudioNorm: LongInt;
   AudioOutput: LongInt;
@@ -380,7 +380,7 @@ begin
   Step := 1;
   CodecNames := BuildCodecList;
   CodecIdx := 0;
-  Profile := 2;
+  Preset := 'standard';
   Deblock := 1;
   AudioNorm := 3;
   AudioOutput := 1;
@@ -450,27 +450,27 @@ begin
           Ch := ReadChoice;
           if Ch = #10 then
           begin
-            Profile := 2;
+            Preset := 'standard';
             Step := 3;
           end
           else if Ch = '1' then
           begin
-            Profile := 1;
+            Preset := 'lt';
             Step := 3;
           end
           else if Ch = '2' then
           begin
-            Profile := 2;
+            Preset := 'standard';
             Step := 3;
           end
           else if Ch = '3' then
           begin
-            Profile := 3;
+            Preset := 'hq';
             Step := 3;
           end
           else if Ch = '4' then
           begin
-            Profile := 4;
+            Preset := '4444';
             Step := 3;
           end
           else if (Ch = 'c') or (Ch = 'C') then
@@ -803,7 +803,7 @@ begin
           else
             SetAnsiField(Opts.codec, 'copy');
 
-          Opts.profile := Profile;
+          SetAnsiField(Opts.preset, Preset);
           Opts.deblock := Deblock;
 
           case AudioNorm of

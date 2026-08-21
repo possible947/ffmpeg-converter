@@ -125,18 +125,6 @@ begin
   Result := StrPas(@A[0]);
 end;
 
-function ProfileToText(Profile: LongInt): string;
-begin
-  case Profile of
-    1: Result := 'lt';
-    2: Result := 'standard';
-    3: Result := 'hq';
-    4: Result := '4444';
-  else
-    Result := 'none';
-  end;
-end;
-
 function DeblockToText(Deblock: LongInt): string;
 begin
   case Deblock of
@@ -335,17 +323,16 @@ begin
       Continue;
     end;
 
-    if (S = '--profile') or (S = '-p') then
+    if (S = '--preset') or (S = '-p') then
     begin
       if I + 1 > High(Args) then
         Exit(False);
       Inc(I);
       S := Args[I];
-      if S = 'lt' then Opts.profile := 1
-      else if S = 'standard' then Opts.profile := 2
-      else if S = 'hq' then Opts.profile := 3
-      else if S = '4444' then Opts.profile := 4
-      else Exit(False);
+      if (S = 'lt') or (S = 'standard') or (S = 'hq') or (S = '4444') or (S = 'default') then
+        StrPLCopy(@Opts.preset[0], S, High(Opts.preset))
+      else
+        Exit(False);
       Inc(I);
       Continue;
     end;
@@ -640,7 +627,7 @@ begin
 
   if (Codec <> 'copy') and (Codec <> 'mux') then
   begin
-    WriteLn('Profile:      ', ProfileToText(Opts.profile));
+    WriteLn('Profile:      ', ArrToStr(Opts.preset));
     WriteLn('Deblock:      ', DeblockToText(Opts.deblock));
   end
   else

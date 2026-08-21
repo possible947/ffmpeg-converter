@@ -979,10 +979,10 @@ begin
     SetAnsiField(Opts.codec, CodecText);
 
   case cmbProfile.ItemIndex of
-    0: Opts.profile := 1;
-    1: Opts.profile := 2;
-    2: Opts.profile := 3;
-    3: Opts.profile := 4;
+    0: SetAnsiField(Opts.preset, 'lt');
+    1: SetAnsiField(Opts.preset, 'standard');
+    2: SetAnsiField(Opts.preset, 'hq');
+    3: SetAnsiField(Opts.preset, '4444');
   end;
 
   case cmbDeblock.ItemIndex of

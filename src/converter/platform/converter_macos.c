@@ -407,8 +407,13 @@ const char* platform_get_video_codec_flags(const char* codec,
         int profile = 2;  /* default: standard */
         if (opts_void) {
             const ConvertOptions* copts = (const ConvertOptions*)opts_void;
-            profile = copts->profile;
-            if (profile < 1 || profile > 4) profile = 2;
+            /* Convert preset string to profile number */
+            if (copts->preset[0] != '\0') {
+                if (strcmp((const char*)copts->preset, "lt") == 0) profile = 1;
+                else if (strcmp((const char*)copts->preset, "hq") == 0) profile = 3;
+                else if (strcmp((const char*)copts->preset, "4444") == 0) profile = 4;
+                else profile = 2;  /* standard or default */
+            }
         }
         snprintf(flags, sizeof(flags),
                  "-c:v prores_videotoolbox -profile:v %d -allow_sw 1 ",

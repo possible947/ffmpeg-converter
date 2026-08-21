@@ -25,7 +25,7 @@ type
 
   TConvertOptions = packed record
     codec: array[0..31] of AnsiChar;
-    profile: LongInt;
+    preset: array[0..31] of AnsiChar;
     deblock: LongInt;
     audio_norm: array[0..31] of AnsiChar;
     audio_output_mode: array[0..31] of AnsiChar;
@@ -91,7 +91,7 @@ begin
   FillChar(Opts, SizeOf(Opts), 0);
 
   StrPLCopy(@Opts.codec[0], DEFAULT_CODEC, Length(DEFAULT_CODEC));
-  Opts.profile := 2;
+  StrPLCopy(@Opts.preset[0], 'standard', 8);
   Opts.deblock := 1;
 
   StrPLCopy(@Opts.audio_norm[0], DEFAULT_AUDIO_NORM, Length(DEFAULT_AUDIO_NORM));

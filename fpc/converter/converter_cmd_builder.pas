@@ -23,6 +23,18 @@ begin
   Result := StrPas(@A[0]);
 end;
 
+function PresetToProfileNum(const Preset: string): LongInt;
+begin
+  if Preset = 'lt' then
+    Result := 1
+  else if Preset = 'hq' then
+    Result := 3
+  else if Preset = '4444' then
+    Result := 4
+  else
+    Result := 2;  { standard or default }
+end;
+
 function InvariantFmt: TFormatSettings;
 begin
   Result := DefaultFormatSettings;
@@ -112,9 +124,9 @@ begin
   Result += '-map_metadata 0 ';
 
   if (Codec = 'prores') or (Codec = 'prores_ks') then
-    Result += Format('-c:v %s -profile:v %d ', [Codec, Opts.profile], Fmt)
+    Result += Format('-c:v %s -profile:v %d ', [Codec, PresetToProfileNum(ArrToStr(Opts.preset))], Fmt)
   else if Codec = 'prores_videotoolbox' then
-    Result += Format('-c:v prores_videotoolbox -profile:v %d -allow_sw 1 ', [Opts.profile], Fmt)
+    Result += Format('-c:v prores_videotoolbox -profile:v %d -allow_sw 1 ', [PresetToProfileNum(ArrToStr(Opts.preset))], Fmt)
   else if Codec = 'hevc_videotoolbox' then
   begin
     if Opts.hevc_vt_bitrate_kbps > 0 then
@@ -141,14 +153,13 @@ begin
     Result += '-c:v hevc_qsv -global_quality 25 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 '
   else if Codec = 'prores_ks_vulkan' then
   begin
-    if Opts.profile = 1 then
-      Result += '-c:v prores_ks_vulkan -profile:v lt '
-    else if Opts.profile = 4 then
-      Result += '-c:v prores_ks_vulkan -profile:v 4444 '
-    else if Opts.profile = 3 then
-      Result += '-c:v prores_ks_vulkan -profile:v hq '
+    case PresetToProfileNum(ArrToStr(Opts.preset)) of
+      1: Result += '-c:v prores_ks_vulkan -profile:v lt ';
+      3: Result += '-c:v prores_ks_vulkan -profile:v hq ';
+      4: Result += '-c:v prores_ks_vulkan -profile:v 4444 ';
     else
       Result += '-c:v prores_ks_vulkan -profile:v standard ';
+    end;
   end
   else if Codec = 'm4v' then
     Result += '-c:v copy '
@@ -157,7 +168,7 @@ begin
 
   if Codec = 'prores_ks_vulkan' then
   begin
-    if Opts.profile = 4 then
+    if PresetToProfileNum(ArrToStr(Opts.preset)) = 4 then
       Result += '-vf "format=yuv444p10le,hwupload" '
     else
       Result += '-vf "format=yuv422p10le,hwupload" ';

@@ -239,7 +239,7 @@ int main(int argc, char** argv) {
 
             } else if (!strcmp(opts.codec, "mux")) {
                 strcpy(work_opts.codec, "copy");
-                work_opts.profile = 0;
+                strcpy(work_opts.preset, "default");
                 work_opts.deblock = 0;
 
                 converter_set_options(c, &work_opts);

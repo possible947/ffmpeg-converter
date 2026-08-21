@@ -543,12 +543,13 @@ const char* platform_get_video_codec_flags(const char* codec,
                "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ";
 
     if (strcmp(codec, "prores_ks_vulkan") == 0) {
-        const char* profile_name = "hq"; /* default: HQ */
-        if (copt) {
-            if      (copt->profile == 1) profile_name = "lt";
-            else if (copt->profile == 2) profile_name = "standard";
-            else if (copt->profile == 3) profile_name = "hq";
-            else if (copt->profile == 4) profile_name = "4444";
+        const char* profile_name = "standard"; /* default: standard */
+        if (copt && copt->preset[0] != '\0') {
+            if      (strcmp((const char*)copt->preset, "lt") == 0)     profile_name = "lt";
+            else if (strcmp((const char*)copt->preset, "standard") == 0) profile_name = "standard";
+            else if (strcmp((const char*)copt->preset, "hq") == 0)     profile_name = "hq";
+            else if (strcmp((const char*)copt->preset, "4444") == 0)   profile_name = "4444";
+            else profile_name = "standard";  /* unknown, use standard */
         }
         snprintf(prores_flags, sizeof(prores_flags),
                  "-c:v prores_ks_vulkan -profile:v %s ", profile_name);
@@ -559,9 +560,13 @@ const char* platform_get_video_codec_flags(const char* codec,
      * The -hwaccel option is an INPUT option (must precede -i); it cannot
      * be included here because these flags are appended after the input. */
     if (strcmp(codec, "prores") == 0) {
-        int profile = 2;
-        if (copt && copt->profile >= 1 && copt->profile <= 4)
-            profile = copt->profile;
+        int profile = 2;  /* standard */
+        if (copt && copt->preset[0] != '\0') {
+            if (strcmp((const char*)copt->preset, "lt") == 0) profile = 1;
+            else if (strcmp((const char*)copt->preset, "hq") == 0) profile = 3;
+            else if (strcmp((const char*)copt->preset, "4444") == 0) profile = 4;
+            else profile = 2;
+        }
         snprintf(prores_flags, sizeof(prores_flags),
                  "-c:v prores -profile:v %d ", profile);
         return prores_flags;
@@ -569,10 +574,11 @@ const char* platform_get_video_codec_flags(const char* codec,
 
     if (strcmp(codec, "prores_ks") == 0) {
         const char* profile_name = "standard";
-        if (copt) {
-            if (copt->profile == 1) profile_name = "lt";
-            else if (copt->profile == 3) profile_name = "hq";
-            else if (copt->profile == 4) profile_name = "4444";
+        if (copt && copt->preset[0] != '\0') {
+            if (strcmp((const char*)copt->preset, "lt") == 0) profile_name = "lt";
+            else if (strcmp((const char*)copt->preset, "hq") == 0) profile_name = "hq";
+            else if (strcmp((const char*)copt->preset, "4444") == 0) profile_name = "4444";
+            else profile_name = "standard";
         }
         snprintf(prores_flags, sizeof(prores_flags),
                  "-c:v prores_ks -profile:v %s ", profile_name);
@@ -710,7 +716,7 @@ const char* platform_get_hw_vfilter(const char* codec, const void* opts)
     if (codec && strcmp(codec, "prores_ks_vulkan") == 0) {
         const ConvertOptions* copt = (const ConvertOptions*)opts;
         /* ProRes 4444 uses yuv444p10le; all other profiles use yuv422p10le */
-        if (copt && copt->profile == 4)
+        if (copt && copt->preset[0] != '\0' && strcmp((const char*)copt->preset, "4444") == 0)
             return "yuv444p10le,hwupload";
         return "yuv422p10le,hwupload";
     }

@@ -509,14 +509,14 @@ begin
     if CodecIsMux(Codec) then
     begin
       SetAnsiField(WorkOpts.codec, 'copy');
-      WorkOpts.profile := 0;
+      SetAnsiField(WorkOpts.preset, 'default');
       WorkOpts.deblock := 0;
       IntermediateFile := MakeOutputName(InputFile, 'copy', EffectiveOutDir);
     end
     else if CodecIsM4V(Codec) then
     begin
       SetAnsiField(WorkOpts.codec, 'copy');
-      WorkOpts.profile := 0;
+      SetAnsiField(WorkOpts.preset, 'default');
       WorkOpts.deblock := 0;
       IntermediateFile := MakeOutputName(InputFile, 'copy', EffectiveOutDir);
     end

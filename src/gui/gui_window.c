@@ -1141,12 +1141,17 @@ void collect_options_from_gui(AppWidgets *w,
     g_strlcpy(opts->codec, codec ? codec : "", sizeof(opts->codec));
     g_free(codec);
 
-    /* ----- profile ----- */
+    /* ----- profile (preset) ----- */
     if (gtk_widget_get_sensitive(w->profile_combo)) {
         guint sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->profile_combo));
-        opts->profile = (sel != GTK_INVALID_LIST_POSITION) ? (int)sel + 1 : 0;
+        const char *preset_items[] = {"lt", "standard", "hq", "4444"};
+        if (sel != GTK_INVALID_LIST_POSITION && sel < 4) {
+            g_strlcpy(opts->preset, preset_items[sel], sizeof(opts->preset));
+        } else {
+            g_strlcpy(opts->preset, "standard", sizeof(opts->preset));
+        }
     } else {
-        opts->profile = 0;
+        g_strlcpy(opts->preset, "standard", sizeof(opts->preset));
     }
 
     /* ----- deblock ----- */

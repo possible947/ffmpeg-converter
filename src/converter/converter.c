@@ -37,6 +37,23 @@ static int codec_uses_mov_container(const char* codec) {
             strcmp(codec, "prores_ks_vulkan") == 0);
 }
 
+/* Convert preset string ("lt", "standard", "hq", "4444", "default") to ffmpeg profile number */
+static int preset_to_profile_num(const char* preset) {
+    if (!preset || preset[0] == '\0') {
+        return 2;  /* standard */
+    }
+    if (strcmp(preset, "lt") == 0) {
+        return 1;
+    }
+    if (strcmp(preset, "hq") == 0) {
+        return 3;
+    }
+    if (strcmp(preset, "4444") == 0) {
+        return 4;
+    }
+    return 2;  /* standard or default */
+}
+
 static int audio_output_mode_is(const char* mode, const char* expected) {
     return mode && expected && strcmp(mode, expected) == 0;
 }
@@ -927,10 +944,7 @@ static void build_ffmpeg_cmd(
     else if (strcmp(opts->codec, "prores") == 0 ||
              strcmp(opts->codec, "prores_ks") == 0)
     {
-        int profile_value = opts->profile;
-        if (profile_value < 1 || profile_value > 4) {
-            profile_value = 2; // standard
-        }
+        int profile_value = preset_to_profile_num(opts->preset);
 
         if (strcmp(opts->codec, "prores_ks") == 0) {
             const char* profile_name = "standard";

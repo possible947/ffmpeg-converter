@@ -606,7 +606,7 @@ static gpointer run_converter(gpointer user_data)
 
         if (codec_is_mux(opts.codec)) {
             strcpy(work_opts.codec, "copy");
-            work_opts.profile = 0;
+            strcpy(work_opts.preset, "default");
             work_opts.deblock = 0;
         }
 
