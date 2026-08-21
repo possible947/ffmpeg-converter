@@ -111,6 +111,7 @@ type
 
     procedure SetupControls;
     procedure UpdateDependentWidgets;
+    procedure PopulatePresetsCombo;
     procedure BuildCurrentOptions(out Opts: TConvertOptions);
     procedure CollectOptions(out Opts: TConvertOptions; out Files: array of string; out Count: Integer);
 
@@ -166,7 +167,8 @@ uses
   fs_utils,
   path_utils,
   tool_paths,
-  mux_postprocess;
+  mux_postprocess,
+  preset_loader;
 
 type
   PLogData = ^TLogData;
@@ -206,6 +208,7 @@ type
 
 var
   GMainForm: TMainForm = nil;
+  GPresetDb: TPresetDb = nil;
 
 procedure SetAnsiField(var Dest: array of AnsiChar; const S: string); forward;
 procedure QueueLog(const S: string); forward;
@@ -232,6 +235,19 @@ var
 begin
   BaseName := ChangeFileExt(ExtractFileName(SourceFile), '');
   Result := IncludeTrailingPathDelimiter(TargetDir) + BaseName + '.m4v';
+end;
+
+function GetPlatformName: string;
+begin
+  {$IFDEF Linux}
+  Result := 'linux';
+  {$ENDIF}
+  {$IFDEF Windows}
+  Result := 'windows';
+  {$ENDIF}
+  {$IFDEF Darwin}
+  Result := 'macos';
+  {$ENDIF}
 end;
 
 procedure SetupConverterCallbacks(var Cb: TConverterCallbacks);
@@ -983,6 +999,12 @@ begin
     1: SetAnsiField(Opts.preset, 'standard');
     2: SetAnsiField(Opts.preset, 'hq');
     3: SetAnsiField(Opts.preset, '4444');
+  else
+    { For dynamic presets, get value from combo text }
+    if (cmbProfile.ItemIndex >= 0) and (cmbProfile.ItemIndex < cmbProfile.Items.Count) then
+      SetAnsiField(Opts.preset, cmbProfile.Items[cmbProfile.ItemIndex])
+    else
+      SetAnsiField(Opts.preset, 'default');
   end;
 
   case cmbDeblock.ItemIndex of
@@ -1038,6 +1060,8 @@ begin
   CodecText := ComboSelectedText(cmbCodec);
   AudioNormText := cmbAudioNorm.Text;
 
+  PopulatePresetsCombo;
+
   cmbProfile.Enabled := CodecUsesSoftwareProres(CodecText);
   cmbDeblock.Enabled := CodecUsesSoftwareProres(CodecText);
   cmbGenre.Enabled := (AudioNormText = 'loudness_norm_2pass');
@@ -1058,6 +1082,43 @@ begin
     cmbVulkanDevice.Visible := CodecIsVulkanProres(CodecText);
   end;
   {$ENDIF}
+end;
+
+procedure TMainForm.PopulatePresetsCombo;
+var
+  CodecText: string;
+  PresetList: TStringArray;
+  I: Integer;
+  PlatformName: string;
+begin
+  if not Assigned(cmbProfile) then
+    Exit;
+
+  CodecText := ComboSelectedText(cmbCodec);
+  if CodecText = '' then
+    Exit;
+
+  { Initialize preset database if needed }
+  if GPresetDb = nil then
+  begin
+    GPresetDb := TPresetDb.Create;
+    GPresetDb.Load;
+  end;
+
+  { Get platform name for preset lookup }
+  PlatformName := GetPlatformName;
+
+  { Load presets for the selected codec }
+  PresetList := GPresetDb.ListPresets(PlatformName, CodecText);
+
+  { Clear existing presets and add new ones }
+  cmbProfile.Clear;
+  if Length(PresetList) > 0 then
+  begin
+    for I := 0 to Length(PresetList) - 1 do
+      cmbProfile.Items.Add(PresetList[I]);
+    cmbProfile.ItemIndex := 0;
+  end;
 end;
 
 procedure TMainForm.CollectOptions(out Opts: TConvertOptions; out Files: array of string; out Count: Integer);

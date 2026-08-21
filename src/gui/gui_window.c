@@ -4,6 +4,7 @@
 
 #include "gui_window.h"
 #include "gui_codec_utils.h"
+#include "preset_loader.h"
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -38,11 +39,27 @@ static void add_file_to_list(AppWidgets *w, const char *path);
 static char *get_dropdown_text(GtkWidget *dropdown);
 static void prompt_m4v_options_async(AppWidgets *w);
 static void populate_codec_combo(AppWidgets *w);
+static void populate_preset_combo(AppWidgets *w);
 static void populate_vulkan_device_combo(AppWidgets *w);
 static int get_selected_vulkan_device_index(AppWidgets *w);
 static void populate_vaapi_device_combo(AppWidgets *w);
 static void get_selected_vaapi_device(AppWidgets *w, char *out, size_t out_sz);
 static void install_drop_target(AppWidgets *w);
+
+/* Static preset database for dynamic preset loading */
+static PresetDb *g_preset_db = NULL;
+
+/* Helper to get platform name for preset queries */
+static const char *get_platform_name(void)
+{
+#if defined(__APPLE__)
+    return "macos";
+#elif defined(_WIN32)
+    return "windows";
+#else
+    return "linux";
+#endif
+}
 
 static void populate_vulkan_device_combo(AppWidgets *w)
 {
@@ -217,6 +234,58 @@ static void populate_codec_combo(AppWidgets *w)
 }
 
 /* ------------------------------------------------------------------ */
+/* Populate preset combo with presets for selected codec               */
+/* ------------------------------------------------------------------ */
+
+static void populate_preset_combo(AppWidgets *w)
+{
+    char *codec;
+    const char **presets;
+    int preset_count;
+    int i;
+    const char *platform;
+
+    if (!w || !w->profile_combo || !w->preset_list)
+        return;
+
+    /* Get the currently selected codec */
+    codec = get_dropdown_text(w->codec_combo);
+    if (!codec || codec[0] == '\0') {
+        g_free(codec);
+        return;
+    }
+
+    /* Initialize preset database if not already done */
+    if (!g_preset_db) {
+        g_preset_db = preset_db_load(NULL);
+        if (!g_preset_db) {
+            g_free(codec);
+            return;
+        }
+    }
+
+    /* Clear existing presets */
+    {
+        guint n = g_list_model_get_n_items(G_LIST_MODEL(w->preset_list));
+        for (guint j = 0; j < n; j++)
+            gtk_string_list_remove(w->preset_list, 0);
+    }
+
+    /* Load presets from database */
+    platform = get_platform_name();
+    preset_count = preset_db_list_presets(g_preset_db, platform, codec, &presets);
+
+    if (preset_count > 0) {
+        for (i = 0; i < preset_count; i++) {
+            gtk_string_list_append(w->preset_list, presets[i]);
+        }
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 0);
+    }
+
+    g_free(codec);
+}
+
+/* ------------------------------------------------------------------ */
 /* Background hardware codec probe                                     */
 /* ------------------------------------------------------------------ */
 
@@ -352,11 +421,9 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
 
     /* ---------- Profile combo ---------- */
     {
-        static const char *profile_items[] = {"lt", "standard", "hq", "4444", NULL};
-        GtkStringList *list = gtk_string_list_new(profile_items);
-        w->profile_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
-        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 1); /* default: standard */
-        g_object_unref(list);
+        w->preset_list = gtk_string_list_new(NULL);
+        w->profile_combo = gtk_drop_down_new(G_LIST_MODEL(w->preset_list), NULL);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 0); /* default: first preset */
         gtk_widget_set_hexpand(w->profile_combo, TRUE);
     }
     /* Initially disabled for copy and hardware codecs */
@@ -736,6 +803,9 @@ static void update_dependent_widgets(AppWidgets *w)
         return;
 
     char *codec = get_dropdown_text(w->codec_combo);
+
+    /* Update preset combo with presets for the selected codec */
+    populate_preset_combo(w);
 
     /* Profile: software ProRes and Vulkan ProRes (profile:v mapping).
      * Deblock: software ProRes encoders only; hardware encoders skip it. */
@@ -1143,15 +1213,11 @@ void collect_options_from_gui(AppWidgets *w,
 
     /* ----- profile (preset) ----- */
     if (gtk_widget_get_sensitive(w->profile_combo)) {
-        guint sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->profile_combo));
-        const char *preset_items[] = {"lt", "standard", "hq", "4444"};
-        if (sel != GTK_INVALID_LIST_POSITION && sel < 4) {
-            g_strlcpy(opts->preset, preset_items[sel], sizeof(opts->preset));
-        } else {
-            g_strlcpy(opts->preset, "standard", sizeof(opts->preset));
-        }
+        char *preset = get_dropdown_text(w->profile_combo);
+        g_strlcpy(opts->preset, preset ? preset : "default", sizeof(opts->preset));
+        g_free(preset);
     } else {
-        g_strlcpy(opts->preset, "standard", sizeof(opts->preset));
+        g_strlcpy(opts->preset, "default", sizeof(opts->preset));
     }
 
     /* ----- deblock ----- */

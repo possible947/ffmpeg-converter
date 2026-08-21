@@ -78,6 +78,7 @@ typedef struct {
 
     /* Backing models for combos that are populated dynamically */
     GtkStringList *codec_list;          /* model for codec_combo */
+    GtkStringList *preset_list;         /* model for profile_combo (dynamic presets per codec) */
     GtkStringList *vulkan_device_list;  /* model for vulkan_device_combo */
     GArray        *vulkan_device_ids;   /* parallel: combo-index → vk device number (-1=auto) */
     GtkStringList *vaapi_device_list;   /* model for vaapi_device_combo */
