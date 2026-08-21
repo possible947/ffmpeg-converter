@@ -292,6 +292,13 @@ function Stage-ToBin([string[]] $Exes) {
         Write-Host "WARNING: bundle dir not found: $BundleDir" -ForegroundColor Yellow
     }
 
+    $presetsFile = Join-Path $RepoRoot 'presets.json'
+    if (-not (Test-Path $presetsFile)) {
+        throw "ERROR: presets.json not found: $presetsFile"
+    }
+    Copy-Item $presetsFile (Join-Path $BinDir 'presets.json') -Force
+    Write-Host '  Copied: presets.json' -ForegroundColor DarkGray
+
     Write-Host ''
     Write-Host "Output directory: $BinDir" -ForegroundColor Green
     Get-ChildItem $BinDir -Filter '*.exe' | ForEach-Object {

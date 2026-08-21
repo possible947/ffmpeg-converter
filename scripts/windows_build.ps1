@@ -186,6 +186,12 @@ function Invoke-FPCBuild {
             Write-Host "Output  : $OutExe" -ForegroundColor Green
             Copy-Item $OutExe $RepoRoot -ErrorAction SilentlyContinue | Out-Null
         }
+        $PresetsFile = Join-Path $RepoRoot 'presets.json'
+        if (-not (Test-Path $PresetsFile)) {
+            Write-Host "ERROR: presets.json not found: $PresetsFile" -ForegroundColor Red
+            return $false
+        }
+        Copy-Item $PresetsFile (Join-Path $FPCOut 'presets.json') -Force
     } else {
         Write-Host "FPC build FAILED (exit $FPCExit)." -ForegroundColor Red
     }

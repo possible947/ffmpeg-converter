@@ -319,11 +319,10 @@ var
   {$ENDIF}
 {$ENDIF}
 begin
-{$IFDEF Linux}
   PresetDb := TPresetDb.Create;
   try
     PresetDb.Load;
-    CodecNames := PresetDb.ListCodecs('linux');
+    CodecNames := PresetDb.ListCodecs(CurrentPlatformName);
     WriteLn;
     WriteLn('Available Codecs and Presets:');
     WriteLn('============================');
@@ -332,7 +331,7 @@ begin
     begin
       if not IsCodecAllowedOnCurrentPlatform(CodecNames[I]) then
         Continue;
-      PresetNames := PresetDb.ListPresets('linux', CodecNames[I]);
+      PresetNames := PresetDb.ListPresets(CurrentPlatformName, CodecNames[I]);
       if Length(PresetNames) = 0 then
         Continue;
       WriteLn(CodecNames[I]);
@@ -344,7 +343,6 @@ begin
     PresetDb.Free;
   end;
   Exit;
-{$ENDIF}
 
   WriteLn;
   WriteLn('Available Codecs and Presets:');
