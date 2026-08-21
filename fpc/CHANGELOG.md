@@ -5,7 +5,57 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## [Unreleased]
+## [Unreleased] — Phase 2 (2026-08-21)
+
+### Added
+- **New codec `av1_amf`** and **hardware Vulkan video encoders**
+  (`h264_vulkan`, `hevc_vulkan`, `av1_vulkan`) mirroring the C implementation's
+  Phase 2 additions, distinct from the existing `prores_ks_vulkan`
+  compute-shader ProRes encoder.
+- **`speed`/`balance`/`quality` preset tiers** for `h264_vaapi`, `hevc_vaapi`,
+  `h264_nvenc`, `hevc_nvenc`, `h264_amf`, `hevc_amf`, `h264_qsv`, `hevc_qsv` —
+  `GetHwCodecFlags()` in `converter_cmd_builder.pas` now branches on
+  `Opts.preset` for GPU codecs (previously ignored for all GPU codecs,
+  always emitting `default` behavior regardless of user selection).
+- `linux_probe.pas`: `FfmpegHasEncoder()` pre-filter, `VulkanDeviceIsSoftware()`
+  (parses `vulkaninfo --summary`, excludes llvmpipe/lavapipe — mirrors the C
+  implementation's mandatory software-device fix), `ProbeVulkanHwEncoder()`
+  generic hardware Vulkan encoder probe. New `TLinuxCodecSupport` fields:
+  `HasAV1AMF`, `HasVulkanH264`, `HasVulkanHEVC`, `HasVulkanAV1`,
+  `VulkanHwDeviceIndex`, `VulkanHwDeviceCount`.
+- `windows_probe.pas`: `ProbeVulkanHwEncoder()`, new `TWindowsCodecSupport`
+  fields `HasAV1AMF`, `HasVulkanH264`, `HasVulkanHEVC`, `HasVulkanAV1`.
+- `gui/form_windows.pas`: `TWindowsHWInfo` extended with the same 4 new
+  fields for the Lazarus GUI's independent Windows hardware-detection path.
+- `cli_args.pas`/`cli_menu.pas`: new codec entries in `--codecs-list`,
+  interactive menu, and codec validation on both Linux and Windows; preset
+  tiers now listed for all GPU codecs (previously only `default` was shown
+  in `--codecs-list` for GPU codecs, even though `presets.json` already
+  defined more tiers via the shared `TPresetDb` loader used by the GUI).
+  `--vk-device` help text now covers all four Vulkan codecs.
+- `gui/form.pas`: codec combo entries for the 4 new codecs; `CodecIsAnyVulkan()`
+  replaces the narrower `CodecIsVulkanProres()` check for vulkan-device-picker
+  visibility and default device-index fallback.
+
+### Fixed
+- **`cmbProfile.Enabled` (Lazarus GUI preset combo) was hardcoded to
+  `CodecUsesSoftwareProres(CodecText)`** — meaning the preset dropdown was
+  disabled (though populated) for `prores_ks_vulkan`, and for all GPU codecs
+  even after Phase 2 added real preset tiers to them. It is now data-driven:
+  `cmbProfile.Enabled := cmbProfile.Items.Count > 1`, matching whatever
+  `presets.json` actually defines for the selected codec.
+
+### Known limitations (not yet validated — see `docs/v3.0-Phase2.md` §14.5)
+- No real-hardware validation of `av1_amf`/hardware Vulkan encoders was
+  performed (no AMD RDNA3+/NVIDIA Turing+/Intel Arc hardware available).
+- Windows Pascal build (`fpc/cli/ffmpeg_converter_windows.lpr`,
+  `windows_probe.pas`, `form_windows.pas`) was not compiled on a real
+  Windows machine — only the Linux CLI, shared library, and Lazarus/Qt6
+  GUI were build-verified (`make -C fpc/build cli lib gui-app`, all clean).
+
+---
+
+## [Unreleased] (Phase 1, superseded above by Phase 2 entries)
 
 ### Fixed
 - Fixed the Lazarus GUI preset selector (`fpc/gui/form.pas`) submitting a

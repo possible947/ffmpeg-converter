@@ -22,7 +22,35 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **Linux VAAPI picker** now shows friendly GPU names instead of raw render-node paths.
 - **Preset bundling completed** for C builds, Pascal builds, and AppImage packaging.
 
-## Version 2.6 Updates
+## Version 3.0 Phase 2 Updates
+
+- **New codec: `av1_amf`** — AMD AMF AV1 encoder (h264_amf/hevc_amf/av1_amf all
+  supported); requires ffmpeg built with `--enable-amf` and the AMF runtime
+  library (`libamfrt64.so.1` / `amfrt64.dll`) installed on the target system.
+- **New hardware Vulkan video encoders**: `h264_vulkan`, `hevc_vulkan`,
+  `av1_vulkan` — distinct from the existing `prores_ks_vulkan` compute-shader
+  ProRes encoder. Require ffmpeg built with `--enable-vulkan` plus a shader
+  compiler (`--enable-libshaderc` or `--enable-libglslang`), and a
+  driver/GPU that implements `VK_KHR_video_encode_queue`
+  (Linux Mesa RADV: RDNA3+/RX 7000+; Windows: NVIDIA Turing+).
+- **Speed/balance/quality preset tiers** added for existing GPU codecs
+  (`h264_vaapi`, `hevc_vaapi`, `h264_nvenc`, `hevc_nvenc`, `h264_amf`,
+  `hevc_amf`, `h264_qsv`, `hevc_qsv`) alongside the unchanged `default` tier —
+  selectable via `-p/--profile` (CLI) or the preset combo box (GUI), same as
+  the existing ProRes `lt/standard/hq/4444` tiers. `default` behavior is
+  byte-for-byte unchanged from Phase 1 for full backward compatibility.
+- **Linux runtime probing** now performs a software-Vulkan-device exclusion
+  check (`vulkaninfo --summary`) so `llvmpipe`/`lavapipe` software renderers
+  never appear as usable Vulkan hardware encoders.
+- Data-driven definitions live in `presets.json` (both C `preset_loader.c`
+  and Pascal `preset_loader.pas` consume it for `--codecs-list`/menu
+  population); the actual ffmpeg command flags are built from matching
+  hardcoded tables in `converter_linux.c`/`converter_windows.c` (C) and
+  `converter_cmd_builder.pas` (Pascal) — both must be kept in sync with
+  `presets.json` for any future preset changes. See `docs/v3.0-Phase2.md`
+  for the full codec/preset specification and system requirements.
+
+
 
 ### Linux GTK4 GUI — Full Overhaul
 
@@ -122,6 +150,14 @@ Two independent implementations share the same conversion logic and CLI behavior
 
 - Video codecs (cross-platform): `copy`, `prores`, `prores_ks`.
 - Linux runtime-probed video codecs: `h264_vaapi`, `hevc_vaapi`.
+- GPU-accelerated codecs (Linux/Windows, runtime-probed): `h264_nvenc`, `hevc_nvenc`,
+  `h264_amf`, `hevc_amf`, `av1_amf`, `h264_qsv`, `hevc_qsv`. Each supports
+  `default`/`speed`/`balance`/`quality` presets (Phase 2).
+- Hardware Vulkan video encoders (Linux/Windows, runtime-probed): `h264_vulkan`,
+  `hevc_vulkan`, `av1_vulkan` (requires `--enable-vulkan` + shaderc/glslang in the
+  ffmpeg build and a GPU/driver with `VK_KHR_video_encode_queue`; see
+  `docs/v3.0-Phase2.md` §6 for supported hardware). Distinct from the
+  compute-shader `prores_ks_vulkan` ProRes encoder.
 - Video codecs (macOS VideoToolbox): `prores_videotoolbox`, `hevc_videotoolbox`.
 - **AV1 input decoding**: runtime-detected; uses `av1_qsv` (Intel QSV/Arc) when available,
   falls back to `libdav1d` (pure software). Requires ffmpeg built with `--enable-libdav1d`.
@@ -158,6 +194,15 @@ Two independent implementations share the same conversion logic and CLI behavior
     and all DLL dependencies); copied next to `ffmpeg_converter.exe` at build time.
 - **AV1 input decoding** (Linux/Windows): requires ffmpeg compiled with `--enable-libdav1d`
   and `libdav1d-7.dll` present in `bin/` folder (already included in default bundled sets).
+- **AMF encoding** (`h264_amf`/`hevc_amf`/`av1_amf`, Linux/Windows): requires ffmpeg compiled
+  with `--enable-amf` plus the AMF runtime library on the target system
+  (`libamfrt64.so.1` on Linux — ships with proprietary AMDGPU-PRO, not Mesa;
+  `amfrt64.dll` on Windows — ships with the AMD driver). See `docs/v3.0-Phase2.md` §6.1
+  for GPU support ranges.
+- **Hardware Vulkan encoding** (`h264_vulkan`/`hevc_vulkan`/`av1_vulkan`, Linux/Windows):
+  requires ffmpeg compiled with `--enable-vulkan` plus `--enable-libshaderc` or
+  `--enable-libglslang`, and a GPU/driver implementing `VK_KHR_video_encode_queue`.
+  See `docs/v3.0-Phase2.md` §6.2 for GPU support ranges and known driver caveats.
 - `MP4Box` (GPAC) for Apple M4V packaging on macOS native GUI and Linux GTK M4V workflow.
 - `mkvmerge` for mux mode on all platforms (Linux, macOS, Windows).
   - Windows: install via Chocolatey (`choco install mkvtoolnix`), MSYS2 (`pacman -S mingw-w64-x86_64-mkvtoolnix`),

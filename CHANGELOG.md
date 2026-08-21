@@ -5,6 +5,79 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [3.0.0-Phase2.1] — 2026-08-21 (Development)
+
+### Added
+- **New codec `av1_amf`** — AMD AMF AV1 encoder, alongside existing
+  `h264_amf`/`hevc_amf`. Requires ffmpeg built with `--enable-amf` and the
+  AMF runtime library (`libamfrt64.so.1` on Linux, `amfrt64.dll` on Windows)
+  installed on the target system.
+- **New hardware Vulkan video encoders**: `h264_vulkan`, `hevc_vulkan`,
+  `av1_vulkan` — distinct from the existing `prores_ks_vulkan` compute-shader
+  ProRes encoder. Require ffmpeg built with `--enable-vulkan` plus a shader
+  compiler (`--enable-libshaderc`/`--enable-libglslang`) and a GPU/driver
+  implementing `VK_KHR_video_encode_queue`.
+- **`speed`/`balance`/`quality` preset tiers** for `h264_vaapi`, `hevc_vaapi`,
+  `h264_nvenc`, `hevc_nvenc`, `h264_amf`, `hevc_amf`, `h264_qsv`, `hevc_qsv` —
+  selectable via `-p/--profile` (CLI) or the preset combo box (GUI). The
+  `default` tier is byte-for-byte unchanged from Phase 1 for full backward
+  compatibility.
+- 4 new `PLAT_CAP_*` capability flags in `converter_platform.h`:
+  `PLAT_CAP_AMF_AV1`, `PLAT_CAP_VULKAN_H264`, `PLAT_CAP_VULKAN_HEVC`,
+  `PLAT_CAP_VULKAN_AV1`.
+- Linux runtime probing (`runtime_probe.c`): `ffmpeg_has_encoder()` cheap
+  `-encoders` text pre-filter; `vulkan_device_is_software()` — parses
+  `vulkaninfo --summary` to exclude `llvmpipe`/`lavapipe` software renderers
+  from being reported as usable Vulkan hardware encoders (mandatory fix
+  identified in `docs/v3.0-Phase2.md` §8); `probe_vulkan_encoder()` — generic
+  one-frame hardware Vulkan encoder probe (vk:0..7).
+- Windows runtime probing mirrors: `windows_ffmpeg_has_encoder()`,
+  `windows_probe_vulkan_encoder()` (no software-device exclusion — Linux/
+  llvmpipe-specific concern).
+- `HwPreset` lookup table in `converter_linux.c`/`converter_windows.c`
+  (`platform_get_video_codec_flags()`) — GPU codecs now actually honor
+  `opts->preset` when building the ffmpeg command line; previously all GPU
+  codecs silently ignored the user's preset selection and always used
+  `default` behavior (a latent pre-Phase-2 gap, closed here).
+- `--vk_device` CLI help text (`cli_common.c`) now covers all four Vulkan
+  codecs (`prores_ks_vulkan`, `h264_vulkan`, `hevc_vulkan`, `av1_vulkan`),
+  not just `prores_ks_vulkan`.
+- GTK4 GUI: new codec entries in the codec combo, and vulkan-device-picker
+  visibility now generalized to any Vulkan codec via
+  `codec_uses_any_vulkan()` (`gui_codec_utils.h`).
+
+### Changed
+- `presets.json`: added speed/balance/quality tiers for 8 existing GPU
+  codecs and 4 new codec entries, applied to both `linux` and `windows` OS
+  blocks (`macos` untouched — Phase 2 is Linux/Windows only per plan scope).
+- `codec_is_vulkan()` (`converter.c`) generalized from `prores_ks_vulkan`-only
+  to also match the 3 new hardware Vulkan codecs (affects deblock-skip and
+  `-vf format=...` filter-chain selection).
+- `platform_get_preinput_hw_flags()` / `platform_get_hw_vfilter()`
+  (`converter_linux.c`/`converter_windows.c`) generalized to cover the new
+  hardware Vulkan codecs (shared `-init_hw_device vulkan=vk:N
+  -filter_hw_device vk` / `format=nv12,hwupload` pattern).
+
+### Known limitations (not yet validated — see `docs/v3.0-Phase2.md` §14.5)
+- **No real-hardware validation performed.** `av1_amf`,
+  `h264_vulkan`/`hevc_vulkan`/`av1_vulkan` preset values are transcribed
+  from the design document's Section 5 tables, not empirically tuned or
+  tested against AMD RDNA3+, NVIDIA Turing+, or Intel Arc hardware.
+- **Windows build never compiled.** `converter_windows.c`, `cli_windows.c`,
+  and `platform/windows/runtime_probe.{c,h}` changes were reviewed manually
+  and brace/paren-balance checked, but no MSVC or mingw-w64 toolchain was
+  available to actually build `windows_cli`. A build + smoke test on real
+  Windows/MSVC is required before release.
+- **No macOS build performed.** Phase 2 intentionally does not touch any
+  macOS file, but this has not been build-verified on a macOS machine.
+- **Bundled-ffmpeg build config** (re-enabling `prores_ks_vulkan`, verifying
+  `--enable-amf`/`--enable-vulkan`+shaderc on all three bundle variants) is
+  a build-infrastructure task outside this repo's C/Pascal source — ffmpeg
+  binaries are vendored/staged externally per `AGENTS.md`. Documented as a
+  requirement in `README.md`; actual ffmpeg rebuild was not performed.
+
+---
+
 ## [3.0.0-Phase1.11] — 2026-08-21 (Development)
 
 ### Fixed
