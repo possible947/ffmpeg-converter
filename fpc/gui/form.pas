@@ -820,9 +820,9 @@ end;
 
 function CodecIsWindowsHW(const Codec: string): Boolean;
 begin
-  Result := (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
+  Result := (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or (Codec = 'av1_nvenc') or
             (Codec = 'h264_amf')   or (Codec = 'hevc_amf')   or (Codec = 'av1_amf') or
-            (Codec = 'h264_qsv')   or (Codec = 'hevc_qsv')   or
+            (Codec = 'h264_qsv')   or (Codec = 'hevc_qsv')   or (Codec = 'av1_qsv') or
             (Codec = 'prores_ks_vulkan') or
             (Codec = 'h264_vulkan') or (Codec = 'hevc_vulkan') or (Codec = 'av1_vulkan');
 end;
@@ -1324,6 +1324,8 @@ begin
     cmbCodec.Items.Add('h264_nvenc');
     cmbCodec.Items.Add('hevc_nvenc');
   end;
+  if FWindowsHW.HasAV1NVENC then
+    cmbCodec.Items.Add('av1_nvenc');
   if FWindowsHW.HasAMF then
   begin
     cmbCodec.Items.Add('h264_amf');
@@ -1336,6 +1338,8 @@ begin
     cmbCodec.Items.Add('h264_qsv');
     cmbCodec.Items.Add('hevc_qsv');
   end;
+  if FWindowsHW.HasAV1QSV then
+    cmbCodec.Items.Add('av1_qsv');
   if FWindowsHW.HasVulkan then
     cmbCodec.Items.Add('prores_ks_vulkan');
   if FWindowsHW.HasVulkanH264 then

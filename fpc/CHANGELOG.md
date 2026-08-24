@@ -5,6 +5,22 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Windows GUI AV1 QSV/NVENC Gap Fix (2026-08-24)
+
+### Fixed
+- **The Lazarus GUI (`gui/form.pas`, `gui/form_windows.pas`) never gained
+  `av1_qsv`/`av1_nvenc` support** when these codecs were added to the CLI —
+  the GUI has its own independent hardware-detection path
+  (`TWindowsHWInfo`/`DetectWindowsHardware` in `form_windows.pas`, separate
+  from `windows_probe.pas`'s `TWindowsCodecSupport` used by the CLI) that
+  was missed. Added `HasAV1QSV`/`HasAV1NVENC` fields, probed via the
+  existing `ProbeEncoder()` helper (same one-frame-at-1920x1080 test used
+  by the CLI, so the earlier 64x64 resolution-probe fix applies here too),
+  wired into `CodecIsWindowsHW` and `PopulateWindowsCodecs` so the codec
+  combo box now includes `av1_qsv`/`av1_nvenc` when detected. Presets
+  populate automatically via the existing generic `TPresetDb`
+  (`presets.json`)-based preset loader — no GUI preset-list changes needed.
+
 ## [Unreleased] — Windows AV1 Preset Tuning (2026-08-24)
 
 ### Changed

@@ -15,6 +15,8 @@ type
     HasAMF:           Boolean;
     HasAV1AMF:        Boolean;
     HasQSV:           Boolean;
+    HasAV1QSV:        Boolean;
+    HasAV1NVENC:      Boolean;
     HasVulkan:        Boolean;
     VulkanDeviceIndex: Integer;
     VulkanDeviceCount: Integer;
@@ -77,6 +79,8 @@ begin
   Result.HasAMF    := ProbeEncoder(Bin, 'h264_amf');
   Result.HasAV1AMF := ProbeEncoder(Bin, 'av1_amf');
   Result.HasQSV    := ProbeEncoder(Bin, 'h264_qsv');
+  Result.HasAV1QSV   := ProbeEncoder(Bin, 'av1_qsv');
+  Result.HasAV1NVENC := ProbeEncoder(Bin, 'av1_nvenc');
 
   Result.HasVulkan := ProbeVulkanEncoder(Bin, VulkanBest, VulkanCount);
   Result.VulkanDeviceIndex := VulkanBest;
@@ -129,6 +133,11 @@ begin
       '  AMF='                + YesNo(HW.HasAMF)   +
       '  QSV='                + YesNo(HW.HasQSV)   +
       '  Vulkan='             + YesNo(HW.HasVulkan));
+  if HW.HasAV1AMF or HW.HasAV1QSV or HW.HasAV1NVENC then
+    Add('HW detection: AV1='  + YesNo(HW.HasAV1AMF or HW.HasAV1QSV or HW.HasAV1NVENC) +
+        '  (AMF='  + YesNo(HW.HasAV1AMF) +
+        '  QSV='   + YesNo(HW.HasAV1QSV) +
+        '  NVENC=' + YesNo(HW.HasAV1NVENC) + ')');
   if HW.HasVulkan then
     Add('HW detection: Vulkan device count=' + IntToStr(HW.VulkanDeviceCount));
   if HW.HasVulkanH264 or HW.HasVulkanHEVC or HW.HasVulkanAV1 then
