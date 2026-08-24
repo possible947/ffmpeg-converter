@@ -125,6 +125,8 @@ begin
     Add(Result, 'h264_nvenc');
     Add(Result, 'hevc_nvenc');
   end;
+  if WCaps.HasAV1NVENC then
+    Add(Result, 'av1_nvenc');
   if WCaps.HasAMF then
   begin
     Add(Result, 'h264_amf');
@@ -137,6 +139,8 @@ begin
     Add(Result, 'h264_qsv');
     Add(Result, 'hevc_qsv');
   end;
+  if WCaps.HasAV1QSV then
+    Add(Result, 'av1_qsv');
   if WCaps.HasVulkan then
     Add(Result, 'prores_ks_vulkan');
   if WCaps.HasVulkanH264 then Add(Result, 'h264_vulkan');

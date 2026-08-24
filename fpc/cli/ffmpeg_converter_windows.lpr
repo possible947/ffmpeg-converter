@@ -19,6 +19,9 @@ uses
   windows_probe,
   windows_mkvmerge;
 
+const
+  FFMPEG_CONVERTER_VERSION = '2.6.0';
+
 function ArrToStr(const A: array of AnsiChar): string;
 begin
   Result := StrPas(@A[0]);
@@ -115,6 +118,18 @@ begin
   if (Length(UTF8Args) = 2) and ((UTF8Args[1] = '-h') or (UTF8Args[1] = '--help')) then
   begin
     PrintUsage;
+    Halt(0);
+  end;
+
+  if (Length(UTF8Args) = 2) and (UTF8Args[1] = '--version') then
+  begin
+    WriteLn('ffmpeg_converter version ', FFMPEG_CONVERTER_VERSION);
+    Halt(0);
+  end;
+
+  if (Length(UTF8Args) = 2) and (UTF8Args[1] = '--codecs-list') then
+  begin
+    PrintCodecsList;
     Halt(0);
   end;
 

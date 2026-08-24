@@ -35,6 +35,50 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   `prores`, `prores_ks`, `h264_nvenc`, `hevc_nvenc`, `mux`, `m4v` — with no
   VAAPI or Vulkan hardware codecs, matching actual available hardware.
 
+## [Unreleased] — Windows AV1 Preset Tuning (2026-08-24)
+
+### Changed
+- **`av1_nvenc` `default` preset now uses `-preset p6`** instead of `p7`,
+  making it distinct from the `quality` tier — mirrors `hevc_nvenc`, whose
+  `default` (`-preset hq`) already differs from its `quality` tier
+  (`-preset p7`). `av1_nvenc` has no legacy `hq` preset alias, so `p6`
+  ("slower, better quality") is the closest equivalent one step below the
+  slowest/best `p7` used by `quality`.
+- **`av1_qsv` `default`/`quality` presets now include `-g 240 -bf 4`**
+  (explicit GOP length + B-frame depth), matching `hevc_qsv`'s tuned
+  default, which already sets these. Previously `av1_qsv` left them at
+  encoder defaults while `hevc_qsv` did not.
+- Verified on real hardware (Intel Arc A750): `av1_qsv` `default` and
+  `quality` now produce byte-identical output (as intended, matching
+  `hevc_qsv`'s default==quality pattern), both differing from `balance`.
+
+## [Unreleased] — Windows AV1 QSV/NVENC Encoder Support (2026-08-24)
+
+### Added
+- **New codec `av1_qsv`** (Windows) — Intel QSV AV1 hardware encoder, for
+  Xe-HPG (Arc A-series) and 12th-gen+ Iris Xe iGPUs. Runtime-probed via
+  a cheap `-encoders` text pre-filter followed by a real one-frame encode
+  test, mirroring the existing `av1_amf` gating pattern. Adds
+  `PLAT_CAP_QSV_AV1` to `converter_platform.h` and 4 quality presets
+  (`default`/`speed`/`balance`/`quality`) to `presets.json`.
+- **New codec `av1_nvenc`** (Windows) — NVIDIA NVENC AV1 hardware encoder,
+  requires Ada Lovelace (RTX 40-series+); older GPUs (Turing/Volta/Ampere)
+  correctly report unavailable. Same probe pattern as `av1_qsv`/`av1_amf`.
+  Adds `PLAT_CAP_NVENC_AV1` and 4 quality presets to `presets.json`.
+- Both codecs plug into the existing dynamic codec catalog
+  (`platform_get_codec_entries()`/`platform_codec_is_available()`), so
+  `--help`/`--codecs-list`/interactive menu automatically include them
+  when detected — no static codec-list text needed updating.
+
+### Fixed
+- **Windows encoder catalog was missing all AV1 QSV/NVENC support** — only
+  `av1_amf` (AMD) and `av1_vulkan` (Vulkan hardware encode) existed; systems
+  with Intel Arc / Xe iGPUs (QSV AV1-capable) or RTX 40-series GPUs had no
+  way to select AV1 hardware encoding even though the installed ffmpeg
+  build supported it. Verified on Intel Arc A750 + NVIDIA Titan V: `av1_qsv`
+  now correctly appears in `--codecs-list`, while `av1_nvenc` correctly
+  stays hidden (Titan V is pre-Ada Volta, no AV1 NVENC support).
+
 ## [Unreleased] — Mux/M4V Pipeline Fixes (2026-08-22)
 
 ### Fixed

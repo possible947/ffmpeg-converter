@@ -5,6 +5,51 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Windows AV1 Preset Tuning (2026-08-24)
+
+### Changed
+- **`av1_nvenc` `default` preset now uses `-preset p6`** instead of `p7`
+  in `GetHwCodecFlags` (`converter/converter_cmd_builder.pas`), making it
+  distinct from `quality` (`p7`) — mirrors `hevc_nvenc`'s
+  `default`(`hq`) != `quality`(`p7`) split. Required adding an explicit
+  `Preset = 'quality'` branch, since previously `quality` and `default`
+  shared the same fallback `else`.
+- **`av1_qsv` `default`/`quality` presets now include `-g 240 -bf 4`**,
+  matching `hevc_qsv`'s tuned default. Verified on real hardware (Intel
+  Arc A750): `default` and `quality` now produce identical output size,
+  both differing from `balance`.
+
+## [Unreleased] — Windows AV1 QSV/NVENC Encoder Support (2026-08-24)
+
+### Added
+- **New codec `av1_qsv`** (Windows) — Intel QSV AV1 hardware encoder (Xe-HPG
+  Arc A-series, 12th-gen+ Iris Xe iGPU). Added `HasAV1QSV` to
+  `TWindowsCodecSupport` (`platform/windows_probe.pas`), wired into
+  `IsCodecAllowedOnCurrentPlatform`, `PrintUsage`, `PrintCodecsList`
+  (`cli/cli_args.pas`) and `BuildCodecList` (`cli/cli_menu.pas`), plus 4
+  quality presets (`default`/`speed`/`balance`/`quality`) in
+  `converter/converter_cmd_builder.pas`. Mirrors the C implementation
+  (`src/platform/windows/runtime_probe.c`, `converter_windows.c`).
+- **New codec `av1_nvenc`** (Windows) — NVIDIA NVENC AV1 hardware encoder,
+  requires Ada Lovelace (RTX 40-series+); older GPUs (Turing/Volta/Ampere)
+  correctly report unavailable. Added `HasAV1NVENC`, same wiring pattern
+  as `av1_qsv`/`av1_amf`.
+
+### Fixed
+- **`ProbeEncoder` (`platform/windows_probe.pas`) used a 64x64 test frame**,
+  which Intel's `av1_qsv` encoder rejects with "Current resolution is
+  unsupported" even when the encoder is genuinely available — unlike
+  `h264_qsv`/`hevc_qsv`, which tolerate the tiny frame. Changed to
+  `1920x1080` to match the C implementation's `windows_probe_encoder()`
+  (`src/platform/windows/runtime_probe.c`), fixing false-negative detection
+  for `av1_qsv` (and any future encoder with a minimum resolution floor).
+- **Windows CLI (`ffmpeg_converter_windows.lpr`) ignored `--version` and
+  `--codecs-list`** — only `-h`/`--help` was wired, unlike the Linux CLI
+  (`ffmpeg_converter.lpr`), which handles all three. Both flags now print
+  the version/codec-and-preset list and exit, matching Linux behavior and
+  making it possible to verify hardware-encoder detection (including the
+  new `av1_qsv`/`av1_nvenc`) from the command line on Windows.
+
 ## [Unreleased] — Mux/M4V and Build Staging Fixes (2026-08-22)
 
 ### Fixed

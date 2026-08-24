@@ -497,11 +497,13 @@ int platform_supports_codec(const char* codec) {
     /* Windows hardware codecs — check availability at runtime */
     if (strcmp(codec, "h264_nvenc")       == 0 ||
         strcmp(codec, "hevc_nvenc")       == 0 ||
+        strcmp(codec, "av1_nvenc")        == 0 ||
         strcmp(codec, "h264_amf")         == 0 ||
         strcmp(codec, "hevc_amf")         == 0 ||
         strcmp(codec, "av1_amf")          == 0 ||
         strcmp(codec, "h264_qsv")         == 0 ||
         strcmp(codec, "hevc_qsv")         == 0 ||
+        strcmp(codec, "av1_qsv")          == 0 ||
         strcmp(codec, "prores_ks_vulkan") == 0 ||
         strcmp(codec, "h264_vulkan")      == 0 ||
         strcmp(codec, "hevc_vulkan")      == 0 ||
@@ -510,11 +512,13 @@ int platform_supports_codec(const char* codec) {
         int caps = platform_detect_gpu_support();
         if (strcmp(codec, "h264_nvenc")       == 0) return (caps & PLAT_CAP_NVENC_H264)     ? 1 : 0;
         if (strcmp(codec, "hevc_nvenc")       == 0) return (caps & PLAT_CAP_NVENC_HEVC)     ? 1 : 0;
+        if (strcmp(codec, "av1_nvenc")        == 0) return (caps & PLAT_CAP_NVENC_AV1)      ? 1 : 0;
         if (strcmp(codec, "h264_amf")         == 0) return (caps & PLAT_CAP_AMF_H264)       ? 1 : 0;
         if (strcmp(codec, "hevc_amf")         == 0) return (caps & PLAT_CAP_AMF_HEVC)       ? 1 : 0;
         if (strcmp(codec, "av1_amf")          == 0) return (caps & PLAT_CAP_AMF_AV1)        ? 1 : 0;
         if (strcmp(codec, "h264_qsv")         == 0) return (caps & PLAT_CAP_QSV_H264)       ? 1 : 0;
         if (strcmp(codec, "hevc_qsv")         == 0) return (caps & PLAT_CAP_QSV_HEVC)       ? 1 : 0;
+        if (strcmp(codec, "av1_qsv")          == 0) return (caps & PLAT_CAP_QSV_AV1)        ? 1 : 0;
         if (strcmp(codec, "prores_ks_vulkan") == 0) return (caps & PLAT_CAP_VULKAN_PRORES)  ? 1 : 0;
         if (strcmp(codec, "h264_vulkan")      == 0) return (caps & PLAT_CAP_VULKAN_H264)    ? 1 : 0;
         if (strcmp(codec, "hevc_vulkan")      == 0) return (caps & PLAT_CAP_VULKAN_HEVC)    ? 1 : 0;
@@ -560,6 +564,16 @@ const char* platform_get_video_codec_flags(const char* codec,
               "-c:v hevc_nvenc -preset p1 -cq 25 -lookahead_level 0 ",
               "-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto ",
               "-c:v hevc_nvenc -preset p7 -cq 25 -lookahead_level auto " },
+            /* default uses p6 (not p7) so it is distinct from the 'quality'
+             * tier, mirroring hevc_nvenc's default('hq') != quality('p7')
+             * split — av1_nvenc has no 'hq' preset alias, so p6 ("slower,
+             * better quality") is the closest equivalent one step below the
+             * slowest/best p7 used by 'quality'. */
+            { "av1_nvenc",
+              "-c:v av1_nvenc -preset p6 -cq 30 -lookahead_level auto ",
+              "-c:v av1_nvenc -preset p1 -cq 30 -lookahead_level 0 ",
+              "-c:v av1_nvenc -preset p4 -cq 30 -lookahead_level auto ",
+              "-c:v av1_nvenc -preset p7 -cq 30 -lookahead_level auto " },
             { "h264_amf",
               "-c:v h264_amf ",
               "-c:v h264_amf -quality speed ",
@@ -590,6 +604,17 @@ const char* platform_get_video_codec_flags(const char* codec,
               "-c:v hevc_qsv -global_quality 25 -preset medium "
               "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
               "-c:v hevc_qsv -global_quality 25 -preset slow "
+              "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 " },
+            /* default/quality add -g 240 -bf 4 to match hevc_qsv's tuned
+             * default (which sets an explicit GOP length + B-frame depth);
+             * previously av1_qsv left these at encoder defaults. */
+            { "av1_qsv",
+              "-c:v av1_qsv -global_quality 28 -preset slow "
+              "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
+              "-c:v av1_qsv -global_quality 28 -preset veryfast -extbrc 1 ",
+              "-c:v av1_qsv -global_quality 28 -preset medium "
+              "-look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
+              "-c:v av1_qsv -global_quality 28 -preset slow "
               "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 " },
             { "h264_vulkan",
               "-c:v h264_vulkan -qp 18 ",
@@ -691,11 +716,13 @@ int platform_detect_gpu_support(void) {
         platform_normalize_output_line(line);
         if (strstr(line, " h264_nvenc")) caps |= PLAT_CAP_NVENC_H264;
         if (strstr(line, " hevc_nvenc")) caps |= PLAT_CAP_NVENC_HEVC;
+        if (strstr(line, " av1_nvenc"))  caps |= PLAT_CAP_NVENC_AV1;
         if (strstr(line, " h264_amf"))   caps |= PLAT_CAP_AMF_H264;
         if (strstr(line, " hevc_amf"))   caps |= PLAT_CAP_AMF_HEVC;
         if (strstr(line, " av1_amf"))    caps |= PLAT_CAP_AMF_AV1;
         if (strstr(line, " h264_qsv"))          caps |= PLAT_CAP_QSV_H264;
         if (strstr(line, " hevc_qsv"))          caps |= PLAT_CAP_QSV_HEVC;
+        if (strstr(line, " av1_qsv"))           caps |= PLAT_CAP_QSV_AV1;
         if (strstr(line, " prores_ks_vulkan"))  caps |= PLAT_CAP_VULKAN_PRORES;
         if (strstr(line, " h264_vulkan"))       caps |= PLAT_CAP_VULKAN_H264;
         if (strstr(line, " hevc_vulkan"))       caps |= PLAT_CAP_VULKAN_HEVC;

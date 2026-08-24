@@ -8,9 +8,9 @@
  *  - USERPROFILE / HOMEPATH environment variables for home directory
  *
  * Codec support: copy, prores (software), prores_ks (software),
- *                h264_nvenc / hevc_nvenc (NVIDIA, if available),
- *                h264_amf / hevc_amf (AMD, if available),
- *                h264_qsv / hevc_qsv (Intel, if available),
+ *                h264_nvenc / hevc_nvenc / av1_nvenc (NVIDIA, if available),
+ *                h264_amf / hevc_amf / av1_amf (AMD, if available),
+ *                h264_qsv / hevc_qsv / av1_qsv (Intel, if available),
  *                prores_ks_vulkan (any GPU with Vulkan 1.1+, if available)
  *                mux (mkvmerge post-process; requires mkvmerge on PATH or
  *                     next to the executable)
@@ -58,14 +58,14 @@
  * --------------------------------------------------------------- */
 
 /* Maximum codec entries: copy + prores + prores_ks +
- *                        h264_nvenc + hevc_nvenc +
+ *                        h264_nvenc + hevc_nvenc + av1_nvenc +
  *                        h264_amf  + hevc_amf  + av1_amf +
- *                        h264_qsv  + hevc_qsv  +
+ *                        h264_qsv  + hevc_qsv  + av1_qsv +
  *                        prores_ks_vulkan +
  *                        h264_vulkan + hevc_vulkan + av1_vulkan +
  *                        mux +
  *                        m4v                        */
-#define WINDOWS_MAX_CODECS 16
+#define WINDOWS_MAX_CODECS 18
 
 struct CliPlatformHandle {
     WindowsCodecSupport support;
@@ -120,6 +120,12 @@ CliPlatformHandle* cli_platform_init(void) {
         h->entries[h->codec_count].needs_deblock = 0;
         h->codec_count++;
     }
+    if (h->support.has_av1_nvenc) {
+        h->entries[h->codec_count].name          = "av1_nvenc";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
 
     /* AMD AMF */
     if (h->support.has_h264_amf) {
@@ -150,6 +156,12 @@ CliPlatformHandle* cli_platform_init(void) {
     }
     if (h->support.has_hevc_qsv) {
         h->entries[h->codec_count].name          = "hevc_qsv";
+        h->entries[h->codec_count].needs_profile = 0;
+        h->entries[h->codec_count].needs_deblock = 0;
+        h->codec_count++;
+    }
+    if (h->support.has_av1_qsv) {
+        h->entries[h->codec_count].name          = "av1_qsv";
         h->entries[h->codec_count].needs_profile = 0;
         h->entries[h->codec_count].needs_deblock = 0;
         h->codec_count++;
@@ -229,11 +241,13 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
 
     if (!strcmp(codec, "h264_nvenc"))       return h->support.has_h264_nvenc;
     if (!strcmp(codec, "hevc_nvenc"))       return h->support.has_hevc_nvenc;
+    if (!strcmp(codec, "av1_nvenc"))        return h->support.has_av1_nvenc;
     if (!strcmp(codec, "h264_amf"))         return h->support.has_h264_amf;
     if (!strcmp(codec, "hevc_amf"))         return h->support.has_hevc_amf;
     if (!strcmp(codec, "av1_amf"))          return h->support.has_av1_amf;
     if (!strcmp(codec, "h264_qsv"))         return h->support.has_h264_qsv;
     if (!strcmp(codec, "hevc_qsv"))         return h->support.has_hevc_qsv;
+    if (!strcmp(codec, "av1_qsv"))          return h->support.has_av1_qsv;
     if (!strcmp(codec, "prores_ks_vulkan")) return h->support.has_prores_ks_vulkan;
     if (!strcmp(codec, "h264_vulkan"))      return h->support.has_h264_vulkan;
     if (!strcmp(codec, "hevc_vulkan"))      return h->support.has_hevc_vulkan;

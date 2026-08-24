@@ -19,6 +19,7 @@ typedef struct {
     /* NVIDIA NVENC */
     int has_h264_nvenc;
     int has_hevc_nvenc;
+    int has_av1_nvenc;  /* av1_nvenc — requires Ada Lovelace (RTX 40-series+) */
 
     /* AMD AMF */
     int has_h264_amf;
@@ -28,6 +29,7 @@ typedef struct {
     /* Intel QSV */
     int has_h264_qsv;
     int has_hevc_qsv;
+    int has_av1_qsv;    /* av1_qsv — requires Xe-HPG/Arc or 12th-gen+ iGPU */
 
     /* Vulkan (GPU-accelerated ProRes via Vulkan) */
     int has_prores_ks_vulkan;

@@ -74,6 +74,9 @@ begin
   if WinCaps.HasNVENC then
     Result := Result or (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc');
 
+  if WinCaps.HasAV1NVENC then
+    Result := Result or (Codec = 'av1_nvenc');
+
   if WinCaps.HasAMF then
     Result := Result or (Codec = 'h264_amf') or (Codec = 'hevc_amf');
 
@@ -82,6 +85,9 @@ begin
 
   if WinCaps.HasQSV then
     Result := Result or (Codec = 'h264_qsv') or (Codec = 'hevc_qsv');
+
+  if WinCaps.HasAV1QSV then
+    Result := Result or (Codec = 'av1_qsv');
 
   if WinCaps.HasVulkan then
     Result := Result or (Codec = 'prores_ks_vulkan');
@@ -246,12 +252,16 @@ begin
   CodecList := 'copy|prores|prores_ks';
   if WinCaps.HasNVENC then
     CodecList += '|h264_nvenc|hevc_nvenc';
+  if WinCaps.HasAV1NVENC then
+    CodecList += '|av1_nvenc';
   if WinCaps.HasAMF then
     CodecList += '|h264_amf|hevc_amf';
   if WinCaps.HasAV1AMF then
     CodecList += '|av1_amf';
   if WinCaps.HasQSV then
     CodecList += '|h264_qsv|hevc_qsv';
+  if WinCaps.HasAV1QSV then
+    CodecList += '|av1_qsv';
   if WinCaps.HasVulkan then
     CodecList += '|prores_ks_vulkan';
   if WinCaps.HasVulkanH264 then
@@ -436,6 +446,16 @@ begin
     WriteLn;
   end;
   
+  if WinCaps.HasAV1NVENC then
+  begin
+    WriteLn('av1_nvenc');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
   if WinCaps.HasAMF then
   begin
     WriteLn('h264_amf');
@@ -471,6 +491,16 @@ begin
     WriteLn('  - quality');
     WriteLn;
     WriteLn('hevc_qsv');
+    WriteLn('  - default');
+    WriteLn('  - speed');
+    WriteLn('  - balance');
+    WriteLn('  - quality');
+    WriteLn;
+  end;
+  
+  if WinCaps.HasAV1QSV then
+  begin
+    WriteLn('av1_qsv');
     WriteLn('  - default');
     WriteLn('  - speed');
     WriteLn('  - balance');

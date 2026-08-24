@@ -366,10 +366,12 @@ Available devices:
 | prores_ks | Software CPU | Always |
 | h264_nvenc | NVIDIA GPU | If NVIDIA driver present |
 | hevc_nvenc | NVIDIA GPU | If NVIDIA driver present |
+| av1_nvenc | NVIDIA GPU | If Ada Lovelace (RTX 40-series+) present |
 | h264_amf | AMD GPU | If AMD GPU + runtime present |
 | hevc_amf | AMD GPU | If AMD GPU + runtime present |
 | h264_qsv | Intel GPU | If Intel Arc/UHD 770+ present |
 | hevc_qsv | Intel GPU | If Intel Arc/UHD 770+ present |
+| av1_qsv | Intel GPU | If Intel Arc (Xe-HPG) or 12th-gen+ Iris Xe present |
 | prores_ks_vulkan | Any GPU | If Vulkan 1.1+ GPU present |
 | mux | MKV remux | If mkvmerge found |
 | m4v | Apple M4V | If MP4Box found |
@@ -649,6 +651,22 @@ ffmpeg_converter -c copy -o ~/backup/ *.mkv
 - **Quality**: Lossy
 - **Use for**: Intel Arc/UHD H.265 encoding
 - **Requires**: Intel Arc GPU or 12th-gen+ CPU with UHD
+
+#### av1_qsv (Windows only, if available)
+- **Description**: AV1 via Intel Quick Sync
+- **Speed**: Fast (GPU accelerated)
+- **Quality**: Lossy (better compression than H.264/H.265 at same bitrate)
+- **Use for**: AV1 encoding on Intel Arc (Xe-HPG) or 12th-gen+ Iris Xe iGPU
+- **Requires**: Intel Arc GPU or 12th-gen+ CPU with Iris Xe
+
+#### av1_nvenc (Windows only, if available)
+- **Description**: AV1 via NVIDIA NVENC
+- **Speed**: Fast (GPU accelerated)
+- **Quality**: Lossy (better compression than H.264/H.265 at same bitrate)
+- **Use for**: AV1 encoding on NVIDIA GPU
+- **Requires**: Ada Lovelace GPU (RTX 40-series+) — earlier NVIDIA GPUs
+  (Turing/Volta/Ampere) do not support AV1 encoding and will not show
+  this codec
 
 #### prores_ks_vulkan (Windows, any GPU with Vulkan 1.1+)
 - **Description**: GPU-accelerated ProRes via Vulkan

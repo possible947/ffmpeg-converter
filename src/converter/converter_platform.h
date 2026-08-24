@@ -260,6 +260,8 @@ int platform_get_video_info(const char* input_path,
 #define PLAT_CAP_VULKAN_H264    (1 << 15) /* h264_vulkan (hardware Vulkan video encode) */
 #define PLAT_CAP_VULKAN_HEVC    (1 << 16) /* hevc_vulkan (hardware Vulkan video encode) */
 #define PLAT_CAP_VULKAN_AV1     (1 << 17) /* av1_vulkan (hardware Vulkan video encode) */
+#define PLAT_CAP_QSV_AV1        (1 << 18) /* av1_qsv (Intel QSV AV1 encode, Xe-HPG/Arc or 12th-gen+ iGPU) */
+#define PLAT_CAP_NVENC_AV1      (1 << 19) /* av1_nvenc (NVIDIA NVENC AV1 encode, Ada Lovelace/RTX 40-series+) */
 
 /**
  * Returns pre-input hardware device initialization flags for the given codec.

@@ -469,6 +469,12 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "h264_nvenc");
     g_cache.support.has_hevc_nvenc =
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_nvenc");
+    /* av1_nvenc requires Ada Lovelace (RTX 40-series+); pre-filter on
+     * -encoders text scan first, since older GPUs (Turing/Volta/Ampere)
+     * will fail the one-frame probe anyway. */
+    g_cache.support.has_av1_nvenc =
+        windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_nvenc") &&
+        windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "av1_nvenc");
 
     /* Probe AMD AMF encoders */
     g_cache.support.has_h264_amf =
@@ -486,6 +492,11 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "h264_qsv");
     g_cache.support.has_hevc_qsv =
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_qsv");
+    /* av1_qsv requires Xe-HPG (Arc A-series) or 12th-gen+ Iris Xe iGPU;
+     * pre-filter on -encoders text scan first. */
+    g_cache.support.has_av1_qsv =
+        windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_qsv") &&
+        windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "av1_qsv");
 
     /* Probe Vulkan ProRes encoder (requires full Vulkan device init pipeline) */
     {

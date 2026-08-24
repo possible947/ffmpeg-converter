@@ -7,9 +7,11 @@ interface
 type
   TWindowsCodecSupport = record
     HasNVENC: Boolean;
+    HasAV1NVENC: Boolean;
     HasAMF: Boolean;
     HasAV1AMF: Boolean;
     HasQSV: Boolean;
+    HasAV1QSV: Boolean;
     HasVulkan: Boolean;
     VulkanDeviceIndex: Integer;
     VulkanDeviceCount: Integer;
@@ -42,14 +44,18 @@ var
   GSupport: TWindowsCodecSupport;
 
 { Run a short ffmpeg null-encode test to check whether an encoder is usable.
-  Returns True if ffmpeg exits with code 0. }
+  Returns True if ffmpeg exits with code 0.
+  Uses a 1920x1080 test frame (matching the C implementation's
+  windows_probe_encoder()) rather than a tiny 64x64 frame — some hardware
+  encoders (e.g. av1_qsv) reject very small resolutions with "Current
+  resolution is unsupported" even though the encoder itself is available. }
 function ProbeEncoder(const FfmpegBin, EncoderName: string): Boolean;
 var
   Cmd: string;
   R: TRunResult;
 begin
 {$IFDEF Windows}
-  Cmd := QuoteForShell(FfmpegBin) + ' -f lavfi -i color=c=black:s=64x64:d=1 -vframes 1' +
+  Cmd := QuoteForShell(FfmpegBin) + ' -f lavfi -i color=size=1920x1080:rate=1 -frames:v 1' +
          ' -vcodec ' + EncoderName + ' -f null NUL 2>nul';
   R := RunCommandCapture(Cmd);
   Result := R.ExitCode = 0;
@@ -137,9 +143,15 @@ begin
   if FfmpegBin <> '' then
   begin
     Result.HasNVENC := ProbeEncoder(FfmpegBin, 'h264_nvenc') or ProbeEncoder(FfmpegBin, 'hevc_nvenc');
+    { av1_nvenc requires Ada Lovelace (RTX 40-series+); older GPUs
+      (Turing/Volta/Ampere) will fail this probe and are correctly
+      reported as unavailable. }
+    Result.HasAV1NVENC := ProbeEncoder(FfmpegBin, 'av1_nvenc');
     Result.HasAMF := ProbeEncoder(FfmpegBin, 'h264_amf') or ProbeEncoder(FfmpegBin, 'hevc_amf');
     Result.HasAV1AMF := ProbeEncoder(FfmpegBin, 'av1_amf');
     Result.HasQSV := ProbeEncoder(FfmpegBin, 'h264_qsv') or ProbeEncoder(FfmpegBin, 'hevc_qsv');
+    { av1_qsv requires Xe-HPG (Arc A-series) or 12th-gen+ Iris Xe iGPU. }
+    Result.HasAV1QSV := ProbeEncoder(FfmpegBin, 'av1_qsv');
 
     Result.HasVulkan := ProbeVulkanEncoder(FfmpegBin, VulkanBest, VulkanCount);
     Result.VulkanDeviceIndex := VulkanBest;

@@ -71,6 +71,16 @@ begin
     else if Preset = 'balance' then Result := '-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto '
     else Result := '-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto ';
   end
+  else if Codec = 'av1_nvenc' then
+  begin
+    { default uses p6 (distinct from 'quality' = p7), mirroring
+      hevc_nvenc's default('hq') != quality('p7') split; av1_nvenc has
+      no 'hq' alias, so p6 is the nearest equivalent. }
+    if Preset = 'speed' then Result := '-c:v av1_nvenc -preset p1 -cq 30 -lookahead_level 0 '
+    else if Preset = 'balance' then Result := '-c:v av1_nvenc -preset p4 -cq 30 -lookahead_level auto '
+    else if Preset = 'quality' then Result := '-c:v av1_nvenc -preset p7 -cq 30 -lookahead_level auto '
+    else Result := '-c:v av1_nvenc -preset p6 -cq 30 -lookahead_level auto ';
+  end
   else if Codec = 'h264_amf' then
   begin
     if Preset = 'speed' then Result := '-c:v h264_amf -quality speed '
@@ -103,6 +113,13 @@ begin
     if Preset = 'speed' then Result := '-c:v hevc_qsv -global_quality 25 -preset fast -g 240 -bf 4 '
     else if Preset = 'balance' then Result := '-c:v hevc_qsv -global_quality 25 -preset medium -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 '
     else Result := '-c:v hevc_qsv -global_quality 25 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ';
+  end
+  else if Codec = 'av1_qsv' then
+  begin
+    { default: -g 240 -bf 4 added to match hevc_qsv's tuned default. }
+    if Preset = 'speed' then Result := '-c:v av1_qsv -global_quality 28 -preset veryfast -extbrc 1 '
+    else if Preset = 'balance' then Result := '-c:v av1_qsv -global_quality 28 -preset medium -look_ahead 1 -look_ahead_depth 60 -extbrc 1 '
+    else Result := '-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ';
   end
   else if Codec = 'h264_vulkan' then
   begin
@@ -239,9 +256,9 @@ begin
       Result += '-c:v hevc_videotoolbox -b:v 35000k -tag:v hvc1 -spatial_aq 1 ';
   end
   else if (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') or
-          (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
+          (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or (Codec = 'av1_nvenc') or
           (Codec = 'h264_amf') or (Codec = 'hevc_amf') or (Codec = 'av1_amf') or
-          (Codec = 'h264_qsv') or (Codec = 'hevc_qsv') or
+          (Codec = 'h264_qsv') or (Codec = 'hevc_qsv') or (Codec = 'av1_qsv') or
           (Codec = 'h264_vulkan') or (Codec = 'hevc_vulkan') or (Codec = 'av1_vulkan') then
     Result += GetHwCodecFlags(Codec, ArrToStr(Opts.preset))
   else if Codec = 'prores_ks_vulkan' then
