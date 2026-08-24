@@ -5,6 +5,30 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Windows AV1 Container Bug Fix (2026-08-24)
+
+### Fixed
+- **`MakeOutputName` (`common/path_utils.pas`) defaulted to `.mov` for any
+  codec not on a small hardcoded whitelist**, unlike the C implementation
+  (`converter.c`'s `codec_uses_mov_container()`), which whitelists only the
+  ProRes family for `.mov` and defaults everything else to `.mkv`. This
+  meant `av1_amf`, `av1_qsv`, `av1_nvenc`, and all hardware Vulkan codecs
+  (`h264_vulkan`/`hevc_vulkan`/`av1_vulkan`) — none of which were on the
+  old whitelist — silently produced a `.mov` output file, even though
+  `presets.json` correctly declares `"container": "mkv"` for all of them
+  (that field was parsed by `preset_loader.pas` but never actually
+  consulted for output-name generation).
+  ffmpeg's `mov`/`mp4` muxer rejects AV1 unless the brand is MP4/AVIF
+  ("av1 only supported in MP4 and AVIF"), so real-world `av1_qsv`/
+  `av1_nvenc`/`av1_amf` conversions failed outright with exit code -22 and
+  a 0-byte output file — confirmed via a real encode of a user's file that
+  failed with exactly this error before the fix.
+  `MakeOutputName` now mirrors the C logic exactly: `hevc_videotoolbox` →
+  `.mp4`, `m4v` → `.m4v`, `mux` → preset-dependent, ProRes family → `.mov`,
+  everything else (including all future hardware codecs) → `.mkv` by
+  default. Verified with a real `av1_qsv` conversion: output is now a
+  valid, non-empty `.mkv` file instead of a 0-byte `.mov`.
+
 ## [Unreleased] — Windows GUI AV1 QSV/NVENC Gap Fix (2026-08-24)
 
 ### Fixed

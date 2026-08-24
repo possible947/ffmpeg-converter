@@ -53,15 +53,16 @@ begin
   else if (Codec = 'prores') or (Codec = 'prores_ks') or
           (Codec = 'prores_videotoolbox') or (Codec = 'prores_ks_vulkan') then
     Ext := '.mov'
-  else if (Codec = 'copy') or
-           (Codec = 'h264_vaapi') or (Codec = 'hevc_vaapi') then
-    Ext := '.mkv'
-  else if (Codec = 'h264_nvenc') or (Codec = 'hevc_nvenc') or
-          (Codec = 'h264_amf') or (Codec = 'hevc_amf') or
-          (Codec = 'h264_qsv') or (Codec = 'hevc_qsv') then
-    Ext := '.mkv'
   else
-    Ext := '.mov';
+    { Everything else (copy, all VAAPI/NVENC/AMF/QSV h264/hevc/av1 variants,
+      hardware Vulkan h264/hevc/av1) defaults to .mkv — matches the C
+      implementation's codec_uses_mov_container() whitelist-for-.mov /
+      default-to-.mkv logic (converter.c). Only the prores family (handled
+      above) actually needs .mov; av1 in particular is rejected by ffmpeg's
+      mov muxer ("av1 only supported in MP4 and AVIF"), so any new codec
+      that isn't explicitly whitelisted for .mov must fall through here
+      rather than to .mov, or hardware AV1 encoders silently fail to mux. }
+    Ext := '.mkv';
 
   Result := BaseName + '_converted' + Ext;
   if OutputDir <> '' then
