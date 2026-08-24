@@ -5,6 +5,36 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — WSL2 Codec Detection Fix (2026-08-24)
+
+### Fixed
+- **`prores_ks_vulkan` could be falsely reported as available on
+  software-only Vulkan systems**: `probe_vulkan_prores()` in
+  `src/platform/linux/runtime_probe.c` ran its one-frame encode probe
+  against every `vk:N` device without filtering out CPU-only Mesa
+  llvmpipe/lavapipe implementations, unlike the equivalent
+  `probe_vulkan_encoder()` used for `h264_vulkan`/`hevc_vulkan`/`av1_vulkan`,
+  which already skipped software devices via `vulkan_device_is_software()`.
+  On a WSL2 Ubuntu 24.04 host with an NVIDIA Titan V + Intel Arc A750 but
+  only a software Vulkan ICD registered, this caused `prores_ks_vulkan` to
+  incorrectly show up in `--codecs-list`. `probe_vulkan_prores()` now shares
+  the same `vulkan_device_is_software()` filter as `probe_vulkan_encoder()`.
+
+### Verified (WSL2 Ubuntu 24.04, NVIDIA Titan V + Intel Arc A750, "linux" profile)
+- Clean `linux_cli` build from scratch succeeds (warnings only, no errors).
+- `h264_vaapi`/`hevc_vaapi` are **correctly absent**: this WSL2 instance has
+  no `/dev/dri` render nodes and no Intel Arc driver entry under
+  `/usr/lib/wsl/drivers` (only the NVIDIA driver is passed through), so VAAPI
+  hardware is genuinely unavailable at the OS level — not a program bug.
+  Resolving this requires enabling Intel Arc GPU passthrough for WSL2 on the
+  Windows host (updated Intel driver + `wsl --shutdown`/restart).
+- `h264_nvenc`/`hevc_nvenc` correctly detected and functionally verified via
+  a real encode (`ffprobe` confirmed `h264` output codec in the produced
+  `.mkv`); NVIDIA GPU is reachable via `/dev/dxg` without needing `/dev/dri`.
+- After the fix, `--codecs-list` on this host correctly reports: `copy`,
+  `prores`, `prores_ks`, `h264_nvenc`, `hevc_nvenc`, `mux`, `m4v` — with no
+  VAAPI or Vulkan hardware codecs, matching actual available hardware.
+
 ## [Unreleased] — Mux/M4V Pipeline Fixes (2026-08-22)
 
 ### Fixed

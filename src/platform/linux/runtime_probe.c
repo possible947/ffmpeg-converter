@@ -281,6 +281,11 @@ static int probe_simple_encoder(const char *ffmpeg_bin,
     return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
 }
 
+/* Forward declaration: skips CPU-only (llvmpipe/lavapipe) Vulkan devices.
+ * Defined below; needed here so probe_vulkan_prores() can use the same
+ * software-device filter as probe_vulkan_encoder(). */
+static int vulkan_device_is_software(int device_index);
+
 /**
  * probe_vulkan_prores()
  * Tests prores_ks_vulkan on vk:0 through vk:7.
@@ -308,6 +313,9 @@ static int probe_vulkan_prores(const char *ffmpeg_bin,
     for (i = 0; i < LINUX_VULKAN_MAX_DEVICES; i++) {
         char cmd[8192];
         int  rc;
+
+        if (vulkan_device_is_software(i))
+            continue;
 
         snprintf(cmd, sizeof(cmd),
                  "%s -v error -hide_banner "
