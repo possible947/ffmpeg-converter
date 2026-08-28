@@ -125,6 +125,29 @@ static int macos_calc_hevc_vt_bitrate_kbps(int width, int height, double fps) {
     return (int)kbps;
 }
 
+/**
+ * Same sub-linear bits-per-pixel formula as HEVC, but with a higher base
+ * bitrate: H.264 is a less efficient codec than HEVC, so it needs roughly
+ * 1.4x the bitrate to reach comparable visual quality.
+ *   base = 50000 kbps @ 4K (3840×2160) / 24 fps
+ *   clamped to [2500, 100000] kbps
+ */
+static int macos_calc_h264_vt_bitrate_kbps(int width, int height, double fps) {
+    if (width <= 0 || height <= 0 || fps <= 0.0) return 50000;
+
+    const double BASE_KBPS   = 50000.0;
+    const double BASE_PIXELS = 3840.0 * 2160.0;
+    const double BASE_FPS    = 24.0;
+
+    double pixel_ratio = (double)(width * height) / BASE_PIXELS;
+    double fps_ratio   = pow(fps / BASE_FPS, 0.75);
+    double kbps        = BASE_KBPS * pixel_ratio * fps_ratio;
+
+    if (kbps < 2500.0)   kbps = 2500.0;
+    if (kbps > 100000.0) kbps = 100000.0;
+    return (int)kbps;
+}
+
 /* ---------------------------------------------------------------
  *  Lifecycle
  * --------------------------------------------------------------- */
@@ -375,6 +398,7 @@ int platform_supports_codec(const char* codec) {
 
     /* macOS VideoToolbox codecs */
     if (strcmp(codec, "hevc_videotoolbox")  == 0 ||
+        strcmp(codec, "h264_videotoolbox")  == 0 ||
         strcmp(codec, "prores_videotoolbox") == 0)
         return 1;
 
@@ -400,6 +424,18 @@ const char* platform_get_video_codec_flags(const char* codec,
         snprintf(flags, sizeof(flags),
                  "-c:v hevc_videotoolbox -b:v %dk -tag:v hvc1 -spatial_aq 1 ",
                  bitrate > 0 ? bitrate : 35000);
+        return flags;
+    }
+
+    if (strcmp(codec, "h264_videotoolbox") == 0) {
+        int w = 0, h = 0;
+        double fps = 0.0;
+        if (input_path && input_path[0] != '\0')
+            macos_get_video_info(input_path, &w, &h, &fps);
+        int bitrate = macos_calc_h264_vt_bitrate_kbps(w, h, fps);
+        snprintf(flags, sizeof(flags),
+                 "-c:v h264_videotoolbox -b:v %dk -spatial_aq 1 ",
+                 bitrate > 0 ? bitrate : 50000);
         return flags;
     }
 

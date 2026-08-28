@@ -26,8 +26,9 @@
  * --------------------------------------------------------------- */
 
 /* Maximum codec entries: copy + prores + prores_ks +
- *                        prores_videotoolbox + hevc_videotoolbox + m4v */
-#define MACOS_MAX_CODECS 6
+ *                        prores_videotoolbox + hevc_videotoolbox +
+ *                        h264_videotoolbox + m4v */
+#define MACOS_MAX_CODECS 7
 
 struct CliPlatformHandle {
     MacosCodecSupport   support;
@@ -75,6 +76,11 @@ CliPlatformHandle* cli_platform_init(void) {
     h->entries[h->codec_count].needs_deblock = 0;
     h->codec_count++;
 
+    h->entries[h->codec_count].name          = "h264_videotoolbox";
+    h->entries[h->codec_count].needs_profile = 0;
+    h->entries[h->codec_count].needs_deblock = 0;
+    h->codec_count++;
+
     if (platform_m4v_is_supported()) {
         h->entries[h->codec_count].name          = "m4v";
         h->entries[h->codec_count].needs_profile = 0;
@@ -104,6 +110,7 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
            !strcmp(codec, "prores_ks")            ||
            !strcmp(codec, "prores_videotoolbox")  ||
            !strcmp(codec, "hevc_videotoolbox")    ||
+           !strcmp(codec, "h264_videotoolbox")    ||
            (!strcmp(codec, "m4v") && platform_m4v_is_supported());
 }
 

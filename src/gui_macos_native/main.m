@@ -143,6 +143,9 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     if (strcmp(codec, "hevc_videotoolbox") == 0) {
         return support && support->has_hevc_videotoolbox;
     }
+    if (strcmp(codec, "h264_videotoolbox") == 0) {
+        return support && support->has_h264_videotoolbox;
+    }
     if (strcmp(codec, "prores_videotoolbox") == 0) {
         return support && support->has_prores_videotoolbox;
     }

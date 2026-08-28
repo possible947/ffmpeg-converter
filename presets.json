@@ -602,6 +602,15 @@
         ]
       }
     },
+    "h264_videotoolbox": {
+      "default": {
+        "ffmpeg_args": "-c:v h264_videotoolbox -b:v {vt_bitrate} -spatial_aq 1",
+        "container": "mov",
+        "requires": [
+          "h264_videotoolbox"
+        ]
+      }
+    },
     "h264_vaapi": {
       "default": {
         "ffmpeg_args": "-c:v h264_vaapi -rc_mode auto",

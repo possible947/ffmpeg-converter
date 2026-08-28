@@ -5,6 +5,46 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — macOS h264_videotoolbox Support (2026-08-28)
+
+### Added
+- **`h264_videotoolbox` codec on macOS**: the bundled ffmpeg (v8.1, built
+  with `--enable-videotoolbox`) already supported hardware H.264 encoding
+  via VideoToolbox, and `runtime_probe.c` already probed for it
+  (`has_h264_videotoolbox`), but the codec was never wired into the
+  preset database, CLI codec table, or GUI codec popup — only
+  `hevc_videotoolbox` and `prores_videotoolbox` were exposed. Added:
+  - `presets.json`: new `macos.h264_videotoolbox.default` preset
+    (`-c:v h264_videotoolbox -b:v {vt_bitrate} -spatial_aq 1`).
+  - `src/converter/platform/converter_macos.c`: `platform_supports_codec()`
+    now accepts `h264_videotoolbox`; new `macos_calc_h264_vt_bitrate_kbps()`
+    reuses the existing HEVC sub-linear bits-per-pixel formula with a
+    higher base bitrate (50000 vs 35000 kbps @ 4K/24fps, since H.264 needs
+    roughly 1.4x the bitrate of HEVC for comparable quality);
+    `platform_get_video_codec_flags()` emits the encoder flags.
+  - `src/cli/platform/cli_macos.c`: added to the CLI codec table and
+    `platform_codec_is_available()`.
+  - `src/gui_macos_native/main.m`: `macGuiSupportsCodec()` now checks
+    `support->has_h264_videotoolbox` so the codec appears in the GUI
+    popup only when actually probed as available.
+
+### Verified (macOS Sequoia, bundled ffmpeg 8.1 with videotoolbox/vulkan/opencl)
+- Confirmed via `-hwaccels`/`-encoders`/`-hide_banner` that the bundled
+  ffmpeg supports `videotoolbox`, `opencl`, and `vulkan` hwaccels, but that
+  Vulkan video **encoders** (`h264_vulkan`, `hevc_vulkan`, `av1_vulkan`,
+  `prores_ks_vulkan`) fail at runtime with `Invalid argument` even with a
+  correct `hwupload` pipeline, because Apple's Vulkan implementation
+  (MoltenVK) does not implement the Vulkan Video encode extensions on this
+  hardware. OpenCL provides only filters (denoise, tonemap, etc.), not
+  encoders, so there is no OpenCL codec to add. Only VideoToolbox is a
+  functional hardware encode path on macOS today.
+- Rebuilt `macos_cli`/`macos_gui_native`; `--help`/`--codecs-list` now list
+  `h264_videotoolbox`.
+- Ran a real conversion (`--dry-run` then full encode) of a generated test
+  clip with `-c h264_videotoolbox`; `ffprobe` confirmed a valid `h264`
+  output stream, produced via real VideoToolbox hardware encoding (not a
+  software fallback).
+
 ## [Unreleased] — WSL2 Codec Detection Fix (2026-08-24)
 
 ### Fixed
