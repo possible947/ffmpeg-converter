@@ -5,6 +5,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — macOS h264_videotoolbox Output Container Fix (2026-08-28)
+
+### Fixed
+- **`h264_videotoolbox` output used `.mkv` instead of `.mp4`**:
+  `converter_make_output_name()` in `src/converter/converter.c` special-cases
+  `hevc_videotoolbox` to always produce a `.mp4` container (needed for
+  QuickTime/Apple TV/iOS compatibility with the `-tag:v hvc1` HEVC stream),
+  but `h264_videotoolbox` fell through to the generic `.mkv` default,
+  making the two VideoToolbox codecs inconsistent. `h264_videotoolbox` now
+  also produces `.mp4`, matching `hevc_videotoolbox`. Verified via
+  `--dry-run` that both codecs now plan `*_converted.mp4` output names.
+
 ## [Unreleased] — macOS h264_videotoolbox Support (2026-08-28)
 
 ### Added

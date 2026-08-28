@@ -517,7 +517,8 @@ static void make_output_name(
         else
             ext = "mkv";
     }
-    else if (strcmp(opts->codec, "hevc_videotoolbox") == 0)
+    else if (strcmp(opts->codec, "hevc_videotoolbox") == 0 ||
+             strcmp(opts->codec, "h264_videotoolbox") == 0)
         ext = "mp4";
     else if (codec_uses_mov_container(opts->codec))
         ext = "mov";
