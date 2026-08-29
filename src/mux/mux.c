@@ -141,6 +141,46 @@ static int probe_video_rate_string(const char* ffprobe_bin,
     return rate_out[0] != '\0' && strcmp(rate_out, "0/0") != 0;
 }
 
+/* Reads the original source's video-track language tag from intermediate_file
+ * (the ffmpeg-copied source), since opts->video_track_file is typically a raw
+ * elementary stream with no container metadata of its own. */
+static int probe_video_track_language(const char* ffprobe_bin,
+                                      const char* input_file,
+                                      char* lang_out,
+                                      size_t lang_out_sz)
+{
+    char cmd[8192];
+    char quoted_tool[2048];
+    char quoted_input[2048];
+    FILE* fp;
+
+    if (!ffprobe_bin || !input_file || !lang_out || lang_out_sz == 0)
+        return 0;
+
+    platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
+    platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
+
+    snprintf(cmd,
+             sizeof(cmd),
+             "%s -v error -select_streams v:0 -show_entries stream_tags=language "
+             "-of default=noprint_wrappers=1:nokey=1 %s %s",
+             quoted_tool,
+             quoted_input,
+             platform_null_redirect());
+    fp = mux_platform_popen(cmd, "r");
+    if (!fp)
+        return 0;
+
+    if (!fgets(lang_out, (int)lang_out_sz, fp)) {
+        platform_pclose_exitcode(fp);
+        return 0;
+    }
+    platform_pclose_exitcode(fp);
+    lang_out[strcspn(lang_out, "\r\n")] = '\0';
+
+    return lang_out[0] != '\0';
+}
+
 static int validate_mux_output(const char* ffprobe_bin, const char* output_file)
 {
     char cmd[8192];
@@ -255,6 +295,7 @@ ConverterError mux_run_postprocess(
     const char* ffprobe_bin;
     const char* mkvmerge_bin;
     char rate[64];
+    char lang[64];
     char cmd[12288];
     char quoted_tool[2048];
     char quoted_output[2048];
@@ -262,6 +303,7 @@ ConverterError mux_run_postprocess(
     char quoted_intermediate[2048];
     char temp_output[1200];
     char timing_arg[128];
+    char lang_arg[96];
 
     (void)convert_opts;
 
@@ -300,6 +342,12 @@ ConverterError mux_run_postprocess(
         snprintf(timing_arg, sizeof(timing_arg), "--default-duration 0:%sfps ", rate);
     }
 
+    /* The replacement video track is usually a raw elementary stream with no
+     * language tag of its own, so inherit it from the original source. */
+    lang_arg[0] = '\0';
+    if (probe_video_track_language(ffprobe_bin, opts->intermediate_file, lang, sizeof(lang)))
+        snprintf(lang_arg, sizeof(lang_arg), "--language 0:%s ", lang);
+
     platform_shell_quote(mkvmerge_bin, quoted_tool, sizeof(quoted_tool));
     platform_shell_quote(temp_output, quoted_output, sizeof(quoted_output));
     platform_shell_quote(opts->video_track_file, quoted_track, sizeof(quoted_track));
@@ -308,10 +356,11 @@ ConverterError mux_run_postprocess(
     snprintf(cmd,
              sizeof(cmd),
              "%s -o %s --no-audio --no-subtitles --no-buttons --no-attachments "
-             "--no-chapters --no-global-tags --no-track-tags %s--video-tracks 0 %s --no-video %s 2>&1",
+             "--no-chapters --no-global-tags --no-track-tags %s%s--video-tracks 0 %s --no-video %s 2>&1",
              quoted_tool,
              quoted_output,
              timing_arg,
+             lang_arg,
              quoted_track,
              quoted_intermediate);
 

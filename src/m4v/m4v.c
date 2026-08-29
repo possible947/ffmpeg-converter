@@ -143,6 +143,7 @@ typedef struct {
     char color_primaries[32];
     char color_trc[32];
     char colorspace[32];
+    char color_range[16];
 } VideoColorParams;
 
 static void probe_video_color_params(const char *ffprobe_bin,
@@ -163,13 +164,14 @@ static void probe_video_color_params(const char *ffprobe_bin,
     params->color_primaries[0] = '\0';
     params->color_trc[0] = '\0';
     params->colorspace[0] = '\0';
+    params->color_range[0] = '\0';
 
     m4v_platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
     m4v_platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
 
     snprintf(cmd,
              sizeof(cmd),
-             "%s -v error -select_streams v:0 -show_entries stream=color_primaries,color_transfer,color_space -of default=noprint_wrappers=1 %s %s",
+             "%s -v error -select_streams v:0 -show_entries stream=color_primaries,color_transfer,color_space,color_range -of default=noprint_wrappers=1 %s %s",
              quoted_tool,
              quoted_input,
              m4v_platform_null_redirect());
@@ -192,6 +194,8 @@ static void probe_video_color_params(const char *ffprobe_bin,
                 copy_string(params->color_trc, sizeof(params->color_trc), value);
             else if (strcmp(key, "color_space") == 0 && value[0] != '\0')
                 copy_string(params->colorspace, sizeof(params->colorspace), value);
+            else if (strcmp(key, "color_range") == 0 && value[0] != '\0')
+                copy_string(params->color_range, sizeof(params->color_range), value);
         }
         line = strtok(NULL, "\n");
     }
@@ -202,6 +206,8 @@ static void probe_video_color_params(const char *ffprobe_bin,
         copy_string(params->color_trc, sizeof(params->color_trc), "bt709");
     if (params->colorspace[0] == '\0')
         copy_string(params->colorspace, sizeof(params->colorspace), "bt709");
+    if (params->color_range[0] == '\0')
+        copy_string(params->color_range, sizeof(params->color_range), "tv");
 }
 
 void m4v_default_options(M4VOptions *opts)
@@ -405,25 +411,27 @@ ConverterError m4v_create_from_input(const char *input_file,
                 snprintf(cmd,
                          sizeof(cmd),
                          "%s -y -nostdin -i %s -map 0:v:%d -c:v copy -tag:v hvc1 "
-                         "-color_primaries %s -color_trc %s -colorspace %s -an -sn -dn -f mp4 %s 2>&1",
+                         "-color_primaries %s -color_trc %s -colorspace %s -color_range %s -an -sn -dn -f mp4 %s 2>&1",
                          quoted_tool,
                          quoted_input,
                          local_opts.video_track_index,
                          color.color_primaries,
                          color.color_trc,
                          color.colorspace,
+                         color.color_range,
                          quoted_video);
             } else {
                 snprintf(cmd,
                          sizeof(cmd),
                          "%s -y -nostdin -i %s -map 0:v:%d -c:v copy "
-                         "-color_primaries %s -color_trc %s -colorspace %s -an -sn -dn -f mp4 %s 2>&1",
+                         "-color_primaries %s -color_trc %s -colorspace %s -color_range %s -an -sn -dn -f mp4 %s 2>&1",
                          quoted_tool,
                          quoted_input,
                          local_opts.video_track_index,
                          color.color_primaries,
                          color.color_trc,
                          color.colorspace,
+                         color.color_range,
                          quoted_video);
             }
         }

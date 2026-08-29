@@ -278,6 +278,7 @@ var
   ColorPrimaries: string;
   ColorTrc: string;
   ColorSpace: string;
+  ColorRange: string;
   ColorCmd: string;
   ColorResult: TRunResult;
 begin
@@ -358,9 +359,10 @@ begin
     ColorPrimaries := '';
     ColorTrc := '';
     ColorSpace := '';
+    ColorRange := '';
 
     ColorCmd := QuoteForShell(FfprobeBin) +
-      ' -v error -select_streams v:0 -show_entries stream=color_primaries,color_transfer,color_space' +
+      ' -v error -select_streams v:0 -show_entries stream=color_primaries,color_transfer,color_space,color_range' +
       ' -of default=noprint_wrappers=1 ' + QuoteForShell(InputFile) +
   {$IFDEF Windows}
       ' 2>NUL';
@@ -374,6 +376,7 @@ begin
       ColorPrimaries := ExtractFfprobeValue(ColorResult.OutputText, 'color_primaries');
       ColorTrc := ExtractFfprobeValue(ColorResult.OutputText, 'color_transfer');
       ColorSpace := ExtractFfprobeValue(ColorResult.OutputText, 'color_space');
+      ColorRange := ExtractFfprobeValue(ColorResult.OutputText, 'color_range');
     end;
 
     if ColorPrimaries = '' then
@@ -382,6 +385,8 @@ begin
       ColorTrc := 'bt709';
     if ColorSpace = '' then
       ColorSpace := 'bt709';
+    if ColorRange = '' then
+      ColorRange := 'tv';
 
     Cmd := QuoteForShell(FfmpegBin) + ' -y -nostdin -i ' + QuoteForShell(InputFile) +
       Format(' -map 0:v:%d -c:v copy', [Opts.VideoTrackIndex]);
@@ -390,6 +395,7 @@ begin
     Cmd := Cmd + ' -color_primaries ' + ColorPrimaries +
            ' -color_trc ' + ColorTrc +
            ' -colorspace ' + ColorSpace +
+           ' -color_range ' + ColorRange +
            ' -an -sn -dn -f mp4 ' + QuoteForShell(VideoMp4);
     if not RunStep(Cmd, 'Video copy step failed.', FfmpegBin, FfprobeBin, InputFile, EffectiveOutputFile, EffectiveOutputDir, ErrorText) then
       Exit(False);

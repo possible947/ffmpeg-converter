@@ -281,7 +281,7 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
     NSArray<NSString *> *args = @[
         @"-v", @"error",
         @"-select_streams", @"v:0",
-        @"-show_entries", @"stream=color_primaries,color_transfer,color_space",
+        @"-show_entries", @"stream=color_primaries,color_transfer,color_space,color_range",
         @"-of", @"default=noprint_wrappers=1",
         inputFile
     ];
@@ -308,6 +308,9 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
     }
     if (result[@"color_space"].length == 0) {
         result[@"color_space"] = @"bt709";
+    }
+    if (result[@"color_range"].length == 0) {
+        result[@"color_range"] = @"tv";
     }
 
     return result;
@@ -489,6 +492,7 @@ AppleM4VOptions AppleM4VDefaultOptions(void) {
             @"-color_primaries", colorParams[@"color_primaries"] ?: @"bt709",
             @"-color_trc", colorParams[@"color_transfer"] ?: @"bt709",
             @"-colorspace", colorParams[@"color_space"] ?: @"bt709",
+            @"-color_range", colorParams[@"color_range"] ?: @"tv",
             @"-an", @"-sn", @"-dn",
             @"-f", @"mp4",
             videoMp4

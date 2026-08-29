@@ -81,12 +81,14 @@ var
   M4VErrorText: string;
 {$IFDEF Linux}
   MuxRate: string;
+  MuxLang: string;
   ProbeCmd: string;
   Tools: TToolPaths;
 {$ENDIF}
 {$IFDEF Windows}
   MkvmergePath: string;
   MuxRate: string;
+  MuxLang: string;
   ProbeCmd: string;
   Tools: TToolPaths;
 {$ENDIF}
@@ -159,6 +161,17 @@ begin
     end;
   end;
 
+  { The replacement video track is usually a raw elementary stream with no
+    language tag of its own, so inherit it from the original source. }
+  MuxLang := '';
+  ProbeCmd := QuoteForShell(Tools.FfprobeBin) +
+    ' -v error -select_streams v:0 -show_entries stream_tags=language' +
+    ' -of default=noprint_wrappers=1:nokey=1 ' +
+    QuoteForShell(IntermediateFile) + ' 2>/dev/null';
+  CmdRes := RunCommandCapture(ProbeCmd);
+  if CmdRes.ExitCode = 0 then
+    MuxLang := Trim(CmdRes.OutputText);
+
   { Build mkvmerge command:
       video track 0 from VideoTrack, non-video tracks from IntermediateFile }
   MuxCmd := QuoteForShell(Tools.MkvmergeBin) + ' -o ' + QuoteForShell(TempOutputFile) +
@@ -166,6 +179,8 @@ begin
             ' --no-chapters --no-global-tags --no-track-tags ';
   if MuxRate <> '' then
     MuxCmd += '--default-duration 0:' + MuxRate + 'fps ';
+  if MuxLang <> '' then
+    MuxCmd += '--language 0:' + MuxLang + ' ';
   MuxCmd += '--video-tracks 0 ' + QuoteForShell(VideoTrack) +
             ' --no-video ' + QuoteForShell(IntermediateFile) + ' 2>&1';
 
@@ -310,6 +325,20 @@ begin
     end;
   end;
 
+  { The replacement video track is usually a raw elementary stream with no
+    language tag of its own, so inherit it from the original source. }
+  MuxLang := '';
+  if Tools.FfprobeBin <> '' then
+  begin
+    ProbeCmd := '"' + Tools.FfprobeBin + '"' +
+      ' -v error -select_streams v:0 -show_entries stream_tags=language' +
+      ' -of default=noprint_wrappers=1:nokey=1 "' +
+      IntermediateFile + '" 2>nul';
+    CmdRes := RunCommandCapture(ProbeCmd);
+    if CmdRes.ExitCode = 0 then
+      MuxLang := Trim(CmdRes.OutputText);
+  end;
+
   { Build mkvmerge command for Windows:
       video track 0 from VideoTrack, non-video tracks from IntermediateFile }
   MuxCmd := '"' + MkvmergePath + '" -o "' + TempOutputFile + '"' +
@@ -317,6 +346,8 @@ begin
             ' --no-chapters --no-global-tags --no-track-tags';
   if MuxRate <> '' then
     MuxCmd := MuxCmd + ' --default-duration 0:' + MuxRate + 'fps';
+  if MuxLang <> '' then
+    MuxCmd := MuxCmd + ' --language 0:' + MuxLang;
   MuxCmd := MuxCmd + ' --video-tracks 0 "' + VideoTrack + '"' +
             ' --no-video "' + IntermediateFile + '"';
 
