@@ -5,6 +5,22 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — macOS GUI missing prores_videotoolbox codec (2026-09-03)
+
+### Fixed
+- **`prores_videotoolbox` missing from the macOS GUI codec popup** while
+  present and working in the CLI: the GUI only lists VideoToolbox codecs
+  after `macos_probe_codec_support()` confirms them with a real one-frame
+  test encode, but the CLI's codec list is not probe-gated at all
+  (`platform_codec_is_available()` always returns true for it). On systems
+  without a real hardware ProRes VideoToolbox encoder, the probe's
+  `-c:v prores_videotoolbox` test failed with "Cannot create compression
+  session", even though the actual conversion command already adds
+  `-allow_sw 1` and succeeds via software fallback. `macos_probe_vt_encoder()`
+  (`src/platform/macos/runtime_probe.c`) now takes an optional extra-args
+  string and the `prores_videotoolbox` probe passes `-allow_sw 1`, matching
+  the real encode command so the probe result reflects actual availability.
+
 ## [Unreleased] — macOS CLI/GUI ffmpeg dylib bundling fix (2026-09-03)
 
 ### Fixed

@@ -242,10 +242,15 @@ static int macos_path_is_shell_safe(const char *path)
  * macos_probe_vt_encoder()
  * Test a VideoToolbox encoder via a one-frame ffmpeg encode.
  * Uses POSIX redirect (>/dev/null 2>&1).
+ * extra_args (may be NULL) is appended after "-c:v <encoder_name>", so the
+ * probe matches the flags the real encode command uses (e.g. prores_videotoolbox
+ * needs "-allow_sw 1" to fall back to software when no hardware ProRes VT
+ * encoder is present, otherwise the probe fails even though real encodes work).
  * Returns 1 if the encoder is available, 0 otherwise.
  */
 static int macos_probe_vt_encoder(const char *ffmpeg_bin,
-                                  const char *encoder_name)
+                                  const char *encoder_name,
+                                  const char *extra_args)
 {
     char cmd[8192];
     int  rc;
@@ -259,8 +264,8 @@ static int macos_probe_vt_encoder(const char *ffmpeg_bin,
              "\"%s\" -v error -hide_banner "
              "-f lavfi -i color=size=1920x1080:rate=1 "
              "-frames:v 1 "
-             "-c:v %s -f null - >/dev/null 2>&1",
-             ffmpeg_bin, encoder_name);
+             "-c:v %s %s-f null - >/dev/null 2>&1",
+             ffmpeg_bin, encoder_name, extra_args ? extra_args : "");
 
     rc = system(cmd);
     if (rc == -1)
@@ -294,13 +299,13 @@ int macos_probe_codec_support(MacosCodecSupport *out_support)
     /* Probe VideoToolbox encoders */
     g_cache.support.has_h264_videotoolbox =
         macos_probe_vt_encoder(g_cache.support.bins.ffmpeg_bin,
-                               "h264_videotoolbox");
+                               "h264_videotoolbox", NULL);
     g_cache.support.has_hevc_videotoolbox =
         macos_probe_vt_encoder(g_cache.support.bins.ffmpeg_bin,
-                               "hevc_videotoolbox");
+                               "hevc_videotoolbox", NULL);
     g_cache.support.has_prores_videotoolbox =
         macos_probe_vt_encoder(g_cache.support.bins.ffmpeg_bin,
-                               "prores_videotoolbox");
+                               "prores_videotoolbox", "-allow_sw 1 ");
 
     /* Resolve remaining tool binaries */
     resolve_preferred_binary("FFPROBE", "FFPROBE_BIN", "ffprobe",
