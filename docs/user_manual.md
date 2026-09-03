@@ -592,7 +592,8 @@ ffmpeg_converter -c copy -o ~/backup/ *.mkv
 - **Description**: Apple VideoToolbox H.265 encoder
 - **Speed**: Very fast (hardware accelerated)
 - **Quality**: Lossy (high quality)
-- **Bitrate**: Automatically calculated per file
+- **Presets**: `default` (VideoToolbox auto bitrate, no `-b:v`), `low`, `medium`, `high`
+  (bitrate = width × height × fps × BPP; same tiers for `h264_videotoolbox`)
 - **Use for**: Web streaming, efficient archiving
 - **Note**: Apple Silicon native, Rosetta 2 on Intel
 

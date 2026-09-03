@@ -1,0 +1,29 @@
+### How VideoToolbox behaves in Auto Mode vs. Engine Calculations
+
+1. **Auto Mode (Default when no `-b:v` is passed)**:\
+   - VideoToolbox uses a fixed, built-in lookup table maintained by macOS based solely on resolution and frame rate.\
+   - It is unaware of source visual complexity, motion, or noise.\
+   - For 4K 30fps HEVC, it defaults to ~12\'9613 Mbps.\
+\
+2. **Why the Engine Must Calculate Bitrate**:\
+   - Because `-crf` and `-q:v` are unavailable on `h264_videotoolbox` and `hevc_videotoolbox`, the engine cannot rely on FFmpeg for variable quality.\
+   - To provide "automatic quality" (e.g., Low / Medium / High / Ultra quality presets), the converter engine must calculate `-b:v` using a formula based on:\
+     $$\\text\{Bitrate (bps)\} = \\text\{Width\} \\times \\text\{Height\} \\times \\text\{FPS\} \\times \\text\{BPP (Bits Per Pixel factor)\}$$\
+\
+---\
+\
+### Standard BPP (Bits Per Pixel) Matrix for VideoToolbox Calculation\
+\
+A typical converter engine calculates target bitrate using the following BPP coefficients:\
+\
+| Quality Level | H.264 Target BPP | HEVC Target BPP | Estimated 1080p @ 30fps (HEVC) | Estimated 4K @ 30fps (HEVC) |\
+|---|---|---|---|---|\
+| **Low / Fast** | ~0.05 | ~0.03 | ~3.1 Mbps | ~7.5 Mbps |\
+| **Medium / Standard** | ~0.08 | ~0.05 | ~5.0 Mbps | ~12.4 Mbps |\
+| **High / HQ** | ~0.12 | ~0.075 | ~7.5 Mbps | ~18.6 Mbps |\
+| **Ultra / Archival** | ~0.18 | ~0.11 | ~11.2 Mbps | ~27.3 Mbps |\
+\
+#### Calculation Example (4K @ 29.97 fps HEVC Medium):\
+$$3840 \\times 2160 \\times 29.97 \\times 0.05 \\approx 12,430,000 \\text\{ bps\} \\approx 12.4 \\text\{ Mbps\}$$\
+\
+This closely matches the ~12.8 Mbps VideoToolbox default you observed on your 4K output file!}

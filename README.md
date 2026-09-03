@@ -411,9 +411,11 @@ third_party/   Vendored jansson (C path)
 
 ## Notes
 
-- `hevc_videotoolbox` uses Apple VideoToolbox hardware encoder on macOS. Bitrate
-  is calculated automatically per-file using a sub-linear formula (base 35 Mbps
-  at 4K/24 fps), clamped to [2000, 80000] kbps.
+- `hevc_videotoolbox`/`h264_videotoolbox` use Apple VideoToolbox hardware
+  encoders on macOS with 4 quality presets: `default` (no `-b:v`; VideoToolbox
+  picks its own bitrate), `low`, `medium`, `high` (bitrate calculated as
+  `width × height × fps × BPP`, see [docs/videotoolbox_parametrs.rtf](docs/videotoolbox_parametrs.rtf)
+  for the BPP coefficients).
 - Linux hardware codecs are runtime-detected and shown only when the active system
   and driver expose working VAAPI H.264 or HEVC encode.
 - Linux `mux` mode is a one-source-file workflow that keeps processed audio and

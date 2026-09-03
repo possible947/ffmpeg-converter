@@ -5,6 +5,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — macOS VideoToolbox bitrate quality presets (2026-09-03)
+
+### Added
+- **`hevc_videotoolbox`/`h264_videotoolbox` quality presets**: replaced the
+  previous fixed sub-linear bitrate formula with 4 selectable presets,
+  matching the standard VideoToolbox bits-per-pixel model
+  (`bitrate(bps) = width × height × fps × BPP`):
+  - `default`: no `-b:v` at all — VideoToolbox picks its own bitrate.
+  - `low` / `medium` / `high`: computed via BPP tiers (HEVC: 0.03/0.05/0.075,
+    H.264: 0.05/0.08/0.12).
+  - `presets.json`: added `low`/`medium`/`high` entries under
+    `macos.hevc_videotoolbox` and `macos.h264_videotoolbox` (drives CLI
+    preset validation, `--codecs-list`, and the macOS GUI preset popup).
+  - `src/converter/platform/converter_macos.c`: new
+    `macos_calc_vt_bitrate_kbps()` + per-codec BPP lookup helpers, replacing
+    `macos_calc_hevc_vt_bitrate_kbps()`/`macos_calc_h264_vt_bitrate_kbps()`.
+
 ## [Unreleased] — macOS h264_videotoolbox Output Container Fix (2026-08-28)
 
 ### Fixed

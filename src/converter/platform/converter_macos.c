@@ -104,48 +104,34 @@ static void macos_get_video_info(const char* input,
 }
 
 /**
- * Sub-linear bits-per-pixel bitrate formula:
- *   base = 35000 kbps @ 4K (3840×2160) / 24 fps
- *   bitrate = base × (pixels / base_pixels) × (fps / base_fps)^0.75
- *   clamped to [2000, 80000] kbps
+ * Bits-per-pixel VideoToolbox bitrate formula (see docs/videotoolbox_parametrs.rtf):
+ *   bitrate (bps) = width × height × fps × BPP
+ * Falls back to 1080p/30fps when probing the source failed, so the
+ * quality tiers still produce a sane bitrate.
  */
-static int macos_calc_hevc_vt_bitrate_kbps(int width, int height, double fps) {
-    if (width <= 0 || height <= 0 || fps <= 0.0) return 35000;
+static int macos_calc_vt_bitrate_kbps(int width, int height, double fps, double bpp) {
+    if (width <= 0 || height <= 0) { width = 1920; height = 1080; }
+    if (fps <= 0.0) fps = 30.0;
 
-    const double BASE_KBPS   = 35000.0;
-    const double BASE_PIXELS = 3840.0 * 2160.0;
-    const double BASE_FPS    = 24.0;
-
-    double pixel_ratio = (double)(width * height) / BASE_PIXELS;
-    double fps_ratio   = pow(fps / BASE_FPS, 0.75);
-    double kbps        = BASE_KBPS * pixel_ratio * fps_ratio;
-
-    if (kbps < 2000.0)  kbps = 2000.0;
-    if (kbps > 80000.0) kbps = 80000.0;
-    return (int)kbps;
+    double bps  = (double)width * (double)height * fps * bpp;
+    int    kbps = (int)(bps / 1000.0);
+    return kbps > 0 ? kbps : 1;
 }
 
-/**
- * Same sub-linear bits-per-pixel formula as HEVC, but with a higher base
- * bitrate: H.264 is a less efficient codec than HEVC, so it needs roughly
- * 1.4x the bitrate to reach comparable visual quality.
- *   base = 50000 kbps @ 4K (3840×2160) / 24 fps
- *   clamped to [2500, 100000] kbps
- */
-static int macos_calc_h264_vt_bitrate_kbps(int width, int height, double fps) {
-    if (width <= 0 || height <= 0 || fps <= 0.0) return 50000;
+/* Quality-tier BPP coefficients from the standard VideoToolbox BPP matrix.
+ * "default"/unknown preset falls back to "medium". */
+static double macos_hevc_vt_bpp_for_preset(const char* preset) {
+    if (preset && strcmp(preset, "low")  == 0) return 0.030;
+    if (preset && strcmp(preset, "high") == 0) return 0.075;
+    return 0.050; /* medium */
+}
 
-    const double BASE_KBPS   = 50000.0;
-    const double BASE_PIXELS = 3840.0 * 2160.0;
-    const double BASE_FPS    = 24.0;
-
-    double pixel_ratio = (double)(width * height) / BASE_PIXELS;
-    double fps_ratio   = pow(fps / BASE_FPS, 0.75);
-    double kbps        = BASE_KBPS * pixel_ratio * fps_ratio;
-
-    if (kbps < 2500.0)   kbps = 2500.0;
-    if (kbps > 100000.0) kbps = 100000.0;
-    return (int)kbps;
+/* H.264 is a less efficient codec than HEVC, so each tier targets a higher
+ * BPP than its HEVC counterpart for comparable visual quality. */
+static double macos_h264_vt_bpp_for_preset(const char* preset) {
+    if (preset && strcmp(preset, "low")  == 0) return 0.05;
+    if (preset && strcmp(preset, "high") == 0) return 0.12;
+    return 0.08; /* medium */
 }
 
 /* ---------------------------------------------------------------
@@ -416,26 +402,43 @@ const char* platform_get_video_codec_flags(const char* codec,
     flags[0] = '\0';
 
     if (strcmp(codec, "hevc_videotoolbox") == 0) {
+        const ConvertOptions* copts = (const ConvertOptions*)opts_void;
+        const char* preset = (copts && copts->preset[0] != '\0') ? copts->preset : "default";
+
+        if (strcmp(preset, "default") == 0) {
+            /* No -b:v: VideoToolbox picks its own built-in bitrate. */
+            snprintf(flags, sizeof(flags),
+                     "-c:v hevc_videotoolbox -tag:v hvc1 -spatial_aq 1 ");
+            return flags;
+        }
+
         int w = 0, h = 0;
         double fps = 0.0;
         if (input_path && input_path[0] != '\0')
             macos_get_video_info(input_path, &w, &h, &fps);
-        int bitrate = macos_calc_hevc_vt_bitrate_kbps(w, h, fps);
+        int bitrate = macos_calc_vt_bitrate_kbps(w, h, fps, macos_hevc_vt_bpp_for_preset(preset));
         snprintf(flags, sizeof(flags),
-                 "-c:v hevc_videotoolbox -b:v %dk -tag:v hvc1 -spatial_aq 1 ",
-                 bitrate > 0 ? bitrate : 35000);
+                 "-c:v hevc_videotoolbox -b:v %dk -tag:v hvc1 -spatial_aq 1 ", bitrate);
         return flags;
     }
 
     if (strcmp(codec, "h264_videotoolbox") == 0) {
+        const ConvertOptions* copts = (const ConvertOptions*)opts_void;
+        const char* preset = (copts && copts->preset[0] != '\0') ? copts->preset : "default";
+
+        if (strcmp(preset, "default") == 0) {
+            /* No -b:v: VideoToolbox picks its own built-in bitrate. */
+            snprintf(flags, sizeof(flags), "-c:v h264_videotoolbox -spatial_aq 1 ");
+            return flags;
+        }
+
         int w = 0, h = 0;
         double fps = 0.0;
         if (input_path && input_path[0] != '\0')
             macos_get_video_info(input_path, &w, &h, &fps);
-        int bitrate = macos_calc_h264_vt_bitrate_kbps(w, h, fps);
+        int bitrate = macos_calc_vt_bitrate_kbps(w, h, fps, macos_h264_vt_bpp_for_preset(preset));
         snprintf(flags, sizeof(flags),
-                 "-c:v h264_videotoolbox -b:v %dk -spatial_aq 1 ",
-                 bitrate > 0 ? bitrate : 50000);
+                 "-c:v h264_videotoolbox -b:v %dk -spatial_aq 1 ", bitrate);
         return flags;
     }
 
