@@ -5,6 +5,30 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — macOS CLI/GUI ffmpeg dylib bundling fix (2026-09-03)
+
+### Fixed
+- **`macos_cli`/`macos_gui_native` crashed on VideoToolbox codec probing
+  with `Abort trap: 6`**: both targets only copied `ffmpeg`/`ffprobe` next
+  to the built binary/app bundle, not the `.dylib` runtime dependencies
+  (`libxcb`, `libvulkan`, etc.) that also live in `src/platform/macos/bin/`.
+  The bundled ffmpeg resolves those deps via `@rpath`/`@loader_path`, so
+  running the binary without its sibling dylibs made `dyld` abort with
+  "Library not loaded" — this looked like a hardware/VideoToolbox failure
+  but was a missing-file-set bug (visible only when running through
+  `system()`/`sh -c`, which hides dyld's stderr by default).
+  - `src/cli/CMakeLists.txt` (`macos_cli`): now `copy_directory`s the whole
+    `src/platform/macos/bin` folder next to the binary (previously copied
+    only 2 files), matching the existing `windows_cli` pattern.
+  - `src/gui_macos_native/CMakeLists.txt` (`macos_gui_native`): same fix,
+    copying into `Contents/Resources/bin`. `bundle_ffmpeg_deps.sh` was a
+    no-op for this binary all along — it only rewrites absolute-path
+    (`/opt/local/...`) deps, but the bundled ffmpeg's deps are `@rpath`-style.
+  - `src/platform/macos/runtime_probe.c` and
+    `src/converter/platform/converter_macos.c` (`macos_resolve_bundled_bin`):
+    binary resolution now checks `FFMPEG_CONVERTER_SOURCE_DIR/src/platform/macos/bin`
+    first (dev builds), ahead of the exe-adjacent copy.
+
 ## [Unreleased] — macOS VideoToolbox bitrate quality presets (2026-09-03)
 
 ### Added

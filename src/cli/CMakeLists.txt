@@ -141,10 +141,12 @@ if (APPLE)
         PRIVATE jansson
     )
 
+    # Copy the whole bin/ dir (not just ffmpeg/ffprobe): ffmpeg's @rpath deps
+    # (libxcb, libvulkan, etc.) resolve via @loader_path, so they must sit
+    # next to the binary or dyld fails with "Library not loaded" (SIGABRT).
     add_custom_command(TARGET macos_cli POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MACOS_BUNDLED_FFMPEG}" "$<TARGET_FILE_DIR:macos_cli>/ffmpeg"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MACOS_BUNDLED_FFPROBE}" "$<TARGET_FILE_DIR:macos_cli>/ffprobe"
-        COMMENT "Copying bundled ffmpeg/ffprobe next to macos_cli"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/src/platform/macos/bin" "$<TARGET_FILE_DIR:macos_cli>"
+        COMMENT "Copying bundled ffmpeg/ffprobe and dylib dependencies next to macos_cli"
     )
 
     # Copy presets.json next to CLI binary

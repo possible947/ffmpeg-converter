@@ -134,9 +134,11 @@ static int macos_resolve_path_binary(const char *name,
 /**
  * macos_resolve_bundled_binary()
  * Search order:
- *   1. <exe_dir>/<name>
- *   2. <exe_dir>/bin/<name>
- *   3. FFMPEG_CONVERTER_SOURCE_DIR/src/platform/macos/bin/<name> (dev builds)
+ *   1. FFMPEG_CONVERTER_SOURCE_DIR/src/platform/macos/bin/<name> (dev builds;
+ *      this is the canonical location and the only one guaranteed to also
+ *      contain ffmpeg's @rpath dylib dependencies, e.g. libxcb/libvulkan)
+ *   2. <exe_dir>/<name>
+ *   3. <exe_dir>/bin/<name>
  * Returns 1 and fills out_path on success.
  */
 static int macos_resolve_bundled_binary(const char *name,
@@ -148,15 +150,6 @@ static int macos_resolve_bundled_binary(const char *name,
     if (!name || !out_path || out_path_sz == 0)
         return 0;
 
-    if (!macos_get_process_dir(exe_dir, sizeof(exe_dir)))
-        return 0;
-
-    if (try_bundled_candidate(exe_dir, "", name, out_path, out_path_sz))
-        return 1;
-
-    if (try_bundled_candidate(exe_dir, "bin", name, out_path, out_path_sz))
-        return 1;
-
 #ifdef FFMPEG_CONVERTER_SOURCE_DIR
     {
         char dev_bin_dir[PATH_MAX];
@@ -166,6 +159,15 @@ static int macos_resolve_bundled_binary(const char *name,
             return 1;
     }
 #endif
+
+    if (!macos_get_process_dir(exe_dir, sizeof(exe_dir)))
+        return 0;
+
+    if (try_bundled_candidate(exe_dir, "", name, out_path, out_path_sz))
+        return 1;
+
+    if (try_bundled_candidate(exe_dir, "bin", name, out_path, out_path_sz))
+        return 1;
 
     return 0;
 }

@@ -39,11 +39,19 @@ static const char* macos_get_exe_dir(void) {
     return exe_dir;
 }
 
+/* Search order: (1) FFMPEG_CONVERTER_SOURCE_DIR/src/platform/macos/bin (dev
+ * builds; canonical location that also holds ffmpeg's @rpath dylib deps),
+ * (2) <exe_dir>, (3) <exe_dir>/../Resources/bin (app bundle). */
 static const char* macos_resolve_bundled_bin(const char* name) {
+    static char path[4096];
+
+#ifdef FFMPEG_CONVERTER_SOURCE_DIR
+    snprintf(path, sizeof(path), FFMPEG_CONVERTER_SOURCE_DIR "/src/platform/macos/bin/%s", name);
+    if (access(path, X_OK) == 0) return path;
+#endif
+
     const char* exe_dir = macos_get_exe_dir();
     if (!exe_dir || exe_dir[0] == '\0') return NULL;
-
-    static char path[4096];
 
     snprintf(path, sizeof(path), "%s/%s", exe_dir, name);
     if (access(path, X_OK) == 0) return path;

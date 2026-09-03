@@ -50,11 +50,15 @@ target_link_libraries(macos_gui_native
 )
 
 if (EXISTS "${BUNDLED_FFMPEG}" AND EXISTS "${BUNDLED_FFPROBE}")
+    # Copy the whole bin/ dir (not just ffmpeg/ffprobe): ffmpeg's @rpath deps
+    # (libxcb, libvulkan, etc.) resolve via @loader_path, so they must sit
+    # next to the binary in Resources/bin or dyld fails with "Library not
+    # loaded" (SIGABRT) — bundle_ffmpeg_deps.sh only rewrites absolute-path
+    # deps and does not cover this @rpath case.
     add_custom_command(TARGET macos_gui_native POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/bin"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${BUNDLED_FFMPEG}" "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/bin/ffmpeg"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${BUNDLED_FFPROBE}" "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/bin/ffprobe"
-        COMMENT "Bundling ffmpeg/ffprobe into app Resources/bin"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/src/platform/macos/bin" "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/bin"
+        COMMENT "Bundling ffmpeg/ffprobe and dylib dependencies into app Resources/bin"
     )
 
     if (EXISTS "${BUNDLE_FFMPEG_SCRIPT}")

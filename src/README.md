@@ -139,6 +139,25 @@ At runtime it resolves/bundles:
 - `presets.json` in the application Resources directory. The Cocoa preset
   popup is data-driven; VideoToolbox codecs are shown only after runtime probe.
 
+macOS ffmpeg/ffprobe bundling (`macos_cli` and `macos_gui_native`):
+- The bundled `ffmpeg`/`ffprobe` in `src/platform/macos/bin/` resolve their
+  third-party deps (`libxcb`, `libvulkan`, etc.) via `@rpath`/`@loader_path`,
+  so the **whole** `src/platform/macos/bin/` folder (all `.dylib` files, not
+  just `ffmpeg`/`ffprobe`) must be copied next to the binary/app bundle.
+  Both CMake targets `copy_directory` this folder for exactly that reason —
+  copying only `ffmpeg`/`ffprobe` causes `dyld` to abort at runtime
+  (`Abort trap: 6`, "Library not loaded") whenever a VideoToolbox codec is
+  probed or used.
+- Binary resolution order (`src/platform/macos/runtime_probe.c` for CLI
+  probing, `src/converter/platform/converter_macos.c`'s
+  `macos_resolve_bundled_bin` for the actual encode engine — two separate
+  implementations, keep both in sync): dev-tree `src/platform/macos/bin/`
+  first, then the exe-adjacent copy.
+- `hevc_videotoolbox`/`h264_videotoolbox` bitrate presets: `default` (no
+  `-b:v`, VideoToolbox auto), `low`/`medium`/`high` (bitrate = width × height
+  × fps × BPP, see `docs/videotoolbox_parametrs.rtf`). Implemented in
+  `macos_calc_vt_bitrate_kbps()` in `converter_macos.c`.
+
 ## Release Verification
 
 Linux verification completed on 2026-08-21:
