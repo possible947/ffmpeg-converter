@@ -5,6 +5,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — NVENC preset flag fixes (2026-09-12)
+
+### Fixed
+- Kept `converter_cmd_builder.pas` in sync with the C implementation's NVENC
+  fixes: `h264_nvenc` now uses `-spatial-aq`/`-temporal-aq` (hyphenated,
+  canonical AVOption names) instead of `-spatial_aq`/`-temporal_aq`, and the
+  `hevc_nvenc` default preset tier now uses `-preset medium` (NVENC's "hq 1
+  pass" preset) instead of the unsupported legacy `-preset hq` alias. Both
+  issues were found causing "Unrecognized option" / "Unable to parse 'preset'
+  option value" ffmpeg failures on the project's mandated bundled FFmpeg 8.1
+  build; see the C changelog entry for full details.
+
 ## [Unreleased] — Windows AV1 Container Bug Fix (2026-08-24)
 
 ### Fixed

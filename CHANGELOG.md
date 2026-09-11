@@ -13,6 +13,45 @@ hardware/input metadata work. GUI migration is unfinished, and macOS/Windows
 build, runtime, and hardware debugging remain required before Version 3 can be
 considered complete.
 
+## [Unreleased] — Hardware encoder verification fixes (2026-09-12)
+
+### Fixed
+- Fixed `av1_vaapi`, `hevc_vaapi_10bit`, and `av1_vaapi_10bit` always failing
+  with "A hardware device reference is required to upload frames to.".
+  `platform_get_hw_device_for_codec()` (`converter_linux.c`) and
+  `platform_apply_hw_device()` (`cli_linux.c`) only recognized the literal
+  `h264_vaapi`/`hevc_vaapi` codec strings, so the VAAPI render node was never
+  filled in for the other three VAAPI codec variants and no `-vaapi_device`
+  flag was emitted. Both checks now cover all five VAAPI codec strings.
+- Fixed `h264_nvenc` failing with "Unrecognized option 'spatial_aq'." on
+  FFmpeg builds that only expose the canonical hyphenated `-spatial-aq`/
+  `-temporal-aq` AVOptions (including the project's mandated bundled FFmpeg
+  8.1 build). Switched the hardcoded `h264_nvenc` flags from
+  `-spatial_aq`/`-temporal_aq` to `-spatial-aq`/`-temporal-aq` in
+  `converter_linux.c`, `converter_windows.c`, `presets.json`, and the Pascal
+  command builder (`fpc/converter/converter_cmd_builder.pas`).
+- Fixed the `hevc_nvenc` default preset tier failing with "Unable to parse
+  'preset' option value 'hq'." on FFmpeg/NVENC builds that dropped the legacy
+  `hq` preset alias for `hevc_nvenc` (the `speed`/`balance`/`quality` tiers
+  were unaffected since they already used `p1`/`p4`/`p7`). Changed the default
+  to `-preset medium` (NVENC's "hq 1 pass" preset), synced across
+  `converter_linux.c`, `converter_windows.c`, `presets.json`, and
+  `converter_cmd_builder.pas`.
+- Fixed `converter_set_options()` validation errors (e.g. a codec requiring a
+  hardware device with none resolved) being silently ignored in
+  `src/cli/main.c`. The CLI now checks the return value and reports a clear
+  "invalid options" error instead of proceeding to build and run an ffmpeg
+  command that was guaranteed to fail.
+
+### Verified
+- Re-validated the full hardware encoder matrix (vaapi, nvenc, qsv, vulkan,
+  software, mux) on real hardware (NVIDIA Titan V + Intel Arc A750) using the
+  project's bundled ffmpeg/ffprobe. All previously-failing combinations now
+  complete successfully with no regressions on previously-working codecs.
+  `hevc_vulkan` on Intel Arc A750 remains unavailable — the Mesa driver
+  reports "Device does not support the VK_KHR_video_encode_queue extension!",
+  a hardware/driver limitation rather than an application bug.
+
 ## [Unreleased] — Unified codec catalog build integration (2026-09-11)
 
 ### Added

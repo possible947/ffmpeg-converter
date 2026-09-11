@@ -165,28 +165,28 @@
     },
     "h264_nvenc": {
       "default": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "speed": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22 -spatial-aq 1 -temporal-aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22 -spatial-aq 1 -temporal-aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
@@ -195,7 +195,7 @@
     },
     "hevc_nvenc": {
       "default": {
-        "ffmpeg_args": "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto",
+        "ffmpeg_args": "-c:v hevc_nvenc -preset medium -cq 25 -lookahead_level auto",
         "container": "mkv",
         "requires": [
           "hevc_nvenc"
@@ -784,28 +784,28 @@
     },
     "h264_nvenc": {
       "default": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "speed": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22 -spatial-aq 1 -temporal-aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22 -spatial-aq 1 -temporal-aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
@@ -814,7 +814,7 @@
     },
     "hevc_nvenc": {
       "default": {
-        "ffmpeg_args": "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto",
+        "ffmpeg_args": "-c:v hevc_nvenc -preset medium -cq 25 -lookahead_level auto",
         "container": "mkv",
         "requires": [
           "hevc_nvenc"

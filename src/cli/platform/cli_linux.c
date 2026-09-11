@@ -268,9 +268,14 @@ void platform_apply_hw_device(ConvertOptions* opts, const CliPlatformHandle* h) 
         return;
 
     /* Only auto-select the render node when the user did not pass an
-     * explicit --hw_device override. */
+     * explicit --hw_device override. All five VAAPI codec variants
+     * (h264/hevc/av1 and the *_10bit synthetic names) share the same
+     * render node and all need it set here. */
     if ((!strcmp(opts->codec, "h264_vaapi") ||
-         !strcmp(opts->codec, "hevc_vaapi")) &&
+         !strcmp(opts->codec, "hevc_vaapi") ||
+         !strcmp(opts->codec, "av1_vaapi") ||
+         !strcmp(opts->codec, "hevc_vaapi_10bit") ||
+         !strcmp(opts->codec, "av1_vaapi_10bit")) &&
         opts->hw_device[0] == '\0' &&
         h->support.default_render_node[0] != '\0') {
         strncpy(opts->hw_device, h->support.default_render_node,

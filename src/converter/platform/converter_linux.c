@@ -312,12 +312,12 @@ const char* platform_get_video_codec_flags(const char* codec,
                             "-c:v av1_vaapi -rc_mode CQP -qp 24 ",
                             "-c:v av1_vaapi -rc_mode CQP -qp 20 " },
             { "h264_nvenc",
-              "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 ",
-              "-c:v h264_nvenc -preset p1 -qp 22 -spatial_aq 1 -temporal_aq 1 ",
-              "-c:v h264_nvenc -preset p4 -qp 22 -spatial_aq 1 -temporal_aq 1 ",
-              "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 " },
+              "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1 ",
+              "-c:v h264_nvenc -preset p1 -qp 22 -spatial-aq 1 -temporal-aq 1 ",
+              "-c:v h264_nvenc -preset p4 -qp 22 -spatial-aq 1 -temporal-aq 1 ",
+              "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1 " },
             { "hevc_nvenc",
-              "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto ",
+              "-c:v hevc_nvenc -preset medium -cq 25 -lookahead_level auto ",
               "-c:v hevc_nvenc -preset p1 -cq 25 -lookahead_level 0 ",
               "-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto ",
               "-c:v hevc_nvenc -preset p7 -cq 25 -lookahead_level auto " },
@@ -469,8 +469,15 @@ int platform_get_hw_device_for_codec(const char* codec,
     if (!codec || !hw_device || hw_device_sz == 0)
         return 0;
 
-    /* Only VAAPI codecs need a hardware device on Linux */
-    if (strcmp(codec, "h264_vaapi") != 0 && strcmp(codec, "hevc_vaapi") != 0)
+    /* Only VAAPI codecs need a hardware device on Linux. All five VAAPI
+     * variants (including the av1 and *_10bit synthetic codec names) share
+     * the same render node — without this, av1_vaapi/hevc_vaapi_10bit/
+     * av1_vaapi_10bit would never get a -vaapi_device flag and ffmpeg would
+     * fail with "A hardware device reference is required to upload frames
+     * to." */
+    if (strcmp(codec, "h264_vaapi") != 0 && strcmp(codec, "hevc_vaapi") != 0 &&
+        strcmp(codec, "av1_vaapi") != 0 && strcmp(codec, "hevc_vaapi_10bit") != 0 &&
+        strcmp(codec, "av1_vaapi_10bit") != 0)
         return 0;
 
     linux_probe_codec_support(&support);

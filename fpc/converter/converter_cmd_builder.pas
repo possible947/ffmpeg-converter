@@ -61,21 +61,22 @@ begin
   end
   else if Codec = 'h264_nvenc' then
   begin
-    if Preset = 'speed' then Result := '-c:v h264_nvenc -preset p1 -qp 22 -spatial_aq 1 -temporal_aq 1 '
-    else if Preset = 'balance' then Result := '-c:v h264_nvenc -preset p4 -qp 22 -spatial_aq 1 -temporal_aq 1 '
-    else Result := '-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 ';
+    if Preset = 'speed' then Result := '-c:v h264_nvenc -preset p1 -qp 22 -spatial-aq 1 -temporal-aq 1 '
+    else if Preset = 'balance' then Result := '-c:v h264_nvenc -preset p4 -qp 22 -spatial-aq 1 -temporal-aq 1 '
+    else Result := '-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1 ';
   end
   else if Codec = 'hevc_nvenc' then
   begin
     if Preset = 'speed' then Result := '-c:v hevc_nvenc -preset p1 -cq 25 -lookahead_level 0 '
     else if Preset = 'balance' then Result := '-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto '
-    else Result := '-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto ';
+    else Result := '-c:v hevc_nvenc -preset medium -cq 25 -lookahead_level auto ';
   end
   else if Codec = 'av1_nvenc' then
   begin
     { default uses p6 (distinct from 'quality' = p7), mirroring
-      hevc_nvenc's default('hq') != quality('p7') split; av1_nvenc has
-      no 'hq' alias, so p6 is the nearest equivalent. }
+      hevc_nvenc's default('medium', nvenc's "hq 1 pass" preset) != quality('p7')
+      split; av1_nvenc has no 'hq'/'medium' alias, so p6 is the nearest
+      equivalent. }
     if Preset = 'speed' then Result := '-c:v av1_nvenc -preset p1 -cq 30 -lookahead_level 0 '
     else if Preset = 'balance' then Result := '-c:v av1_nvenc -preset p4 -cq 30 -lookahead_level auto '
     else if Preset = 'quality' then Result := '-c:v av1_nvenc -preset p7 -cq 30 -lookahead_level auto '

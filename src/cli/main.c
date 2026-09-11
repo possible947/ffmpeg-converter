@@ -253,15 +253,25 @@ int main(int argc, char** argv) {
                 strcpy(work_opts.preset, "default");
                 work_opts.deblock = 0;
 
-                converter_set_options(c, &work_opts);
-                err = converter_process_files(c, files, file_count);
+                err = converter_set_options(c, &work_opts);
+                if (err != ERR_OK) {
+                    fprintf(stderr, "Error: invalid options for codec '%s': %s\n",
+                            work_opts.codec, converter_error_string(err));
+                } else {
+                    err = converter_process_files(c, files, file_count);
 
-                if (err == ERR_OK)
-                    err = platform_run_mux_postprocess(&opts, &cb, files[0]);
+                    if (err == ERR_OK)
+                        err = platform_run_mux_postprocess(&opts, &cb, files[0]);
+                }
 
             } else {
-                converter_set_options(c, &work_opts);
-                err = converter_process_files(c, files, file_count);
+                err = converter_set_options(c, &work_opts);
+                if (err != ERR_OK) {
+                    fprintf(stderr, "Error: invalid options for codec '%s': %s\n",
+                            work_opts.codec, converter_error_string(err));
+                } else {
+                    err = converter_process_files(c, files, file_count);
+                }
             }
 
             result = (err == ERR_OK) ? 0 : 1;
