@@ -5,8 +5,10 @@ It is intentionally concise and aligned with the code and build files.
 
 ## Phase 1 Status (v3.0)
 
-- Data-driven **codec → preset** architecture is implemented in both C and Pascal.
-- Runtime preset source is `presets.json`, with executable-adjacent bundling in build outputs.
+- Data-driven codec selection is being migrated to the unified
+   **codec group → encoder → preset** catalog in `presets_v2.json`.
+- Built-in FFmpeg command parameters remain in `presets.json` during the
+   migration, with executable-adjacent bundling in build outputs.
 - CLI adds `--codecs-list` and validates codec/preset combinations before execution.
 - GTK4 and Lazarus GUIs now populate preset selectors dynamically by selected codec.
 - Linux VAAPI GUI device picker shows friendly GPU names while retaining internal device paths.
@@ -156,6 +158,10 @@ In `fpc/build/Makefile`:
 
 - Windows C GUI is not implemented.
 - C CLI supports `--dry-run` and `--version`.
+- The structured selection catalog is prepared in `presets_v2.json`; GUI/CLI
+   consumption is the next implementation stage.
+- `presets.json` remains the built-in execution-parameter source until the
+   preset loader migration is complete.
 
 ## 7. Canonical References
 
@@ -165,3 +171,5 @@ In `fpc/build/Makefile`:
 - Install guides: `docs/install-linux.md`, `docs/install-macos.md`,
   `docs/install-windows.md`
 - Apple M4V design/status: `docs/macos-native-apple-m4v-design.md`
+- Preset catalog rules: `docs/preset-file-rules.md`
+- Unified selection catalog: `presets_v2.json`
