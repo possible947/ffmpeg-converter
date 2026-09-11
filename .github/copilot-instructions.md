@@ -40,7 +40,7 @@ cmake --build build-msvc --target windows_cli --config Release
 
 C validation: there is no C test suite or `ctest` target. The usual validation is to build the relevant target and then run the built binary with `--help` (for example `./build/bin/ffmpeg_converter --help`).
 
-### Free Pascal
+### Free Pascal (Windows only)
 
 CLI/library build:
 ```bash
@@ -57,6 +57,9 @@ Test entry point:
 ```bash
 make -C fpc/build tests
 ```
+
+Run these targets from a supported Windows environment. Linux and macOS Pascal
+targets and packages have been removed; use the C/CMake implementation there.
 
 Single test target:
 ```bash

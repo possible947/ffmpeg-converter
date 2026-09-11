@@ -20,7 +20,6 @@ src/platform/linux/bin/
 
 # Local agent/project metadata
 AGENTS.md
-
 # Pascal compiled units and intermediate files
 *.ppu
 *.ppu.bak

@@ -98,101 +98,9 @@ The script:
 - Creates a desktop entry with icon
 - Invokes `appimagetool.AppImage` (or `appimagetool`) to produce the final `.AppImage`
 
-## 2. Free Pascal Path (v2.6)
-
-The Pascal path provides a CLI, a shared library, and a Lazarus/LCL GUI.
-On Linux the **primary GUI remains the C/GTK4 implementation**; the Pascal GUI
-is kept for feature-parity testing.  Its default widgetset is **Qt6**
-(recommended for GNOME + Wayland; LCL GTK3 is still alpha in Lazarus).
-
-### 2.1 Install dependencies
-
-Ubuntu/Debian **apt does not ship** `lcl-gtk3` or Qt6 Pascal bindings
-(`libqt6pas`).  Install Lazarus from the official site
-(https://www.lazarus-ide.org) — it includes both the GTK3 and Qt6 LCL
-interfaces.  The Ubuntu packages `fpc` / `lazarus` from apt are GTK2/Qt5 only
-and are **not sufficient** for this GUI.
-
-```bash
-# Qt6 development files (needed to build libQt6Pas)
-sudo apt install -y qt6-base-dev qt6-base-dev-tools
-
-# Optional: GTK3 fallback widgetset
-sudo apt install -y libgtk-3-dev
-```
-
-Then build and install the Qt6 Pascal bindings from the copy shipped with
-Lazarus (there is no `libqt6pas` package in Ubuntu apt):
-
-```bash
-cd /usr/share/lazarus/*/lcl/interfaces/qt6/cbindings
-qmake6 && make
-sudo make install
-sudo ldconfig
-```
-
-Verify: `ldconfig -p | grep Qt6Pas` should list `libQt6Pas.so.6`.
-
-### 2.2 Build targets
-From repository root:
-```bash
-# CLI binary
-make -C fpc/build cli
-# → fpc/bin/ffmpeg_converter
-
-# Shared library
-make -C fpc/build lib
-# → fpc/converter/libconverter_pas.so
-
-# GUI binary (Qt6 widgetset, default)
-make -C fpc/build gui
-# → fpc/bin/ffmpeg_converter_gui
-
-# GUI binary (GTK3 fallback)
-make -C fpc/build gui GUI_WS=gtk3
-
-# Unit tests
-make -C fpc/build tests
-```
-
-If the GUI build fails, the Makefile prints the real compiler errors plus a
-per-cause hint (missing `libQt6Pas`, missing GTK3 dev libs, missing widgetset)
-and saves the full log at `fpc/build/.units/gui-build.log`.
-
-Artifacts:
-- `fpc/bin/ffmpeg_converter` — CLI binary (parity with C CLI)
-- `fpc/converter/libconverter_pas.so` — shared library (C ABI export)
-- `fpc/bin/ffmpeg_converter_gui` — GUI binary (Qt6 by default)
-- `fpc/test/test_*` — unit test executables
-
-### 2.3 AppImage packaging (optional)
-Packages the FPC GUI into a portable single-file AppImage.
-
-Requires `appimagetool.AppImage` (or `appimagetool`) in PATH and project-built `ffmpeg`/`ffprobe` in `src/platform/linux/bin/`.
-
-```bash
-make -C fpc/build gui
-make -C fpc/build appimage
-```
-
-The AppImage is created at `fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage`.
-The GUI is built with the Qt6 widgetset by default (same as `make gui`).
-
-Alternatively, run the script directly:
-```bash
-bash fpc/build/package_appimage.sh
-```
-
-Bundling behaviour (same as C variant):
-- `ffmpeg`/`ffprobe` — mandatory, taken from `src/platform/linux/bin/`
-- `mkvmerge`, `MP4Box` — optional, checked in order: project dir (`src/platform/linux/bin/`), 
-  `build/bin`, system PATH
-- Shared libraries resolved via `ldd`, system paths excluded
-- AppRun wrapper exports tool-specific environment variables for each bundled tool
-
 ## 3. Runtime Notes
 
-### Both C and Pascal: Tool Discovery
+### C Tool Discovery
 - **Bundled tool priority**: executable-adjacent directory → `src/platform/linux/bin/` (dev) → env vars → `PATH`
 - Environment variable overrides:
   - `FFMPEG` / `FFMPEG_BIN` → ffmpeg binary path
@@ -207,7 +115,7 @@ When running the application via AppImage (`.AppImage` file):
   to the bundled ffmpeg path if it exists within the AppImage)
 - This ensures the converter finds and uses bundled tools without requiring user configuration
 
-### CLI Behavior (both C and Pascal)
+### CLI Behavior
 - Inputs are positional arguments (`ffmpeg_converter [options] file1 file2 ...`).
 - `-o/--output` sets output directory (not filename).
 - Default output directory is `$HOME/ffmpeg_converter` when `-o` is omitted.
@@ -228,8 +136,8 @@ When running the application via AppImage (`.AppImage` file):
 - **Light/dark theme** compatibility — CSS uses neutral `rgba()` values for both themes.
 
 ### Hardware Codecs (Runtime Detected)
-- C and Pascal both probe Linux hardware support at startup.
-- `h264_vaapi` and `hevc_vaapi` exposed only when the system has working VAAPI driver.
+- The C implementation probes Linux hardware support at startup.
+- `h264_vaapi` and `hevc_vaapi` are exposed only when the system has a working VAAPI driver.
 - AV1 input decoding is automatic: selects `av1_qsv` (Intel Arc), then `libdav1d` (software),
   then `av1` with `-hwaccel none`. Requires ffmpeg with `--enable-libdav1d`.
 
@@ -242,9 +150,6 @@ When running the application via AppImage (`.AppImage` file):
   - Usage: `./FFMpeg-Converter-x86_64.AppImage` (may require `chmod +x` first)
   - Contains all bundled ffmpeg, ffprobe, and optional mkvmerge/MP4Box
   - Single-file deployment: copy to any Linux x86_64 system
-- **AppImage (FPC GUI):** `make -C fpc/build appimage`
-  — output: `fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage`.
-  - Usage and deployment same as C variant
 - Both AppImage builds require:
   - `appimagetool.AppImage` (or `appimagetool`) in PATH for building
   - Project-built `ffmpeg`/`ffprobe` in `src/platform/linux/bin/` before packaging
@@ -257,16 +162,6 @@ When running the application via AppImage (`.AppImage` file):
 cmake --build build --target linux_cli
 ./build/bin/ffmpeg_converter --help
 ```
-
-### Pascal Path
-```bash
-# Run all unit tests
-make -C fpc/build tests
-
-# Run specific tests
-./fpc/test/test_cmd_builder
-./fpc/test/test_cli_mode_matrix
-./fpc/test/test_unified_tool_resolver
 
 # Full regression suite (requires test.mp4)
 bash fpc/test/run_all_regression_and_capture.sh

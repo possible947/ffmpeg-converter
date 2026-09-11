@@ -45,7 +45,7 @@ Main responsibilities inside `converter.c`:
 - `converter_runner.pas`: ffprobe/ffmpeg execution helper wrappers.
 - `converter_api_c.pas`: API-facing wrapper delegating to core.
 - `converter_pas.lpr`: shared library target exporting C ABI names.
-- `converter_pas.h`: C header for linking with `libconverter_pas.so`.
+- `converter_pas.h`: C header for linking with `converter_pas.dll`.
 - `API_MAP.md`: mapping between conceptual C API and Pascal modules.
 
 ## 6. Pascal Library Internal Responsibility Map
@@ -57,7 +57,6 @@ Main responsibilities inside `converter.c`:
 
 2. `converter_cmd_builder.pas`
 - codec-specific ffmpeg arguments
-- Linux VAAPI device and upload filter handling (`h264_vaapi`, `hevc_vaapi`)
 - deblock filters
 - audio normalization filter chains
 
@@ -70,7 +69,7 @@ Main responsibilities inside `converter.c`:
 - encoding invocation via `ffmpeg`
 
 ## 7. Shared Library Artifact
-- Output (Linux): `fpc/converter/libconverter_pas.so`
+- Output (Windows): `fpc/converter/converter_pas.dll`
 - Output (macOS): `fpc/converter/libconverter_pas.dylib`
 - Output (Windows): `fpc/converter/converter_pas.dll`
 - Exported symbols:

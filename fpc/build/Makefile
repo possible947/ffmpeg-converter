@@ -21,17 +21,11 @@ COMMON_FU := "-Fu$(ROOTW)\fpc\converter" "-Fu$(ROOTW)\fpc\common" "-Fu$(ROOTW)\f
 UNIT_BASEW := $(ROOTW)\fpc\build\.units
 CLI_LPR := $(ROOT)/fpc/cli/ffmpeg_converter_windows.lpr
 else
-UNAME_S := $(shell uname -s)
 EXEEXT :=
 COMMON_FU := -Fu$(ROOT)/fpc/converter -Fu$(ROOT)/fpc/common -Fu$(ROOT)/fpc/json -Fu$(ROOT)/fpc/cli -Fu$(ROOT)/fpc/platform
-CLI_LPR := $(ROOT)/fpc/cli/ffmpeg_converter.lpr
-ifeq ($(UNAME_S),Darwin)
-SHLIB_EXT := dylib
-LIB_OUT := $(ROOT)/fpc/converter/libconverter_pas.$(SHLIB_EXT)
-else
-SHLIB_EXT := so
-LIB_OUT := $(ROOT)/fpc/converter/libconverter_pas.$(SHLIB_EXT)
-endif
+CLI_LPR := $(ROOT)/fpc/cli/ffmpeg_converter_windows.lpr
+SHLIB_EXT := dll
+LIB_OUT := $(ROOT)/fpc/converter/converter_pas.$(SHLIB_EXT)
 endif
 
 CLI_BIN := $(ROOT)/fpc/bin/ffmpeg_converter$(EXEEXT)
@@ -86,20 +80,9 @@ GUI_MAIN ?= $(ROOT)/fpc/gui/main.lpr
 GUI_MAIN_STEM := $(basename $(notdir $(GUI_MAIN)))
 GUI_RES := $(ROOT)/fpc/gui/$(GUI_MAIN_STEM).res
 GUI_PROJECT ?= $(ROOT)/fpc/gui/form.lpi
-# Widgetset:
-#  - Windows: native win32/win64 widgetset, so --ws must NOT be passed
-#    (form.lpi is shared by both platforms and cannot pin a single one).
-#  - Linux: Qt6 is the recommended widgetset for GNOME + Wayland (LCL GTK3
-#    is still considered alpha in Lazarus).  Requires libQt6Pas.so.6 — build
-#    it from the Qt6 cbindings shipped with Lazarus (see fpc/README.md).
-#    GTK3 remains available via: make -C fpc/build gui GUI_WS=gtk3
-ifeq ($(OS),Windows_NT)
+# Windows uses the native win32/win64 widgetset; --ws is intentionally omitted.
 LAZBUILD_FLAGS ?= -B -q -q
 GUI_WS := win32
-else
-GUI_WS ?= qt6
-LAZBUILD_FLAGS ?= -B -q -q --ws=$(GUI_WS)
-endif
 
 GUI_DEPS := \
 	$(GUI_PROJECT) \
@@ -109,23 +92,18 @@ GUI_DEPS := \
 	$(COMMON_UNITS) \
 	$(CONVERTER_UNITS)
 
-# macOS Pascal support has been removed.  The primary macOS implementation
-# is the native C/Cocoa GUI (src/gui_macos_native).  The FPC Makefile now
-# only supports Linux and Windows builds.
-ifeq ($(UNAME_S),Darwin)
-.PHONY: all cli lib tests apple-test gui gui-app appimage clean stage-presets
+# Pascal support is Windows-only. Linux and macOS use the C/CMake implementation.
+ifneq ($(OS),Windows_NT)
+.PHONY: all cli lib tests apple-test gui clean
 
-all cli lib tests apple-test gui gui-app appimage:
-	@echo "ERROR: Pascal/FPC macOS build is no longer supported."
-	@echo "       Use the native C/Cocoa GUI (src/gui_macos_native) instead."
+all cli lib tests apple-test gui:
+	@echo "ERROR: Pascal/FPC builds are supported on Windows only."
+	@echo "       Use the C/CMake implementation for Linux and macOS."
 	@exit 1
-
-clean:
-	rm -rf "$(UNIT_BASE)" "$(BIN_DIR)"
 
 else
 
-.PHONY: all cli lib tests apple-test gui gui-app appimage clean
+.PHONY: all cli lib tests apple-test gui clean
 
 all: cli lib tests copy-binaries
 
@@ -157,15 +135,15 @@ copy-binaries:
 	@if [ "$(GUI_BIN)" != "$(BIN_DIR)/ffmpeg_converter_gui" ]; then \
 		cp -f "$(GUI_BIN)" "$(BIN_DIR)/"; \
 	fi
-	@if [ -d "$(ROOT)/src/platform/linux/bin" ]; then \
-		cp -f "$(ROOT)/src/platform/linux/bin/"* "$(BIN_DIR)/"; \
+	@if [ -d "$(ROOT)/src/platform/windows/bin" ]; then \
+		cp -f "$(ROOT)/src/platform/windows/bin/"* "$(BIN_DIR)/"; \
 	fi
 	@test -f "$(ROOT)/presets.json" || { echo "ERROR: presets.json not found at $(ROOT)/presets.json"; exit 1; }
 	@cp -f "$(ROOT)/presets.json" "$(BIN_DIR)/presets.json"
 	@for tool in mkvmerge MP4Box; do \
 		src=""; \
-		if [ -x "$(ROOT)/src/platform/linux/bin/$$tool" ]; then \
-			src="$(ROOT)/src/platform/linux/bin/$$tool"; \
+		if [ -x "$(ROOT)/src/platform/windows/bin/$$tool" ]; then \
+			src="$(ROOT)/src/platform/windows/bin/$$tool"; \
 		elif [ -x "$(ROOT)/build/bin/$$tool" ]; then \
 			src="$(ROOT)/build/bin/$$tool"; \
 		elif command -v "$$tool" >/dev/null 2>&1; then \
@@ -177,12 +155,6 @@ copy-binaries:
 		fi; \
 	done
 
-gui-app: appimage
-
-appimage: $(GUI_BIN)
-	@mkdir -p "$(BIN_DIR)"
-	bash "$(ROOT)/fpc/build/package_appimage.sh" "$(BIN_DIR)"
-
 endif
 
 $(GUI_BIN): $(GUI_DEPS)
@@ -191,18 +163,6 @@ $(GUI_BIN): $(GUI_DEPS)
 		echo "       Install Lazarus from https://www.lazarus-ide.org"; \
 		exit 1; \
 	}
-ifneq ($(OS),Windows_NT)
-ifeq ($(GUI_WS),qt6)
-	@ldconfig -p 2>/dev/null | grep -q 'libQt6Pas.so.6' || { \
-		echo "ERROR: libQt6Pas.so.6 not found (required for the Qt6 widgetset)."; \
-		echo "       Build and install it from the Qt6 bindings shipped with Lazarus:"; \
-		echo "         cd /usr/share/lazarus/*/lcl/interfaces/qt6/cbindings"; \
-		echo "         qmake6 && make && sudo make install && sudo ldconfig"; \
-		echo "       Alternatively use GTK3: make -C fpc/build gui GUI_WS=gtk3"; \
-		exit 1; \
-	}
-endif
-endif
 	@mkdir -p "$(ROOT)/fpc/bin" "$(UNIT_BASE)/gui"
 	@echo "==> Building Lazarus GUI: $(GUI_PROJECT) (widgetset: $(GUI_WS))"
 	@cd "$(ROOT)" && "$(LAZBUILD)" $(LAZBUILD_FLAGS) "$(GUI_PROJECT)" > "$(UNIT_BASE)/gui-build.log" 2>&1; status=$$?; cat "$(UNIT_BASE)/gui-build.log"; \
@@ -212,22 +172,7 @@ endif
 		echo "       ----- last lines -----"; \
 		tail -n 12 "$(UNIT_BASE)/gui-build.log" | sed 's/^/       /'; \
 		echo "       ----------------------"; \
-		if grep -q 'cannot find -lgtk-3\|cannot find -lgdk-3' "$(UNIT_BASE)/gui-build.log"; then \
-			echo "       The GTK3 development libraries are missing."; \
-			echo "       On Debian/Ubuntu: sudo apt install libgtk-3-dev"; \
-		elif grep -q 'cannot find -lQt6Pas\|Qt6Pas' "$(UNIT_BASE)/gui-build.log"; then \
-			echo "       The Qt6 Pascal bindings (libQt6Pas) are missing or cannot be linked."; \
-			echo "       Build and install them from the Qt6 cbindings shipped with Lazarus:"; \
-			echo "         cd /usr/share/lazarus/*/lcl/interfaces/qt6/cbindings"; \
-			echo "         qmake6 && make && sudo make install && sudo ldconfig"; \
-		elif grep -qE 'lclgtk3|LCLgtk3|LCLqt6|lclqt6|widgetset' "$(UNIT_BASE)/gui-build.log"; then \
-			echo "       The selected LCL widgetset ($(GUI_WS)) is missing or cannot be compiled."; \
-			echo "       Ubuntu/Debian apt ships no lcl-gtk3 and no Qt6 bindings."; \
-			echo "       Install Lazarus from https://www.lazarus-ide.org and, for Qt6,"; \
-			echo "       build libQt6Pas from the shipped cbindings (see above)."; \
-		else \
-			echo "       See the log above for compiler errors in the project code."; \
-		fi; \
+		echo "       See the log above for compiler errors in the project code."; \
 		exit 1; \
 	fi
 	@test -f "$@" || { echo "ERROR: lazbuild finished but GUI binary not found at $@"; exit 1; }

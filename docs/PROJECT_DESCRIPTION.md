@@ -17,7 +17,7 @@ ffmpeg_converter is a cross-platform media conversion project with two
 independent implementations:
 
 - **C/CMake** in `src/` (primary on all platforms)
-- **Free Pascal** in `fpc/` (Linux and Windows only; macOS discontinued in v2.4)
+- **Free Pascal** in `fpc/` (Windows only)
 
 Both paths provide conversion workflows around external `ffmpeg`/`ffprobe`.
 
@@ -53,24 +53,22 @@ Both paths provide conversion workflows around external `ffmpeg`/`ffprobe`.
 - Mux mode: one source file + replacement video track → `.mkv` via `mkvmerge`
 - Apple M4V creator: multi-step pipeline (video copy → AAC → AC3 → MP4Box mux → optional chapters)
 
-### 2.2 Free Pascal (`fpc/`) — Linux and Windows Only
+### 2.2 Free Pascal (`fpc/`) — Windows Only
 
 **Platform coverage:**
-- **Linux**: CLI + Lazarus/LCL GUI (feature-matched with C)
 - **Windows**: CLI + Lazarus/LCL GUI with Vulkan GPU support (feature-matched with C CLI)
-- **macOS**: Discontinued in v2.4
 
 **Key modules:**
 - Engine: `fpc/converter/converter_core.pas`
-- CLI: `fpc/cli/ffmpeg_converter.lpr` (Linux), `fpc/cli/ffmpeg_converter_windows.lpr` (Windows)
+- CLI: `fpc/cli/ffmpeg_converter_windows.lpr`
 - GUI: `fpc/gui/form.pas` (Lazarus/LCL)
 - Apple M4V: `fpc/converter/apple_m4v_creator.pas`
 - JSON parsing: `fpc/json/loudnorm_json.pas`
 - Tests: `fpc/test/test_*.pas`
 
 **Codec support:**
-- Feature-parity with C on Linux and Windows
-- Windows: runtime probing for Vulkan device selection in GUI
+- Feature-parity with the C CLI on Windows
+- Runtime probing for Vulkan device selection in the Windows GUI
 
 **C ABI export (for library usage):**
 - `fpc/converter/converter_pas.lpr` exports C-compatible shared library
@@ -84,7 +82,7 @@ Implemented in both C and Pascal (where available):
 
 - **C macOS**: `src/gui_macos_native/apple_m4v_creator.m` and bridge in `converter_bridge.m`
 - **C Linux**: GTK GUI action; shared backend in `src/m4v/`
-- **Pascal (Linux/Windows)**: `fpc/converter/apple_m4v_creator.pas`
+- **Pascal (Windows)**: `fpc/converter/apple_m4v_creator.pas`
 
 **Pipeline (all platforms):**
 1. Extract video track to temporary `.mp4` (stream copy)
@@ -124,13 +122,10 @@ Implemented in both C and Pascal (where available):
 In `fpc/build/Makefile`:
 - `cli` — CLI binary
 - `lib` — shared library (C ABI export)
-- `gui-app` — Lazarus GUI app bundle
 - `tests` — all unit tests
 
 **Platform-specific:**
-- Linux: produces `fpc/cli/ffmpeg_converter`
 - Windows: produces `fpc/cli/ffmpeg_converter_windows.exe`
-- Linux GUI: produces `fpc/gui/form.app`
 
 ## 5. Runtime Dependencies
 

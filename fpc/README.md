@@ -1,21 +1,15 @@
 # Free Pascal Port — ffmpeg_converter (Version 2.6)
 
 This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-converter` project,
-available for **Linux and Windows only**. macOS support was discontinued in version 2.4.
+available for **Windows only**.
 
 ## Platform Status (strategy)
 
-- **Linux**: CLI + shared library are first-class citizens. The **primary Linux GUI is the
-  C/GTK4 implementation** (`src/gui/`); the Pascal/LCL GUI on Linux is legacy and kept only
-  for feature parity testing — it is built with the GTK3 widgetset and has no GTK4 support.
 - **Windows**: CLI + Lazarus/LCL GUI (native win32/win64 widgetset) with Vulkan GPU support.
-  This is the **only GUI on Windows**; Windows build and runtime verification
-  remain required before release.
-- **macOS**: Discontinued in v2.4 (use C/CMake native Cocoa GUI instead).
-
-> Conclusion of the Linux audit (P4): the Pascal GUI is **not** developed further for Linux —
-> LCL has no GTK4 widgetset, so the C/GTK4 GUI is the strategic Linux GUI. Pascal remains
-> valuable on Linux as the CLI and the shared `libconverter_pas.so` library.
+  This is the only supported Pascal platform and requires Windows build and runtime
+  verification before release.
+- **Linux/macOS**: use the C/CMake implementation. Pascal builds and packages for these
+  platforms have been removed.
 
 ## Features
 
@@ -44,27 +38,21 @@ available for **Linux and Windows only**. macOS support was discontinued in vers
 
 ## Build
 
-Prefer the Makefile (`make -C fpc/build ...`); it handles platform-specific flags
-(Windows path mangling via `cygpath`, Linux `--ws=gtk3` widgetset, macOS hard-block).
+Build with the Makefile from a Windows environment (`make -C fpc/build ...`). Non-Windows
+hosts are rejected because Pascal is no longer a supported build target.
 
 ### CLI binary
 
 ```bash
-make -C fpc/build cli        # → fpc/bin/ffmpeg_converter
+make -C fpc/build cli        # → fpc/bin/ffmpeg_converter.exe
 ```
 
 The direct `cli` and `gui` targets stage `presets.json` next to their binaries.
 
-Direct invocation:
-
-```bash
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli ./fpc/cli/ffmpeg_converter.lpr
-```
-
 ### Shared library
 
 ```bash
-make -C fpc/build lib        # → fpc/converter/libconverter_pas.so (Linux)
+make -C fpc/build lib        # → fpc/converter/converter_pas.dll
 ```
 
 Direct invocation:
@@ -77,43 +65,8 @@ fpc -Cg -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/convert
 
 ### GUI (requires Lazarus IDE or lazbuild)
 
-Linux — **Qt6 widgetset** is the default and recommended for GNOME + Wayland
-(LCL GTK3 is still alpha in Lazarus):
-
-```bash
-make -C fpc/build gui        # Qt6 (default) → fpc/bin/ffmpeg_converter_gui
-# GTK3 fallback:
-make -C fpc/build gui GUI_WS=gtk3
-```
-
-> **Qt6 requires `libQt6Pas.so.6`** (the Pascal bindings for Qt6). Ubuntu/Debian
-> apt ships **no** `libqt6pas` package, so build it from the bindings that ship
-> with Lazarus:
-> ```bash
-> cd /usr/share/lazarus/*/lcl/interfaces/qt6/cbindings
-> qmake6 && make && sudo make install && sudo ldconfig
-> ```
-> (Dev packages `qt6-base-dev` + `qt6-base-dev-tools` must be installed first:
-> `sudo apt install qt6-base-dev qt6-base-dev-tools`.)
->
-> **Lazarus source**: Ubuntu/Debian apt ships `lcl-gtk2`/`lcl-qt5` only — no
-> `lcl-gtk3` and no Qt6 bindings. Install Lazarus from lazarus-ide.org; it
-> includes both the GTK3 and Qt6 LCL interfaces.
->
-> If the build fails, the Makefile prints the real compiler errors plus a
-> per-cause hint (GTK3 dev libs, missing Qt6Pas, missing widgetset). Full log:
-> `fpc/build/.units/gui-build.log`.
-
-Windows (native widgetset):
-
 ```bash
 make -C fpc/build gui
-```
-
-AppImage packaging (Linux):
-
-```bash
-make -C fpc/build appimage   # (gui-app is an alias of appimage)
 ```
 
 ### Tests
@@ -149,10 +102,9 @@ with `summary.txt`, `status.tsv`, logs, and parity artifacts.
 
 ### Generated artifacts
 
-- CLI binary: `fpc/bin/ffmpeg_converter`
-- Shared library (Linux): `fpc/converter/libconverter_pas.so`
-- Shared library (Windows): `fpc/converter/converter_pas.dll`
-- GUI binary: `fpc/bin/ffmpeg_converter_gui`
+- CLI binary: `fpc/bin/ffmpeg_converter.exe`
+- Shared library: `fpc/converter/converter_pas.dll`
+- GUI binary: `fpc/bin/ffmpeg_converter_gui.exe`
 
 ## C/C++ Integration
 
@@ -179,19 +131,18 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
 
 ## Notes
 
-- Pascal GUI/CLI supports Linux and Windows. macOS users should use the native C GUI
-  (`src/gui_macos_native`).
+- Pascal GUI/CLI supports Windows only. Linux and macOS users should use the C/CMake
+  implementation (`src/gui/` and `src/gui_macos_native`).
 - Pascal runtime resolves tools for GUI/CLI launches using a unified resolver
   (`ffmpeg`, `ffprobe`, `MP4Box`, `mkvmerge`): executable-adjacent dir → env vars → PATH.
-- `converter_set_options` validates platform capabilities for hardware codecs
-  (VAAPI rejected on non-Linux, Linux probes encoder availability).
+- `converter_set_options` validates Windows hardware codec capabilities at runtime.
 - Windows GUI runtime-probes NVENC/AMF/QSV/Vulkan and conditionally exposes matching codecs
   in the codec combobox.
 - `prores_ks_vulkan` uses dedicated Vulkan probe logic and supports explicit or auto device
   index selection.
 - CLI `-o/--output` creates missing output directories before conversion and fails early on
   invalid/unwritable targets.
-- The interactive menu (Linux/Windows) builds its codec list dynamically from the runtime
+- The interactive menu builds its codec list dynamically from the Windows runtime
   probe — only codecs that are actually available are offered.
 - `--codecs-list`, CLI parsing, and the interactive preset step read the same
   `presets.json` database; `--profile` remains a deprecated alias for `--preset`.

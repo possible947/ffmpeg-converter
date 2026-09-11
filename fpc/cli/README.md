@@ -1,10 +1,10 @@
 # FPC CLI Module
 
-This folder contains the draft Pascal CLI equivalent of `src/cli/linux/main.c`.
+This folder contains the Windows Pascal CLI implementation.
 
 ## Files
 
-- `ffmpeg_converter.lpr`: application entry point
+- `ffmpeg_converter_windows.lpr`: application entry point
 - `cli_args.pas`: command line parsing skeleton
 - `cli_menu.pas`: interactive flow skeleton
 - `cli_progress.pas`: progress rendering helpers

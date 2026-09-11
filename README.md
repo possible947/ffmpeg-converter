@@ -127,16 +127,13 @@ Two independent implementations share the same conversion logic and CLI behavior
   and `mkvmerge`.
 - Stable platform (no new functions added in v2.4; focus on reliability).
 
-### Linux (C + Pascal, feature-matched)
-- **Both C and Pascal versions complete and tested with identical functionality**.
-- New build system: `make -C fpc/build cli`, `make -C fpc/build gui-app`,
-  `make -C fpc/build tests`.
-- Runtime tool discovery (ffmpeg, ffprobe, mkvmerge, MP4Box) now unified across
-  implementations.
-- VAAPI codec runtime probing in both implementations.
-- AppImage packaging support (C and FPC).
+### Linux (C implementation)
+- C CLI and GTK4 GUI are the supported Linux implementation.
+- Runtime tool discovery (ffmpeg, ffprobe, mkvmerge, MP4Box) is unified across
+  the supported C applications.
+- VAAPI codec runtime probing and AppImage packaging are available in the C path.
 
-### Windows (C CLI primary, Pascal GUI)
+### Windows (C CLI and Pascal CLI/GUI)
 - **C CLI is the most complete version** — full functionality, MSVC build, bundled
   binaries, new PowerShell/CMD build scripts.
 - **Windows Pascal CLI and GUI** — feature-matched implementation with native
@@ -151,7 +148,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 ## Features
 
 - Video codecs (cross-platform): `copy`, `prores`, `prores_ks`.
-- Linux runtime-probed video codecs: `h264_vaapi`, `hevc_vaapi`.
+- Linux runtime-probed video codecs in the C implementation: `h264_vaapi`, `hevc_vaapi`.
 - GPU-accelerated codecs (Linux/Windows, runtime-probed): `h264_nvenc`, `hevc_nvenc`,
   `h264_amf`, `hevc_amf`, `av1_amf`, `h264_qsv`, `hevc_qsv`. Each supports
   `default`/`speed`/`balance`/`quality` presets (Phase 2).
@@ -174,7 +171,6 @@ Two independent implementations share the same conversion logic and CLI behavior
   layout, hardware codec detection in background, application icon, tooltips on all controls, no
   startup freeze). Build produces `linux_gui` binary; optional AppImage packaging available via
   `ENABLE_APPIMAGE=ON` and `package_appimage` target (produces single-file portable AppImage).
-  Pascal GUI also supports AppImage packaging: `make -C fpc/build appimage`.
 - **macOS GUI** — native Cocoa/AppKit, self-contained `.app` bundle with bundled
   `ffmpeg`, `ffprobe`, and `MP4Box` (C native implementation).
 - Linux GTK Apple M4V creator: dedicated GUI-only workflow matching the macOS direct M4V path.
@@ -302,18 +298,11 @@ Output folder:
 - `build-msvc/src/cli/Release/`
 - Contains `ffmpeg_converter.exe` plus copied bundled `ffmpeg.exe`, `ffprobe.exe`, and DLL dependencies.
 
-### Free Pascal (Linux and Windows)
+### Free Pascal (Windows only)
 
 ```bash
-# Linux CLI
-make -C fpc/build cli
-# → fpc/cli/ffmpeg_converter
-
-# Linux GUI app bundle (self-contained)
-make -C fpc/build gui-app
-# → fpc/gui/form.app
-
 # Windows CLI (via FPC compiler)
+make -C fpc/build cli
 fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli \
   ./fpc/cli/ffmpeg_converter_windows.lpr -offmpeg_converter_windows.exe
 

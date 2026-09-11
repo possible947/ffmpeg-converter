@@ -23,16 +23,15 @@ cmake --build build --target macos_gui_native && cmake --install build   # .app 
 cmake --build build --target windows_cli --config Release   # VS x64 prompt, or scripts/windows_build.ps1
 ```
 
-Free Pascal (`fpc/build/Makefile`, default `FPCFLAGS=-Mobjfpc -Sh -O2`):
+Free Pascal (`fpc/build/Makefile`, Windows only, default `FPCFLAGS=-Mobjfpc -Sh -O2`):
 
 ```bash
-make -C fpc/build cli        # → fpc/bin/ffmpeg_converter
-make -C fpc/build lib        # → fpc/converter/libconverter_pas.so
-make -C fpc/build gui        # needs lazbuild; LCL via --ws=gtk3
-make -C fpc/build appimage   # optional packaging
+make -C fpc/build cli        # → fpc/bin/ffmpeg_converter.exe
+make -C fpc/build lib        # → fpc/converter/converter_pas.dll
+make -C fpc/build gui        # needs lazbuild
 ```
 
-`scripts/linux_build.sh` is a convenience wrapper over the FPC Makefile (defaults to `--cli`; `--gui`, `--clean` flags). Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat` (distinct from the MSVC `windows_build.ps1`).
+Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat` (distinct from the MSVC `windows_build.ps1`). Linux and macOS use the C/CMake implementation.
 
 ### Hard prerequisites that abort the build
 
