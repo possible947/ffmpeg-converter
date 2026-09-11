@@ -126,6 +126,8 @@ stage-presets:
 	@mkdir -p "$(BIN_DIR)"
 	@test -f "$(ROOT)/presets.json" || { echo "ERROR: presets.json not found at $(ROOT)/presets.json"; exit 1; }
 	@cp -f "$(ROOT)/presets.json" "$(BIN_DIR)/presets.json"
+	@test -f "$(ROOT)/presets_v2.json" || { echo "ERROR: presets_v2.json not found at $(ROOT)/presets_v2.json"; exit 1; }
+	@cp -f "$(ROOT)/presets_v2.json" "$(BIN_DIR)/presets_v2.json"
 
 copy-binaries:
 	@mkdir -p "$(BIN_DIR)"
@@ -140,6 +142,8 @@ copy-binaries:
 	fi
 	@test -f "$(ROOT)/presets.json" || { echo "ERROR: presets.json not found at $(ROOT)/presets.json"; exit 1; }
 	@cp -f "$(ROOT)/presets.json" "$(BIN_DIR)/presets.json"
+	@test -f "$(ROOT)/presets_v2.json" || { echo "ERROR: presets_v2.json not found at $(ROOT)/presets_v2.json"; exit 1; }
+	@cp -f "$(ROOT)/presets_v2.json" "$(BIN_DIR)/presets_v2.json"
 	@for tool in mkvmerge MP4Box; do \
 		src=""; \
 		if [ -x "$(ROOT)/src/platform/windows/bin/$$tool" ]; then \

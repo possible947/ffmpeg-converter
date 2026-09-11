@@ -17,11 +17,13 @@ set(BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffprobe")
 set(BUNDLE_MP4BOX_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_mp4box_deps.sh")
 set(BUNDLE_MKVMERGE_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_mkvmerge_deps.sh")
 set(BUNDLE_FFMPEG_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bundle_ffmpeg_deps.sh")
-set(PRESETS_FILE "${CMAKE_SOURCE_DIR}/presets.json")
+set(PRESETS_FILE "${GENERATED_PRESETS_DIR}/presets.json")
+set(PRESETS_V2_FILE "${GENERATED_PRESETS_DIR}/presets_v2.json")
 
 set(ICON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/icon.icns")
 set_source_files_properties("${ICON_FILE}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 set_source_files_properties("${PRESETS_FILE}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+set_source_files_properties("${PRESETS_V2_FILE}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 
 add_executable(macos_gui_native MACOSX_BUNDLE
     main.m
@@ -29,6 +31,7 @@ add_executable(macos_gui_native MACOSX_BUNDLE
     apple_m4v_creator.m
     "${ICON_FILE}"
     "${PRESETS_FILE}"
+    "${PRESETS_V2_FILE}"
 )
 
 set_target_properties(macos_gui_native PROPERTIES

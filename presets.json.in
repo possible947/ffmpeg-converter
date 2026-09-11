@@ -2,7 +2,7 @@
   "version": "1.0",
   "description": "FFmpeg Converter v3.0 codec preset definitions (behavior-preserving)",
   "features": {
-    "hq_converter": false
+    "hq_converter": @HQ_CONVERTER_ENABLED@
   },
   "linux": {
     "copy": {

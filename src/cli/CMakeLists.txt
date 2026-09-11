@@ -102,10 +102,11 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(WARNING "mkvmerge not found in common Linux locations; linux_cli will rely on MKVMERGE_BIN or PATH.")
     endif()
 
-    # Copy presets.json next to CLI binary
-    if (EXISTS "${CMAKE_SOURCE_DIR}/presets.json")
+    # Copy the build-generated preset catalog next to the CLI binary.
+    if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
         add_custom_command(TARGET linux_cli POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_cli>/presets.json"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_cli>/presets.json"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets_v2.json" "$<TARGET_FILE_DIR:linux_cli>/presets_v2.json"
             COMMENT "Copying presets.json next to linux_cli"
         )
     endif()
@@ -149,10 +150,11 @@ if (APPLE)
         COMMENT "Copying bundled ffmpeg/ffprobe and dylib dependencies next to macos_cli"
     )
 
-    # Copy presets.json next to CLI binary
-    if (EXISTS "${CMAKE_SOURCE_DIR}/presets.json")
+    # Copy the build-generated preset catalog next to the CLI binary.
+    if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
         add_custom_command(TARGET macos_cli POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/presets.json" "$<TARGET_FILE_DIR:macos_cli>/presets.json"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:macos_cli>/presets.json"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets_v2.json" "$<TARGET_FILE_DIR:macos_cli>/presets_v2.json"
             COMMENT "Copying presets.json next to macos_cli"
         )
     endif()
@@ -195,10 +197,11 @@ if (WIN32)
         COMMENT "Copying bundled ffmpeg/ffprobe and dependencies next to windows_cli"
     )
 
-    # Copy presets.json next to CLI binary
-    if (EXISTS "${CMAKE_SOURCE_DIR}/presets.json")
+    # Copy the build-generated preset catalog next to the CLI binary.
+    if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
         add_custom_command(TARGET windows_cli POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/presets.json" "$<TARGET_FILE_DIR:windows_cli>/presets.json"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:windows_cli>/presets.json"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets_v2.json" "$<TARGET_FILE_DIR:windows_cli>/presets_v2.json"
             COMMENT "Copying presets.json next to windows_cli"
         )
     endif()

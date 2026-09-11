@@ -5,6 +5,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Unified codec catalog build integration (2026-09-11)
+
+### Added
+- Added build-time generation of `presets_v2.json` from the unified codec
+  selection catalog. CMake sets first-level platform availability and the
+  `features.hq_converter` capability flag according to the prepared build
+  inputs.
+- Linux, macOS, Windows CMake targets, Windows Pascal staging, and the Linux
+  AppImage now package `presets_v2.json` alongside the existing `presets.json`.
+
+### Changed
+- Kept `presets.json` as the legacy FFmpeg execution-parameter catalog during
+  the transition. GUI/CLI catalog consumption and component runtime filtering
+  remain the next implementation stage.
+
 ## [Unreleased] — Linux GUI dock icon, startup theme, and shutdown freeze fixes (2026-09-11)
 
 ### Fixed
