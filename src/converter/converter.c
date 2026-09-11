@@ -910,7 +910,17 @@ static void build_ffmpeg_cmd(
         int input_is_av1 = (probe_input_video_codec(input, input_vcodec,
                                                      sizeof(input_vcodec)) &&
                             strcmp(input_vcodec, "av1") == 0);
-        if (input_is_av1 && (c->platform_caps & PLAT_CAP_AV1_QSV_DEC)) {
+        int output_is_hw_encode = codec_is_vaapi(opts->codec) ||
+                                   codec_is_vulkan(opts->codec);
+        if (input_is_av1 && output_is_hw_encode &&
+            (c->platform_caps & PLAT_CAP_LIBDAV1D_DEC)) {
+            /* Keep hardware decode and hardware encode on separate contexts.
+             * QSV decode produces frames that cannot be uploaded reliably to
+             * the selected VAAPI/Vulkan device on mixed-GPU systems. */
+            if (cmd_cat(cmd, sizeof(cmd), &pos,
+                        "-hwaccel none -c:v libdav1d ") < 0) goto overflow;
+        } else if (input_is_av1 && !output_is_hw_encode &&
+                   (c->platform_caps & PLAT_CAP_AV1_QSV_DEC)) {
             /* Intel QSV AV1 decoder via D3D11VA: bypasses broken native av1
              * decoder on systems with NVDEC that doesn't support AV1.  The
              * hwaccel_output_format=nv12 ensures CPU-readable frames for

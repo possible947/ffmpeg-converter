@@ -51,11 +51,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   boundaries: when the temporary directory and output directory differ,
   finalization falls back from `rename()` to a verified binary copy. The shared
   C M4V implementation is used by Linux, macOS, and Windows builds.
+- VAAPI CLI behavior is now explicit: valid encoder presets are preserved,
+  invalid presets fail, omitted audio normalization defaults to `none`, and
+  `--deblock` is rejected because it is not supported by the VAAPI group.
+- Audio normalization now defaults to `none` for every platform and every
+  `group → encoder → preset` combination. Normalization is enabled only when
+  the user explicitly selects `-a/--audio-norm`.
 
 ### Tests
 - Linux mux tests completed successfully for `copy`, `mkv`, and `m4v` modes,
   including AAC/AC3 generation, MP4Box assembly, audio disposition, and chapter
   import.
+- The `software` group was tested completely for `prores` and `prores_ks`,
+  including combinations of audio normalization modes, deblock filters, and
+  all supported audio output modes. These combinations completed successfully.
 
 ## [Unreleased] — Linux GUI dock icon, startup theme, and shutdown freeze fixes (2026-09-11)
 

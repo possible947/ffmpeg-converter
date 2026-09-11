@@ -259,6 +259,8 @@ void print_summary(const ConvertOptions* opts,
         printf("Deblock:      (n/a)\n");
     } else if (!strcmp(opts->codec, "h264_vaapi") ||
                !strcmp(opts->codec, "hevc_vaapi")) {
+         printf("Preset:       %s\n",
+             opts->preset[0] != '\0' ? opts->preset : "default");
         printf("Profile:      (n/a)\n");
         printf("Deblock:      (n/a)\n");
         printf("HW device:    %s\n",
@@ -831,6 +833,9 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
                const char** files, int* file_count)
 {
     int i;
+    int audio_norm_explicit = 0;
+    int deblock_explicit = 0;
+    int preset_explicit = 0;
     char selection_group[64] = "software";
     char selection_encoder[64] = "prores_ks";
 
@@ -841,7 +846,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
     strcpy(opts->codec, "prores_ks");
     strcpy(opts->preset, "standard");  /* standard profile */
     opts->deblock   = 1;  /* none */
-    strcpy(opts->audio_norm, "peak_norm_2pass");
+    strcpy(opts->audio_norm, "none");
     strcpy(opts->audio_output_mode, "pcm");
     opts->genre     = 1;  /* edm */
     opts->overwrite = 0;
@@ -902,6 +907,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             i++;
             strncpy(opts->preset, argv[i], sizeof(opts->preset) - 1);
             opts->preset[sizeof(opts->preset) - 1] = '\0';
+            preset_explicit = 1;
             continue;
         }
 
@@ -912,6 +918,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             else if (!strcmp(argv[i], "weak"))   opts->deblock = 2;
             else if (!strcmp(argv[i], "strong")) opts->deblock = 3;
             else return 0;
+            deblock_explicit = 1;
             continue;
         }
 
@@ -924,6 +931,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             else if (!strcmp(argv[i], "loudnorm"))  strcpy(opts->audio_norm, "loudness_norm");
             else if (!strcmp(argv[i], "loudnorm2")) strcpy(opts->audio_norm, "loudness_norm_2pass");
             else return 0;
+            audio_norm_explicit = 1;
             continue;
         }
 
@@ -1074,6 +1082,42 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
               !strcmp(selection_encoder, "mov") ||
               !strcmp(selection_encoder, "m4v")))
         strncpy(opts->preset, selection_encoder, sizeof(opts->preset) - 1);
+
+    {
+        int is_hw = strstr(opts->codec, "_vaapi") != NULL ||
+                    strstr(opts->codec, "_nvenc") != NULL ||
+                    strstr(opts->codec, "_amf") != NULL ||
+                    strstr(opts->codec, "_qsv") != NULL ||
+                    strstr(opts->codec, "_vulkan") != NULL;
+        if (is_hw && deblock_explicit) {
+            fprintf(stderr, "Error: --deblock is not available for hardware encoder '%s'\n",
+                    opts->codec);
+            return 0;
+        }
+        if (is_hw && !audio_norm_explicit)
+            strcpy(opts->audio_norm, "none");
+
+        if (preset_explicit) {
+            int valid_preset = 0;
+            if (!strcmp(opts->codec, "prores_ks_vulkan"))
+                valid_preset = !strcmp(opts->preset, "lt") ||
+                               !strcmp(opts->preset, "standard") ||
+                               !strcmp(opts->preset, "hq") ||
+                               !strcmp(opts->preset, "4444");
+            else if (is_hw)
+                valid_preset = !strcmp(opts->preset, "default") ||
+                               !strcmp(opts->preset, "speed") ||
+                               !strcmp(opts->preset, "balance") ||
+                               !strcmp(opts->preset, "quality");
+            else
+                valid_preset = cli_validate_codec_preset(opts->codec, opts->preset);
+            if (!valid_preset) {
+                fprintf(stderr, "Error: preset '%s' is not available for encoder '%s'\n",
+                        opts->preset, opts->codec);
+                return 0;
+            }
+        }
+    }
     if (!platform_codec_is_available(h, opts->codec)) {
         fprintf(stderr, "Error: encoder is not available after hardware detection: %s\n",
                 opts->codec);
@@ -1115,7 +1159,7 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
     int codec_idx   = 0;   /* index into platform codec entries */
     char preset[32] = "standard";  /* codec-specific preset variant */
     int deblock     = 1;   /* none */
-    int audio_norm  = 3;   /* peak 2-pass */
+    int audio_norm  = 1;   /* none */
     int audio_output= 1;   /* pcm */
     int genre       = 1;   /* edm */
     int overwrite   = 0;
@@ -1356,13 +1400,13 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             printf("---------------------------------\n");
             printf("  1. none\n");
             printf("  2. peak\n");
-            printf("  3. peak 2-pass (default)\n");
+            printf("  3. peak 2-pass\n");
             printf("  4. loudness normalization\n");
             printf("  5. loudness normalization 2-pass\n");
             printf("---------------------------------\n");
             printf("select: number->choice,Enter->(default),c->cancel,b->back\n>");
             ch = read_choice();
-            if      (ch == '\n') { audio_norm = 3; step = 6; }
+            if      (ch == '\n') { audio_norm = 1; step = 6; }
             else if (ch == '1') { audio_norm = 1; step = 6; }
             else if (ch == '2') { audio_norm = 2; step = 6; }
             else if (ch == '3') { audio_norm = 3; step = 6; }
