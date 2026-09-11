@@ -1,9 +1,13 @@
-# ffmpeg_converter 3.0 (Phases 1 and 2)
+# ffmpeg_converter 3.0b (active beta development)
 
 Cross-platform media conversion and mux tool with CLI and GUI for building and
-running optimized `ffmpeg` workflows. Version 3.0 Phase 1 introduces a
-data-driven codec/preset architecture that moves encoder parameter logic from
-hardcoded branches into `presets.json`, with dynamic codec/preset UX in CLI and GUI.
+running optimized `ffmpeg` workflows. Version 3.0b is an active beta release:
+the CLI migration to the unified codec-group/encoder/preset catalog is usable on
+Linux, while GUI migration and cross-platform validation are still in progress.
+
+Version 3 development is not complete. macOS and Windows builds require native
+compile, runtime, and hardware validation before the 3.0 release can be
+considered stable.
 
 Two independent implementations share the same conversion logic and CLI behavior:
 
@@ -11,6 +15,20 @@ Two independent implementations share the same conversion logic and CLI behavior
   Windows CLI (MSVC build).
 - **Free Pascal** (`fpc/`) — complete port with CLI and GUI; available for Linux
   and Windows (macOS version discontinued).
+
+## Version 3.0b Status
+
+- **Linux CLI:** active beta implementation using `presets_v2.json`, synchronous
+  hardware detection, structured codec selection, AV1/10-bit capability probes,
+  input bit-depth detection, color metadata propagation, and tested mux/M4V
+  workflows.
+- **Linux GUI:** still uses the previous flat selection controls; GUI migration
+  is not complete.
+- **macOS and Windows:** source paths are being kept synchronized, but native
+  builds, runtime behavior, and hardware encoder combinations still require
+  dedicated platform debugging.
+- **HQ_converter:** external Linux/macOS integration remains a later Phase 3
+  feature and is not exposed by the current CLI implementation.
 
 ## Version 3.0 Phase 1 Updates
 

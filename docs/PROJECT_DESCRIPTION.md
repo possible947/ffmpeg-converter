@@ -1,9 +1,18 @@
-# ffmpeg_converter — Developer Description (Version 3.0 Phase 1)
+# ffmpeg_converter — Developer Description (Version 3.0b)
 
-This document describes the current, factual state of the repository as of v3.0 Phase 1.
+This document describes the current, factual state of the repository as of v3.0b.
 It is intentionally concise and aligned with the code and build files.
 
-## Phase 1 Status (v3.0)
+## Version 3.0b Status
+
+Version 3.0b is an active beta development version. Version 3 development is
+not complete. The Linux CLI is the currently exercised Phase A-F surface; the
+Linux GUI still requires migration to the unified selection catalog. macOS and
+Windows source paths are synchronized where possible, but their native builds,
+runtime behavior, and hardware encoder combinations still require dedicated
+debugging and validation.
+
+## Phase 1 Status (v3.0b)
 
 - Data-driven codec selection is being migrated to the unified
    **codec group → encoder → preset** catalog in `presets_v2.json`.
@@ -18,6 +27,11 @@ It is intentionally concise and aligned with the code and build files.
 - The C CLI performs synchronous hardware detection at startup and uses
    `presets_v2.json` for structured `--codec` group, `--encoder`, and `--preset`
    selection.
+- The CLI input probe detects codec, pixel format, bit depth, profile, frame
+   rate, dimensions, and basic color metadata. Linux hardware paths support
+   tested AV1 and 10-bit capability probes for VAAPI/QSV/NVENC.
+- The CLI command builder selects 8/10-bit hardware formats and propagates
+   known color metadata; these paths are validated on Linux only so far.
 - GTK4 and Lazarus GUIs now populate preset selectors dynamically by selected codec.
 - Linux VAAPI GUI device picker shows friendly GPU names while retaining internal device paths.
 
@@ -31,7 +45,7 @@ independent implementations:
 
 Both paths provide conversion workflows around external `ffmpeg`/`ffprobe`.
 
-## 2. Implementations (v2.5)
+## 2. Implementations (v3.0b)
 
 ### 2.1 C/CMake (`src/`)
 
@@ -171,6 +185,9 @@ In `fpc/build/Makefile`:
    by the build system and component runtime probing is complete for the CLI.
 - `presets.json` remains the built-in execution-parameter source until the
    preset loader migration is complete.
+- GUI/CLI implementation status is intentionally asymmetric during beta:
+   Linux CLI is the active reference path, while macOS/Windows validation is
+   pending and GUI controls remain on the migration roadmap.
 
 ## 7. Canonical References
 

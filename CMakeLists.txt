@@ -1,6 +1,6 @@
  cmake_minimum_required(VERSION 3.16)
 
-project(ffmpeg_converter VERSION 2.6.0 LANGUAGES C)
+project(ffmpeg_converter VERSION 3.0 LANGUAGES C)
 
 enable_testing()
 

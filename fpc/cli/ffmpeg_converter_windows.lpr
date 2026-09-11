@@ -20,7 +20,7 @@ uses
   windows_mkvmerge;
 
 const
-  FFMPEG_CONVERTER_VERSION = '2.6.0';
+  FFMPEG_CONVERTER_VERSION = '3.0b';
 
 function ArrToStr(const A: array of AnsiChar): string;
 begin
