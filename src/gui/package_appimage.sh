@@ -41,11 +41,14 @@ mkdir -p "${OUTPUT_DIR}"
 APPIMAGE_NAME="FFMpeg-Converter-$(uname -m).AppImage"
 APPIMAGE_PATH="${OUTPUT_DIR}/${APPIMAGE_NAME}"
 APPDIR="${SCRIPT_DIR}/AppDir"
-# Freedesktop icon/desktop basename — MUST match gtk_window_set_icon_name()
-# ("ffmpeg-converter") so GNOME dock, the applications menu, and the window
-# all resolve the same icon.  Display name is independent of this key.
-ICON_NAME="ffmpeg-converter"
-DESKTOP_BASENAME="${ICON_NAME}.desktop"
+# Freedesktop icon/desktop basename — MUST match the GApplication id
+# (APP_ID in gui_main.c) so GNOME/Wayland can match the running window's
+# app-id to this desktop file and show the correct dock/taskbar icon.
+# Display name is independent of this key.
+APP_ID="io.github.possible947.ffmpeg_converter"
+ICON_NAME="${APP_ID}"
+DESKTOP_BASENAME="${APP_ID}.desktop"
+DESKTOP_SRC="${SCRIPT_DIR}/${DESKTOP_BASENAME}"
 APP_DISPLAY_NAME="FFMpeg-Converter"
 
 # Check GUI binary
@@ -243,24 +246,16 @@ cp "${ICON_256}" "${APPDIR}/${ICON_NAME}.png"
 cp "${ICON_256}" "${APPDIR}/.DirIcon"
 
 # Desktop file — AppDir root (appimagetool) AND usr/share/applications
-# (AppImageLauncher / applications menu integration).
+# (AppImageLauncher / applications menu integration). Reuses the single
+# canonical .desktop file also installed by `cmake --install` so the two
+# packaging paths never drift apart.
 echo "Creating desktop entry (${APP_DISPLAY_NAME})..."
-# StartupWMClass MUST equal the GtkApplication id so GNOME can match the
-# running window to this desktop file and show the icon in the dock.
-DESKTOP_BODY="[Desktop Entry]
-Type=Application
-Name=${APP_DISPLAY_NAME}
-Comment=Convert video/audio using FFmpeg with audio normalization
-Exec=ffmpeg_converter_gui
-Icon=${ICON_NAME}
-Categories=AudioVideo;Video;
-Terminal=false
-StartupNotify=true
-StartupWMClass=io.github.possible947.ffmpeg_converter
-"
-printf '%s' "${DESKTOP_BODY}" > "${APPDIR}/${DESKTOP_BASENAME}"
-cp "${APPDIR}/${DESKTOP_BASENAME}" \
-   "${APPDIR}/usr/share/applications/${DESKTOP_BASENAME}"
+if [ ! -f "${DESKTOP_SRC}" ]; then
+    echo "ERROR: Desktop file not found: ${DESKTOP_SRC}"
+    exit 1
+fi
+cp "${DESKTOP_SRC}" "${APPDIR}/${DESKTOP_BASENAME}"
+cp "${DESKTOP_SRC}" "${APPDIR}/usr/share/applications/${DESKTOP_BASENAME}"
 
 # Build AppImage
 echo "Building AppImage..."

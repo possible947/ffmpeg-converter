@@ -125,6 +125,16 @@ endif()
 
  install(TARGETS linux_gui RUNTIME DESTINATION bin)
 
+ # Desktop entry + icon so `make install` also gets correct dock/taskbar
+ # icon resolution (GNOME/Wayland match the running app-id to a desktop
+ # file, not to gtk_window_set_icon_name()). Keep this basename, the
+ # Icon= key inside it, and APP_ID in gui_main.c in sync.
+ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/io.github.possible947.ffmpeg_converter.desktop"
+     DESTINATION share/applications)
+ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/icon.png"
+     DESTINATION share/icons/hicolor/1024x1024/apps
+     RENAME io.github.possible947.ffmpeg_converter.png)
+
  # --- AppImage packaging (optional) ---
  option(ENABLE_APPIMAGE "Build AppImage package for linux_gui" OFF)
 

@@ -6,11 +6,18 @@
 #include "gui_window.h"
 #include "gui_callbacks.h"
 
+/* Must be identical to the installed .desktop file basename (without the
+ * .desktop suffix) and its Icon= key — GNOME/Wayland resolves the dock and
+ * taskbar icon by matching this application id to a desktop entry, not by
+ * looking at gtk_window_set_icon_name() alone. */
+#define APP_ID "io.github.possible947.ffmpeg_converter"
+
 /* Forward declaration of the activate handler */
 static void activate_cb(GtkApplication *app, gpointer user_data);
 static gboolean on_window_close_request(GtkWindow *window, gpointer user_data);
 static void on_app_shutdown(GApplication *app, gpointer user_data);
 static void on_theme_changed(GtkSettings *settings, GParamSpec *pspec, gpointer user_data);
+static void sync_initial_color_scheme(void);
 
 /* main --------------------------------------------------------*/
 int main(int argc, char **argv)
@@ -33,11 +40,10 @@ int main(int argc, char **argv)
 #endif
 
     /* Shown in GNOME dock, the applications menu, and window switcher.
-     * Must stay in sync with Name= in the AppImage .desktop file. */
+     * Must stay in sync with Name= in the .desktop file. */
     g_set_application_name("FFMpeg-Converter");
 
-    app = gtk_application_new("io.github.possible947.ffmpeg_converter",
-                              G_APPLICATION_DEFAULT_FLAGS);
+    app = gtk_application_new(APP_ID, G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(activate_cb), NULL);
     g_signal_connect(app, "shutdown", G_CALLBACK(on_app_shutdown), NULL);
 
@@ -74,6 +80,13 @@ static void activate_cb(GtkApplication *app, gpointer user_data)
     }
 #endif
 
+    /* GTK's own portal watch only fires on notify::gtk-application-prefer
+     * -dark-theme, which some portal backends don't emit for the *initial*
+     * value read at process start — the window would always show up in
+     * the light theme until the user toggled dark mode at least once.
+     * Read the current value synchronously (short timeout) up front. */
+    sync_initial_color_scheme();
+
     /* Subscribe to system light/dark theme changes so the app can adapt
      * any custom styling when the user switches themes at runtime. */
     {
@@ -84,7 +97,7 @@ static void activate_cb(GtkApplication *app, gpointer user_data)
     }
 
     /* Register the embedded icon so GTK's theme resolver can find
-     * "ffmpeg-converter" via the hicolor tree in the GResource bundle. */
+     * the app-id icon via the hicolor tree in the GResource bundle. */
     gtk_icon_theme_add_resource_path(
         gtk_icon_theme_get_for_display(gdk_display_get_default()),
         "/io/github/possible947/ffmpeg_converter/icons");
@@ -97,9 +110,14 @@ static void activate_cb(GtkApplication *app, gpointer user_data)
     gtk_window_set_default_size(GTK_WINDOW(w->window), 800, 600);
     gtk_window_set_resizable(GTK_WINDOW(w->window), TRUE);
 
-    /* Present the window and set the application icon. */
+    /* Present the window and set the application icon.
+     * On Wayland/GNOME the dock/taskbar icon is actually resolved from the
+     * installed .desktop file matching this GApplication id, not from this
+     * call (gtk_window_set_icon_name is a best-effort X11/theme fallback) —
+     * keep this string identical to the id passed to gtk_application_new()
+     * and to the .desktop file basename / Icon= key. */
     gtk_window_present(GTK_WINDOW(w->window));
-    gtk_window_set_icon_name(GTK_WINDOW(w->window), "ffmpeg-converter");
+    gtk_window_set_icon_name(GTK_WINDOW(w->window), APP_ID);
 
 #if defined(__linux__)
     /* Detect hardware encoders in a background thread so the window
@@ -140,4 +158,64 @@ static void on_theme_changed(GtkSettings *settings, GParamSpec *pspec, gpointer 
      * This callback is retained as the extension point for future
      * theme-specific tweaks. */
     (void)dark;
+}
+
+/* sync_initial_color_scheme -----------------------------------*/
+/* Query org.freedesktop.portal.Settings for the current color-scheme
+ * once at startup and apply it to GtkSettings immediately, so the
+ * window opens in dark mode when the desktop is already dark instead
+ * of waiting for the user to toggle the preference at runtime.
+ * Best-effort: any failure (no portal, no bus, timeout) is ignored and
+ * GTK's own default/async detection is left in charge. */
+static void sync_initial_color_scheme(void)
+{
+    GDBusConnection *bus;
+    GVariant *reply;
+    GError *error = NULL;
+
+    bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+    if (!bus) {
+        g_clear_error(&error);
+        return;
+    }
+
+    reply = g_dbus_connection_call_sync(
+        bus, "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.Settings", "Read",
+        g_variant_new("(ss)", "org.freedesktop.appearance", "color-scheme"),
+        G_VARIANT_TYPE("(v)"), G_DBUS_CALL_FLAGS_NONE,
+        500 /* ms */, NULL, &error);
+    g_object_unref(bus);
+
+    if (!reply) {
+        g_clear_error(&error);
+        return;
+    }
+
+    {
+        GVariant *value = NULL;
+        guint32 color_scheme = 0;
+        g_variant_get(reply, "(v)", &value);
+        /* The portal wraps the actual value in an extra variant layer
+         * (i.e. "(v)" containing another "v"); unwrap until we hit the
+         * uint32 payload. */
+        while (value && g_variant_is_of_type(value, G_VARIANT_TYPE_VARIANT)) {
+            GVariant *inner = g_variant_get_variant(value);
+            g_variant_unref(value);
+            value = inner;
+        }
+        if (value && g_variant_is_of_type(value, G_VARIANT_TYPE_UINT32)) {
+            /* 0 = no preference, 1 = prefer dark, 2 = prefer light. */
+            color_scheme = g_variant_get_uint32(value);
+        }
+        g_clear_pointer(&value, g_variant_unref);
+        g_variant_unref(reply);
+
+        if (color_scheme == 1) {
+            GtkSettings *settings = gtk_settings_get_default();
+            if (settings)
+                g_object_set(settings, "gtk-application-prefer-dark-theme", TRUE, NULL);
+        }
+    }
 }

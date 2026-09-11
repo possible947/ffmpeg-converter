@@ -795,9 +795,14 @@ void shutdown_conversion(AppWidgets *w)
      * here as well to cover the case where no conversion was ever run. */
     g_widgets = NULL;
 
-    /* Join the hardware probe thread if it is still running. */
+    /* Don't g_thread_join() the hardware probe thread here: it runs blocking
+     * external tools (vainfo/vulkaninfo/ffmpeg via popen) with no timeout, so
+     * joining can freeze the whole UI on quit ("not responding") if the probe
+     * hasn't finished yet. on_probe_done() already bails out via
+     * w->shutting_down, so it's safe to just drop our reference and let it
+     * finish on its own. */
     if (w->probe_thread) {
-        g_thread_join(w->probe_thread);
+        g_thread_unref(w->probe_thread);
         w->probe_thread = NULL;
     }
 }

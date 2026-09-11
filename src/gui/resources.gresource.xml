@@ -2,9 +2,11 @@
 <gresources>
   <!--
     Icon registered under the hicolor tree so GTK's icon theme resolver
-    can find "ffmpeg-converter" via gtk_icon_theme_add_resource_path().
+    can find the app-id icon via gtk_icon_theme_add_resource_path(). The
+    alias basename MUST match the GApplication id (APP_ID in gui_main.c)
+    and the installed .desktop file's Icon= key.
   -->
   <gresource prefix="/io/github/possible947/ffmpeg_converter/icons">
-    <file alias="hicolor/256x256/apps/ffmpeg-converter.png">icon.png</file>
+    <file alias="hicolor/256x256/apps/io.github.possible947.ffmpeg_converter.png">icon.png</file>
   </gresource>
 </gresources>

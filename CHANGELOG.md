@@ -5,6 +5,52 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Linux GUI dock icon, startup theme, and shutdown freeze fixes (2026-09-11)
+
+### Fixed
+- **Dock/taskbar icon and app name not applied on GNOME/Wayland**: the
+  window used `gtk_window_set_icon_name("ffmpeg-converter")`, which is a
+  best-effort X11/icon-theme fallback and is largely ignored on Wayland —
+  GNOME Shell instead resolves the running window's icon by matching its
+  `GApplication` id to an *installed* `.desktop` file with the same
+  basename. The bundled `.desktop` (AppImage-only) used basename
+  `ffmpeg-converter.desktop` while the app id was
+  `io.github.possible947.ffmpeg_converter`, so the match never happened.
+  - `src/gui/gui_main.c`: introduced a single `APP_ID` constant used for
+    both `gtk_application_new()` and `gtk_window_set_icon_name()`.
+  - Added canonical `src/gui/io.github.possible947.ffmpeg_converter.desktop`
+    (Icon key + basename match `APP_ID`), now the single source of truth
+    for both the AppImage packager and a regular `cmake --install`.
+  - `src/gui/CMakeLists.txt`: installs the desktop file to
+    `share/applications` and `icon.png` to
+    `share/icons/hicolor/1024x1024/apps/` (previously only the AppImage
+    path shipped these).
+  - `src/gui/package_appimage.sh`: reuses the canonical `.desktop` file
+    instead of an inline duplicate; icon/desktop basenames now derive
+    from `APP_ID` instead of a hardcoded `ffmpeg-converter` string.
+  - `src/gui/resources.gresource.xml`: embedded hicolor icon alias renamed
+    to match `APP_ID`.
+- **GUI always launched in the light theme even when GNOME was already in
+  dark mode**: GTK only reacts to
+  `notify::gtk-application-prefer-dark-theme`, and some portal backends
+  never emit that signal for the *initial* value read at process start —
+  dark mode only applied after the user toggled it once at runtime.
+  `src/gui/gui_main.c` now performs a synchronous (500 ms timeout) read of
+  `org.freedesktop.portal.Settings` (`org.freedesktop.appearance` /
+  `color-scheme`) before the window is presented and applies
+  `gtk-application-prefer-dark-theme` immediately if the desktop is
+  already dark. Failures (no portal, no session bus, timeout) are ignored
+  and GTK's own detection is left in charge.
+- **GUI froze ("not responding") on window close shortly after launch**:
+  `shutdown_conversion()` (`src/gui/gui_callbacks.c`) called
+  `g_thread_join()` on the hardware-codec-probe thread, which runs
+  `popen()`-based external tools (`vainfo`/`vulkaninfo`/`ffmpeg`) with no
+  timeout. Closing the window before the probe finished blocked the GTK
+  main thread indefinitely. Replaced the join with `g_thread_unref()`
+  (fire-and-forget); `on_probe_done()` already guards on
+  `w->shutting_down` so it's safe to let the probe finish in the
+  background without the UI waiting on it.
+
 ## [Unreleased] — macOS GUI missing prores_videotoolbox codec (2026-09-03)
 
 ### Fixed

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=FFMpeg-Converter
+Comment=Convert video/audio using FFmpeg with audio normalization
+Exec=ffmpeg_converter_gui
+Icon=io.github.possible947.ffmpeg_converter
+Categories=AudioVideo;Video;
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.possible947.ffmpeg_converter
