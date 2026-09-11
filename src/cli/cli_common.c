@@ -166,6 +166,24 @@ int cli_resolve_selection(const char* group, const char* encoder,
     if (!group || !encoder || !final_codec || final_codec_sz == 0)
         return 0;
     final_codec[0] = '\0';
+
+    /* `copy` is the terminal stream-copy mode represented by the
+     * mux.modes.copy catalog entry. It has no encoder or preset level. */
+    if (!strcmp(group, "copy")) {
+        strncpy(final_codec, "copy", final_codec_sz - 1);
+        final_codec[final_codec_sz - 1] = '\0';
+        return 1;
+    }
+
+    /* mux is a pipeline group: the CLI encoder value is its container, while
+     * the converter codec remains `mux`. */
+    if (!strcmp(group, "mux") &&
+        (!strcmp(encoder, "mkv") || !strcmp(encoder, "mov") ||
+         !strcmp(encoder, "m4v"))) {
+        strncpy(final_codec, "mux", final_codec_sz - 1);
+        final_codec[final_codec_sz - 1] = '\0';
+        return 1;
+    }
     platform = get_platform_name();
     root = load_selection_catalog();
     if (!root)
@@ -223,6 +241,8 @@ void print_summary(const ConvertOptions* opts,
     } else if (!strcmp(opts->codec, "mux")) {
         printf("Profile:      (mux)\n");
         printf("Deblock:      (mux)\n");
+        printf("Container:    %s\n",
+               opts->preset[0] != '\0' ? opts->preset : "mkv");
     } else if (!strcmp(opts->codec, "prores") ||
                !strcmp(opts->codec, "prores_ks")) {
         printf("Profile:      %s\n", opts->preset[0] != '\0' ? opts->preset : "standard");
@@ -1021,7 +1041,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             i++;
             strncpy(opts->output_dir, argv[i], sizeof(opts->output_dir) - 1);
             opts->output_dir[sizeof(opts->output_dir) - 1] = '\0';
-            if (platform_dir_is_writable(opts->output_dir)) {
+            if (platform_ensure_output_dir(opts->output_dir)) {
                 opts->output_dir_status = 1;
             } else {
                 opts->output_dir_status = 0;
@@ -1047,6 +1067,13 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
                 selection_group, selection_encoder);
         return 0;
     }
+    if (!strcmp(opts->codec, "copy"))
+        strcpy(opts->preset, "default");
+    else if (!strcmp(opts->codec, "mux") &&
+             (!strcmp(selection_encoder, "mkv") ||
+              !strcmp(selection_encoder, "mov") ||
+              !strcmp(selection_encoder, "m4v")))
+        strncpy(opts->preset, selection_encoder, sizeof(opts->preset) - 1);
     if (!platform_codec_is_available(h, opts->codec)) {
         fprintf(stderr, "Error: encoder is not available after hardware detection: %s\n",
                 opts->codec);

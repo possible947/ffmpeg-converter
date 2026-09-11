@@ -38,6 +38,38 @@ static void copy_string(char *dst, size_t dst_sz, const char *src)
     dst[dst_sz - 1] = '\0';
 }
 
+static int copy_file_binary(const char *source_path, const char *output_path)
+{
+    FILE *source;
+    FILE *output;
+    unsigned char buffer[1024 * 1024];
+    size_t bytes_read;
+    int ok = 1;
+
+    source = fopen(source_path, "rb");
+    output = fopen(output_path, "wb");
+    if (!source || !output) {
+        if (source) fclose(source);
+        if (output) fclose(output);
+        return 0;
+    }
+
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), source)) > 0) {
+        if (fwrite(buffer, 1, bytes_read, output) != bytes_read) {
+            ok = 0;
+            break;
+        }
+    }
+    if (ferror(source))
+        ok = 0;
+
+    if (fclose(source) != 0 || fclose(output) != 0)
+        ok = 0;
+    if (!ok)
+        remove(output_path);
+    return ok;
+}
+
 static int run_command_capture(const char *cmd,
                                char *output,
                                size_t output_sz,
@@ -529,14 +561,18 @@ ConverterError m4v_create_from_input(const char *input_file,
         m4v_platform_remove_temp_dir(work_dir);
         return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
     }
-    if (m4v_platform_file_exists(output_file))
-        (void)m4v_platform_unlink(output_file);
     if (rename(disposition_m4v, output_file) != 0) {
+        /* The work directory may be on /tmp while the output is on another
+         * filesystem. Fall back to a verified byte copy when rename returns
+         * EXDEV or another cross-device finalization error. */
+        if (!copy_file_binary(disposition_m4v, output_file)) {
+            m4v_platform_unlink(disposition_m4v);
+            copy_string(error_text, error_text_sz, "Apple M4V disposition: could not finalize output");
+            emit_error(callbacks, "Apple M4V disposition: could not finalize output", ERR_UNKNOWN);
+            m4v_platform_remove_temp_dir(work_dir);
+            return ERR_UNKNOWN;
+        }
         m4v_platform_unlink(disposition_m4v);
-        copy_string(error_text, error_text_sz, "Apple M4V disposition: could not finalize output");
-        emit_error(callbacks, "Apple M4V disposition: could not finalize output", ERR_UNKNOWN);
-        m4v_platform_remove_temp_dir(work_dir);
-        return ERR_UNKNOWN;
     }
 
     if (local_opts.add_chapters) {
@@ -552,11 +588,15 @@ ConverterError m4v_create_from_input(const char *input_file,
                  quoted_chapters_m4v);
         rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
         if (rc == 0) {
-            if (m4v_platform_file_exists(output_file))
-                (void)m4v_platform_unlink(output_file);
             if (rename(chapters_m4v, output_file) != 0) {
-                m4v_platform_unlink(chapters_m4v);
-                emit_message(callbacks, "Apple M4V chapters warning: could not finalize chaptered output");
+                /* The chaptered file is created in the temporary directory,
+                 * which may be mounted separately from the output directory. */
+                if (!copy_file_binary(chapters_m4v, output_file)) {
+                    m4v_platform_unlink(chapters_m4v);
+                    emit_message(callbacks, "Apple M4V chapters warning: could not finalize chaptered output");
+                } else {
+                    m4v_platform_unlink(chapters_m4v);
+                }
             }
         } else if (rc != -2) {
             m4v_platform_unlink(chapters_m4v);

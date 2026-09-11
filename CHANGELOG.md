@@ -39,6 +39,24 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Interactive CLI selection now begins with codec group and encoder selection
   resolved through the unified catalog.
 
+### Fixed
+- `--codec copy` no longer inherits the software encoder default; it resolves
+  directly to the catalog's terminal stream-copy mode without `--encoder` or
+  `--preset`.
+- Mux container options now resolve correctly: `--codec mux --encoder mkv`
+  produces `codec=mux` with `preset=mkv`; `mov` and `m4v` follow the same rule.
+- CLI output directories are created when missing instead of being rejected as
+  unwritable.
+- M4V disposition and chapter finalization now work across filesystem
+  boundaries: when the temporary directory and output directory differ,
+  finalization falls back from `rename()` to a verified binary copy. The shared
+  C M4V implementation is used by Linux, macOS, and Windows builds.
+
+### Tests
+- Linux mux tests completed successfully for `copy`, `mkv`, and `m4v` modes,
+  including AAC/AC3 generation, MP4Box assembly, audio disposition, and chapter
+  import.
+
 ## [Unreleased] — Linux GUI dock icon, startup theme, and shutdown freeze fixes (2026-09-11)
 
 ### Fixed
