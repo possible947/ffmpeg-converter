@@ -52,6 +52,26 @@ considered complete.
   reports "Device does not support the VK_KHR_video_encode_queue extension!",
   a hardware/driver limitation rather than an application bug.
 
+## [Unreleased] — VAAPI AV1 preset fix (2026-09-12)
+
+### Fixed
+- Fixed `av1_vaapi`/`av1_vaapi_10bit` (`vaapi` group encoders `av1`/`av1_10bit`)
+  producing an identical output regardless of the selected `speed`/`balance`/
+  `quality` preset (only `default` behaved distinctly). Root cause: unlike
+  `h264_vaapi`/`hevc_vaapi`, the `av1_vaapi` encoder does not expose a private
+  `-qp` `AVOption` in the project's mandated bundled FFmpeg 8.1 build; passing
+  `-qp <n>` to it is silently ignored (FFmpeg logs "No quality level set;
+  using default (25)."), so every non-`default` preset fell back to the same
+  internal default quality regardless of the requested tier — confirmed by
+  identical output file sizes for `speed`/`balance`/`quality` on real
+  hardware (Intel Arc A750). Switched the `av1_vaapi` preset table entries in
+  `platform_get_video_codec_flags()` (`converter_linux.c`) from `-qp
+  28/24/20` to `-global_quality 28/24/20`, which `av1_vaapi` does support;
+  verified distinct output sizes per preset for both `av1` (8-bit) and
+  `av1_10bit` after the fix, with no regressions to `h264_vaapi`/`hevc_vaapi`/
+  `hevc_vaapi_10bit` (already confirmed working with `-qp`). Documented in
+  `docs/v3.0-Phase2.md` (Section 5.3).
+
 ## [Unreleased] — Unified codec catalog build integration (2026-09-11)
 
 ### Added

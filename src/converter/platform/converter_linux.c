@@ -307,10 +307,16 @@ const char* platform_get_video_codec_flags(const char* codec,
               "-c:v hevc_vaapi -rc_mode CQP -qp 24 ",
               "-c:v hevc_vaapi -rc_mode CQP -qp 20 " },
                         { "av1_vaapi",
+                            /* av1_vaapi has no private "-qp" AVOption (unlike
+                             * h264_vaapi/hevc_vaapi); passing "-qp" is silently
+                             * ignored by the driver ("No quality level set;
+                             * using default (25)"), so all non-default presets
+                             * collapsed to the same output. Use "-global_quality"
+                             * instead, which av1_vaapi does support. */
                             "-c:v av1_vaapi -rc_mode auto ",
-                            "-c:v av1_vaapi -rc_mode CQP -qp 28 ",
-                            "-c:v av1_vaapi -rc_mode CQP -qp 24 ",
-                            "-c:v av1_vaapi -rc_mode CQP -qp 20 " },
+                            "-c:v av1_vaapi -rc_mode CQP -global_quality 28 ",
+                            "-c:v av1_vaapi -rc_mode CQP -global_quality 24 ",
+                            "-c:v av1_vaapi -rc_mode CQP -global_quality 20 " },
             { "h264_nvenc",
               "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1 ",
               "-c:v h264_nvenc -preset p1 -qp 22 -spatial-aq 1 -temporal-aq 1 ",
