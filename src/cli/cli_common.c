@@ -18,6 +18,9 @@
 #include "cli_common.h"
 #include "cli_platform.h"
 #include "preset_loader.h"
+#include <jansson.h>
+
+static const char* get_platform_name(void);
 
 /* ---------------------------------------------------------------
  *  CLI Callbacks
@@ -73,9 +76,6 @@ void clear_screen(void) {
 }
 
 void print_usage(const CliPlatformHandle* h) {
-    int i, count;
-    const PlatformCodecEntry* entries;
-
     printf("Usage: ffmpeg_converter [options] file1 file2 ...\n\n");
     printf("Options:\n");
     printf("  -h, --help                Show this help message\n");
@@ -83,20 +83,12 @@ void print_usage(const CliPlatformHandle* h) {
     printf("      --version             Show version information\n");
     printf("\n");
 
-    count   = platform_get_codec_count(h);
-    entries = platform_get_codec_entries(h);
-
-    printf("  -c, --codec <");
-    for (i = 0; i < count; i++) {
-        if (i > 0) printf("|");
-        printf("%s", entries[i].name);
-    }
-    printf(">\n");
-
-    for (i = 0; i < count; i++)
-        printf("      %-26s\n", entries[i].name);
-
-    printf("  -p, --preset <preset>     Codec-specific preset (use --codecs-list for available presets)\n");
+    printf("  -c, --codec <group>       Codec group (software, mux, or hardware group)\n");
+    printf("      --encoder <name>      Encoder inside the selected group\n");
+    printf("      --preset <name>       Preset for the selected encoder\n");
+    /* Legacy flat codec IDs and -p are intentionally not advertised. */
+    /* Keep this group list descriptive; availability is resolved from the catalog. */
+    printf("  Available groups are filtered from presets_v2.json after hardware detection.\n");
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
     printf("      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>\n");
@@ -143,11 +135,72 @@ void print_usage(const CliPlatformHandle* h) {
     }
     printf("Examples:\n");
     printf("  ffmpeg_converter input.mov\n");
-    printf("  ffmpeg_converter -c prores_ks -p hq input.mov\n");
+    printf("  ffmpeg_converter -c software --encoder prores_ks --preset hq input.mov\n");
     printf("  ffmpeg_converter -a loudnorm2 -g rock input1.mov input2.mov\n");
     if (platform_m4v_is_supported())
         printf("  ffmpeg_converter -c m4v --m4v-lang eng input.mov\n");
     printf("\n");
+}
+
+static json_t *load_selection_catalog(void)
+{
+    const char *env = getenv("PRESETS_V2_PATH");
+    char path[4096];
+    json_error_t error;
+
+    if (env && env[0] != '\0')
+        return json_load_file(env, 0, &error);
+    if (cli_get_presets_v2_path(path, sizeof(path)))
+        return json_load_file(path, 0, &error);
+    return NULL;
+}
+
+int cli_resolve_selection(const char* group, const char* encoder,
+                          char* final_codec, size_t final_codec_sz)
+{
+    json_t *root, *selection, *common, *platforms, *platform_obj;
+    json_t *group_obj = NULL, *items = NULL, *item = NULL, *value;
+    const char *platform;
+    int result = 0;
+
+    if (!group || !encoder || !final_codec || final_codec_sz == 0)
+        return 0;
+    final_codec[0] = '\0';
+    platform = get_platform_name();
+    root = load_selection_catalog();
+    if (!root)
+        return 0;
+    selection = json_object_get(root, "selection");
+    common = selection ? json_object_get(selection, "common") : NULL;
+    platforms = selection ? json_object_get(selection, "platforms") : NULL;
+    platform_obj = platforms ? json_object_get(platforms, platform) : NULL;
+    if (common)
+        group_obj = json_object_get(common, group);
+    if (!group_obj && platform_obj) {
+        json_t *hw = json_object_get(platform_obj, "hwaccel");
+        json_t *groups = hw ? json_object_get(hw, "groups") : NULL;
+        group_obj = groups ? json_object_get(groups, group) : NULL;
+    }
+    if (!group_obj || !json_is_true(json_object_get(group_obj, "enabled")))
+        goto done;
+    if (!strcmp(group, "mux"))
+        items = json_object_get(group_obj, "modes");
+    else
+        items = json_object_get(group_obj, "encoders");
+    item = items ? json_object_get(items, encoder) : NULL;
+    if (!item || !json_is_true(json_object_get(item, "enabled")))
+        goto done;
+    value = json_object_get(item, "final_codec");
+    if (!value)
+        value = json_object_get(item, "execution_codec");
+    if (!json_is_string(value))
+        goto done;
+    strncpy(final_codec, json_string_value(value), final_codec_sz - 1);
+    final_codec[final_codec_sz - 1] = '\0';
+    result = 1;
+done:
+    json_decref(root);
+    return result;
 }
 
 void print_version(void) {
@@ -604,56 +657,64 @@ static const char* get_platform_name(void) {
 #endif
 }
 
-void cli_print_codecs_list(const CliPlatformHandle* h) {
-    PresetDb *db;
-    const char *platform;
-    int codec_count, preset_count;
-    const char **codecs;
-    const char **presets;
-    int i, j;
-    
-    db = preset_db_load(NULL);
-    if (!db) {
-        fprintf(stderr, "Error: Could not load preset database\n");
-        return;
-    }
-    
-    platform = get_platform_name();
-    codec_count = preset_db_list_codecs(db, platform, &codecs);
-    
-    if (codec_count <= 0) {
-        fprintf(stderr, "Error: No codecs found for platform '%s'\n", platform);
-        preset_db_free(db);
-        return;
-    }
-    
-    printf("\nAvailable Codecs and Presets for %s:\n", platform);
-    printf("=====================================\n\n");
-    
-    for (i = 0; i < codec_count; i++) {
-        /* Only list codecs that actually pass the runtime hardware/tool
-         * probe — presets.json defines every codec the *build* knows about,
-         * but not every codec works on this machine (e.g. av1_amf needs
-         * RDNA3+, h264_vulkan needs a working Vulkan video-encode driver).
-         * This must match the codec set shown in --help / the interactive
-         * menu (platform_get_codec_count()/platform_get_codec_entries()). */
-        if (!platform_codec_is_available(h, codecs[i]))
-            continue;
+static void print_catalog_group(const char *group_name, json_t *group_obj,
+                                const CliPlatformHandle *h)
+{
+    json_t *items;
+    const char *item_name;
+    json_t *item;
 
-        printf("%s\n", codecs[i]);
-        
-        preset_count = preset_db_list_presets(db, platform, codecs[i], &presets);
-        if (preset_count > 0) {
-            for (j = 0; j < preset_count; j++) {
-                printf("  - %s\n", presets[j]);
-            }
-            free(presets);
-        }
-        printf("\n");
+    if (!json_is_true(json_object_get(group_obj, "enabled")))
+        return;
+    items = json_object_get(group_obj, "encoders");
+    if (!items)
+        items = json_object_get(group_obj, "modes");
+    if (!items)
+        return;
+    printf("%s:\n", group_name);
+    json_object_foreach(items, item_name, item) {
+        json_t *enabled = json_object_get(item, "enabled");
+        json_t *final = json_object_get(item, "final_codec");
+        if (!final)
+            final = json_object_get(item, "execution_codec");
+        if (!json_is_true(enabled))
+            continue;
+        if (json_is_string(final) &&
+            platform_codec_is_available(h, json_string_value(final)))
+            printf("  %s (%s)\n", item_name, json_string_value(final));
     }
-    
-    free(codecs);
-    preset_db_free(db);
+}
+
+void cli_print_codecs_list(const CliPlatformHandle* h) {
+    json_t *root = load_selection_catalog();
+    json_t *selection;
+    json_t *common;
+    json_t *platforms;
+    json_t *platform_obj;
+    json_t *hwaccel;
+    json_t *groups;
+    const char *name;
+    json_t *group;
+
+    if (!root) {
+        fprintf(stderr, "Error: presets_v2.json could not be loaded\n");
+        return;
+    }
+    selection = json_object_get(root, "selection");
+    common = selection ? json_object_get(selection, "common") : NULL;
+    platforms = selection ? json_object_get(selection, "platforms") : NULL;
+    platform_obj = platforms ? json_object_get(platforms, get_platform_name()) : NULL;
+    printf("\nAvailable codec groups and encoders for %s:\n", get_platform_name());
+    printf("==============================================\n");
+    if (common)
+        json_object_foreach(common, name, group)
+            print_catalog_group(name, group, h);
+    hwaccel = platform_obj ? json_object_get(platform_obj, "hwaccel") : NULL;
+    groups = hwaccel ? json_object_get(hwaccel, "groups") : NULL;
+    if (groups)
+        json_object_foreach(groups, name, group)
+            print_catalog_group(name, group, h);
+    json_decref(root);
 }
 
 int cli_validate_codec_preset(const char* codec, const char* preset) {
@@ -750,6 +811,8 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
                const char** files, int* file_count)
 {
     int i;
+    char selection_group[64] = "software";
+    char selection_encoder[64] = "prores_ks";
 
     /* Zero the struct so every field (hw_device, vulkan_device, gain,
      * measured_*, ...) has a deterministic value before defaults are set. */
@@ -801,23 +864,24 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         if (!strcmp(argv[i], "--codec") || !strcmp(argv[i], "-c")) {
             if (i + 1 >= argc) return 0;
             i++;
-            if (!platform_codec_is_available(h, argv[i]))
-                return 0;
-            strncpy(opts->codec, argv[i], sizeof(opts->codec) - 1);
-            opts->codec[sizeof(opts->codec) - 1] = '\0';
+            strncpy(selection_group, argv[i], sizeof(selection_group) - 1);
+            selection_group[sizeof(selection_group) - 1] = '\0';
             continue;
         }
 
-        if (!strcmp(argv[i], "--preset") || !strcmp(argv[i], "-p")) {
+        if (!strcmp(argv[i], "--encoder")) {
             if (i + 1 >= argc) return 0;
             i++;
-            /* Now validate the preset against the codec using preset loader */
-            if (cli_validate_codec_preset(opts->codec, argv[i])) {
-                strncpy(opts->preset, argv[i], sizeof(opts->preset) - 1);
-                opts->preset[sizeof(opts->preset) - 1] = '\0';
-            } else {
-                return 0;
-            }
+            strncpy(selection_encoder, argv[i], sizeof(selection_encoder) - 1);
+            selection_encoder[sizeof(selection_encoder) - 1] = '\0';
+            continue;
+        }
+
+        if (!strcmp(argv[i], "--preset")) {
+            if (i + 1 >= argc) return 0;
+            i++;
+            strncpy(opts->preset, argv[i], sizeof(opts->preset) - 1);
+            opts->preset[sizeof(opts->preset) - 1] = '\0';
             continue;
         }
 
@@ -977,6 +1041,17 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         return 0;
     }
 
+    if (!cli_resolve_selection(selection_group, selection_encoder,
+                               opts->codec, sizeof(opts->codec))) {
+        fprintf(stderr, "Error: unavailable codec group/encoder: %s/%s\n",
+                selection_group, selection_encoder);
+        return 0;
+    }
+    if (!platform_codec_is_available(h, opts->codec)) {
+        fprintf(stderr, "Error: encoder is not available after hardware detection: %s\n",
+                opts->codec);
+        return 0;
+    }
     return 1;
 }
 
@@ -1050,6 +1125,52 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
     video_track_path[0]  = '\0';
     strcpy(m4v_audio_lang, "rus");
 
+    /* Structured selection replaces the former flat codec menu.  The
+     * resolver validates the group/encoder pair against presets_v2.json and
+     * the platform handle supplies the post-probe availability check. */
+    {
+        char group[64] = "software";
+        char encoder[64] = "prores_ks";
+        char final_codec[32];
+        char line[128];
+        int found = 0;
+
+        printf("Codec group (software, mux, or hardware group; default software): ");
+        if (fgets(line, sizeof(line), stdin)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            if (line[0] != '\0')
+                strncpy(group, line, sizeof(group) - 1);
+        }
+        printf("Encoder (default prores_ks): ");
+        if (fgets(line, sizeof(line), stdin)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            if (line[0] != '\0')
+                strncpy(encoder, line, sizeof(encoder) - 1);
+        }
+        group[sizeof(group) - 1] = '\0';
+        encoder[sizeof(encoder) - 1] = '\0';
+        if (!cli_resolve_selection(group, encoder, final_codec, sizeof(final_codec)) ||
+            !platform_codec_is_available(h, final_codec)) {
+            fprintf(stderr, "Unavailable codec group/encoder: %s/%s\n", group, encoder);
+            free_temp_files(temp_files, temp_file_count);
+            return -1;
+        }
+        for (int k = 0; k < codec_count; k++) {
+            if (!strcmp(entries[k].name, final_codec)) {
+                codec_idx = k;
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            fprintf(stderr, "Detected encoder is not present in the platform catalog: %s\n",
+                    final_codec);
+            free_temp_files(temp_files, temp_file_count);
+            return -1;
+        }
+    }
+
+    step = entries[codec_idx].needs_profile ? 2 : 4;
     while (step != 12 && step != 0) {
         switch (step) {
 
@@ -1085,6 +1206,19 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
 
         /* ---- Step 2: profile ---- */
         case 2: {
+            char preset_line[64];
+            printf("Preset (default %s): ", preset[0] ? preset : "default");
+            if (fgets(preset_line, sizeof(preset_line), stdin)) {
+                preset_line[strcspn(preset_line, "\r\n")] = '\0';
+                if (preset_line[0] != '\0') {
+                    strncpy(preset, preset_line, sizeof(preset) - 1);
+                    preset[sizeof(preset) - 1] = '\0';
+                }
+            }
+            step = entries[codec_idx].needs_deblock ? 3 : 4;
+            break;
+            /* The legacy numbered preset menu below is intentionally
+             * unreachable; preset names now come from the structured catalog. */
             int ch;
             PresetDb *db;
             const char *platform;

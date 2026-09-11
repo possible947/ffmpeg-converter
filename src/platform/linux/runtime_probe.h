@@ -52,6 +52,11 @@ typedef struct {
 } LinuxCodecSupport;
 
 int linux_probe_codec_support(LinuxCodecSupport *out_support);
+int linux_probe_catalog_component_enabled(const char *catalog_path,
+                                          const char *platform,
+                                          const char *group,
+                                          const char *encoder,
+                                          const char *final_codec);
 int linux_is_bundled_ffmpeg_available(void);
 int linux_is_bundled_ffprobe_available(void);
 int linux_is_bundled_mkvmerge_available(void);

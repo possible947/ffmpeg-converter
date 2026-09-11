@@ -2,6 +2,8 @@
 
 project(ffmpeg_converter VERSION 2.6.0 LANGUAGES C)
 
+enable_testing()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 

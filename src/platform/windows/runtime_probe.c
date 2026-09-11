@@ -5,6 +5,7 @@
  */
 
 #include "runtime_probe.h"
+#include "../runtime_catalog.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -452,6 +453,9 @@ static int windows_probe_vulkan_encoder(const char *ffmpeg_bin,
  */
 int windows_probe_codec_support(WindowsCodecSupport *out_support)
 {
+    char catalog_path[MAX_PATH * 4] = "";
+    char process_dir[MAX_PATH * 4];
+    const char *catalog_env = getenv("PRESETS_V2_PATH");
     if (g_cache.probed) {
         if (out_support)
             *out_support = g_cache.support;
@@ -464,45 +468,63 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
                              sizeof(g_cache.support.bins.ffmpeg_bin),
                              &g_cache.support.bins.using_bundled_ffmpeg);
 
+    if (catalog_env && GetFileAttributesA(catalog_env) != INVALID_FILE_ATTRIBUTES)
+        copy_string(catalog_path, sizeof(catalog_path), catalog_env);
+    else if (windows_get_process_dir(process_dir, sizeof(process_dir))) {
+        snprintf(catalog_path, sizeof(catalog_path), "%s\\presets_v2.json", process_dir);
+        if (GetFileAttributesA(catalog_path) == INVALID_FILE_ATTRIBUTES)
+            catalog_path[0] = '\0';
+    }
+
     /* Probe NVENC encoders */
     g_cache.support.has_h264_nvenc =
+        runtime_catalog_component_enabled(catalog_path, "windows", "nvenc", "h264", "h264_nvenc") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "h264_nvenc");
     g_cache.support.has_hevc_nvenc =
+        runtime_catalog_component_enabled(catalog_path, "windows", "nvenc", "hevc", "hevc_nvenc") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_nvenc");
     /* av1_nvenc requires Ada Lovelace (RTX 40-series+); pre-filter on
      * -encoders text scan first, since older GPUs (Turing/Volta/Ampere)
      * will fail the one-frame probe anyway. */
     g_cache.support.has_av1_nvenc =
+        runtime_catalog_component_enabled(catalog_path, "windows", "nvenc", "av1", "av1_nvenc") &&
         windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_nvenc") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "av1_nvenc");
 
     /* Probe AMD AMF encoders */
     g_cache.support.has_h264_amf =
+        runtime_catalog_component_enabled(catalog_path, "windows", "amf", "h264", "h264_amf") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "h264_amf");
     g_cache.support.has_hevc_amf =
+        runtime_catalog_component_enabled(catalog_path, "windows", "amf", "hevc", "hevc_amf") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_amf");
     /* av1_amf requires RDNA3+ (RX 7000 series); pre-filter on -encoders text
      * scan first, since older GPUs will fail the one-frame probe anyway. */
     g_cache.support.has_av1_amf =
+        runtime_catalog_component_enabled(catalog_path, "windows", "amf", "av1", "av1_amf") &&
         windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_amf") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "av1_amf");
 
     /* Probe Intel QSV encoders */
     g_cache.support.has_h264_qsv =
+        runtime_catalog_component_enabled(catalog_path, "windows", "qsv", "h264", "h264_qsv") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "h264_qsv");
     g_cache.support.has_hevc_qsv =
+        runtime_catalog_component_enabled(catalog_path, "windows", "qsv", "hevc", "hevc_qsv") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_qsv");
     /* av1_qsv requires Xe-HPG (Arc A-series) or 12th-gen+ Iris Xe iGPU;
      * pre-filter on -encoders text scan first. */
     g_cache.support.has_av1_qsv =
+        runtime_catalog_component_enabled(catalog_path, "windows", "qsv", "av1", "av1_qsv") &&
         windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_qsv") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "av1_qsv");
 
     /* Probe Vulkan ProRes encoder (requires full Vulkan device init pipeline) */
     {
         int mask = 0, count = 0;
-        int best = windows_probe_vulkan_prores(g_cache.support.bins.ffmpeg_bin,
-                                               &mask, &count);
+        int best = runtime_catalog_component_enabled(catalog_path, "windows", "vulkan", "prores_ks", "prores_ks_vulkan")
+               ? windows_probe_vulkan_prores(g_cache.support.bins.ffmpeg_bin, &mask, &count)
+               : -1;
         g_cache.support.has_prores_ks_vulkan = (best >= 0) ? 1 : 0;
         g_cache.support.vulkan_working_mask  = mask;
         g_cache.support.vulkan_device_index  = (best >= 0) ? best : 0;
@@ -516,7 +538,8 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
     {
         int mask = 0, count = 0, best = -1;
 
-        if (windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "h264_vulkan"))
+        if (runtime_catalog_component_enabled(catalog_path, "windows", "vulkan", "h264", "h264_vulkan") &&
+            windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "h264_vulkan"))
             best = windows_probe_vulkan_encoder(g_cache.support.bins.ffmpeg_bin,
                                                 "h264_vulkan", &mask, &count);
         g_cache.support.has_h264_vulkan = (best >= 0) ? 1 : 0;
@@ -527,7 +550,8 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
         }
 
         best = -1;
-        if (windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_vulkan"))
+        if (runtime_catalog_component_enabled(catalog_path, "windows", "vulkan", "hevc", "hevc_vulkan") &&
+            windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "hevc_vulkan"))
             best = windows_probe_vulkan_encoder(g_cache.support.bins.ffmpeg_bin,
                                                 "hevc_vulkan", &mask, &count);
         g_cache.support.has_hevc_vulkan = (best >= 0) ? 1 : 0;
@@ -538,7 +562,8 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
         }
 
         best = -1;
-        if (windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_vulkan"))
+        if (runtime_catalog_component_enabled(catalog_path, "windows", "vulkan", "av1", "av1_vulkan") &&
+            windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_vulkan"))
             best = windows_probe_vulkan_encoder(g_cache.support.bins.ffmpeg_bin,
                                                 "av1_vulkan", &mask, &count);
         g_cache.support.has_av1_vulkan = (best >= 0) ? 1 : 0;

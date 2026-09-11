@@ -34,11 +34,14 @@ int main(int argc, char** argv) {
     if (utf8_argv)
         argv = utf8_argv;
 
+    printf("Hardware components detection in progress...\n");
+    fflush(stdout);
     h = cli_platform_init();
     if (!h) {
         fprintf(stderr, "Failed to initialize platform support.\n");
         return 1;
     }
+    printf("Hardware components detection completed.\n");
 
     /* Quick-exit help */
     if (argc == 2 &&

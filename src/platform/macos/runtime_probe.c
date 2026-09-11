@@ -5,6 +5,7 @@
  */
 
 #include "runtime_probe.h"
+#include "../runtime_catalog.h"
 
 #include <mach-o/dyld.h>
 #include <limits.h>
@@ -284,6 +285,9 @@ static int macos_probe_vt_encoder(const char *ffmpeg_bin,
  */
 int macos_probe_codec_support(MacosCodecSupport *out_support)
 {
+    char catalog_path[PATH_MAX] = "";
+    char process_dir[PATH_MAX];
+    const char *catalog_env = getenv("PRESETS_V2_PATH");
     if (g_cache.probed) {
         if (out_support)
             *out_support = g_cache.support;
@@ -296,14 +300,29 @@ int macos_probe_codec_support(MacosCodecSupport *out_support)
                              sizeof(g_cache.support.bins.ffmpeg_bin),
                              &g_cache.support.bins.using_bundled_ffmpeg);
 
+    if (catalog_env && access(catalog_env, R_OK) == 0)
+        copy_string(catalog_path, sizeof(catalog_path), catalog_env);
+    else if (macos_get_process_dir(process_dir, sizeof(process_dir))) {
+        snprintf(catalog_path, sizeof(catalog_path), "%s/presets_v2.json", process_dir);
+        if (access(catalog_path, R_OK) != 0) {
+            snprintf(catalog_path, sizeof(catalog_path),
+                     "%s/../Resources/presets_v2.json", process_dir);
+            if (access(catalog_path, R_OK) != 0)
+                catalog_path[0] = '\0';
+        }
+    }
+
     /* Probe VideoToolbox encoders */
     g_cache.support.has_h264_videotoolbox =
+        runtime_catalog_component_enabled(catalog_path, "macos", "videotoolbox", "h264", "h264_videotoolbox") &&
         macos_probe_vt_encoder(g_cache.support.bins.ffmpeg_bin,
                                "h264_videotoolbox", NULL);
     g_cache.support.has_hevc_videotoolbox =
+        runtime_catalog_component_enabled(catalog_path, "macos", "videotoolbox", "hevc", "hevc_videotoolbox") &&
         macos_probe_vt_encoder(g_cache.support.bins.ffmpeg_bin,
                                "hevc_videotoolbox", NULL);
     g_cache.support.has_prores_videotoolbox =
+        runtime_catalog_component_enabled(catalog_path, "macos", "videotoolbox", "prores", "prores_videotoolbox") &&
         macos_probe_vt_encoder(g_cache.support.bins.ffmpeg_bin,
                                "prores_videotoolbox", "-allow_sw 1 ");
 

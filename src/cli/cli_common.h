@@ -145,6 +145,10 @@ void cli_print_codecs_list(const CliPlatformHandle* h);
  */
 int cli_validate_codec_preset(const char* codec, const char* preset);
 
+/* Resolve the structured CLI selection to the existing converter codec ID. */
+int cli_resolve_selection(const char* group, const char* encoder,
+                          char* final_codec, size_t final_codec_sz);
+
 /**
  * Gets the preset choice menu for a specific codec.
  * Returns the selected preset name, or NULL on cancel.

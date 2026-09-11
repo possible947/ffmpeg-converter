@@ -1,5 +1,6 @@
 #include "runtime_probe.h"
 #include "../runtime_probe_common.h"
+#include "../runtime_catalog.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -9,12 +10,55 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifndef FFMPEG_CONVERTER_SOURCE_DIR
+#define FFMPEG_CONVERTER_SOURCE_DIR "."
+#endif
+
 typedef struct {
     int initialized;
     LinuxCodecSupport support;
 } LinuxCodecSupportCache;
 
 static LinuxCodecSupportCache g_cache;
+static int get_process_dir(char *out_dir, size_t out_dir_sz);
+
+int linux_probe_catalog_component_enabled(const char *catalog_path,
+                                          const char *platform,
+                                          const char *group,
+                                          const char *encoder,
+                                          const char *final_codec)
+{
+    return runtime_catalog_component_enabled(catalog_path, platform, group,
+                                             encoder, final_codec);
+}
+
+static int resolve_presets_v2(char *out_path, size_t out_path_sz)
+{
+    const char *env_path = getenv("PRESETS_V2_PATH");
+    char process_dir[PATH_MAX];
+
+    if (!out_path || out_path_sz == 0)
+        return 0;
+    out_path[0] = '\0';
+
+    if (env_path && access(env_path, R_OK) == 0) {
+        copy_string(out_path, out_path_sz, env_path);
+        return 1;
+    }
+    if (get_process_dir(process_dir, sizeof(process_dir))) {
+        snprintf(out_path, out_path_sz, "%s/presets_v2.json", process_dir);
+        if (access(out_path, R_OK) == 0)
+            return 1;
+    }
+#ifdef FFMPEG_CONVERTER_SOURCE_DIR
+    snprintf(out_path, out_path_sz, "%s/build/generated/presets_v2.json",
+             FFMPEG_CONVERTER_SOURCE_DIR);
+    if (access(out_path, R_OK) == 0)
+        return 1;
+#endif
+    out_path[0] = '\0';
+    return 0;
+}
 
 /**
  * posix_shell_quote()
@@ -534,6 +578,9 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
     LinuxCodecSupport detected;
     DIR *dir;
     struct dirent *entry;
+    char catalog_path[PATH_MAX];
+    int vaapi_h264_enabled;
+    int vaapi_hevc_enabled;
 
     if (g_cache.initialized) {
         if (out_support)
@@ -565,6 +612,14 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
                              &detected.using_bundled_mp4box,
                              1);  /* system fallback allowed */
 
+    if (!resolve_presets_v2(catalog_path, sizeof(catalog_path)))
+        catalog_path[0] = '\0';
+
+    vaapi_h264_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "vaapi",
+                                                   "h264", "h264_vaapi");
+    vaapi_hevc_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "vaapi",
+                                                   "hevc", "hevc_vaapi");
+
     dir = opendir("/dev/dri");
     if (dir) {
         while ((entry = readdir(dir)) != NULL) {
@@ -579,8 +634,10 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
             if (access(render_node, R_OK | W_OK) != 0)
                 continue;
 
-            has_h264 = probe_vaapi_encoder(detected.ffmpeg_bin, render_node, "h264_vaapi");
-            has_hevc = probe_vaapi_encoder(detected.ffmpeg_bin, render_node, "hevc_vaapi");
+            has_h264 = vaapi_h264_enabled &&
+                       probe_vaapi_encoder(detected.ffmpeg_bin, render_node, "h264_vaapi");
+            has_hevc = vaapi_hevc_enabled &&
+                       probe_vaapi_encoder(detected.ffmpeg_bin, render_node, "hevc_vaapi");
 
             if (!detected.default_render_node[0] && (has_h264 || has_hevc)) {
                 copy_string(detected.default_render_node,
@@ -597,25 +654,33 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
     }
 
     /* NVENC — NVIDIA (no device path required) */
-    detected.has_h264_nvenc = probe_simple_encoder(detected.ffmpeg_bin, "h264_nvenc");
-    detected.has_hevc_nvenc = probe_simple_encoder(detected.ffmpeg_bin, "hevc_nvenc");
+    detected.has_h264_nvenc = runtime_catalog_component_enabled(catalog_path, "linux", "nvenc", "h264", "h264_nvenc") &&
+                              probe_simple_encoder(detected.ffmpeg_bin, "h264_nvenc");
+    detected.has_hevc_nvenc = runtime_catalog_component_enabled(catalog_path, "linux", "nvenc", "hevc", "hevc_nvenc") &&
+                              probe_simple_encoder(detected.ffmpeg_bin, "hevc_nvenc");
 
     /* AMF — AMD (no device path required) */
-    detected.has_h264_amf = probe_simple_encoder(detected.ffmpeg_bin, "h264_amf");
-    detected.has_hevc_amf = probe_simple_encoder(detected.ffmpeg_bin, "hevc_amf");
+    detected.has_h264_amf = runtime_catalog_component_enabled(catalog_path, "linux", "amf", "h264", "h264_amf") &&
+                            probe_simple_encoder(detected.ffmpeg_bin, "h264_amf");
+    detected.has_hevc_amf = runtime_catalog_component_enabled(catalog_path, "linux", "amf", "hevc", "hevc_amf") &&
+                            probe_simple_encoder(detected.ffmpeg_bin, "hevc_amf");
     /* av1_amf requires RDNA3+ (RX 7000 series); pre-filter on -encoders text
      * scan first, since older GPUs will fail the one-frame probe anyway. */
-    detected.has_av1_amf = ffmpeg_has_encoder(detected.ffmpeg_bin, "av1_amf") &&
+    detected.has_av1_amf = runtime_catalog_component_enabled(catalog_path, "linux", "amf", "av1", "av1_amf") &&
+                           ffmpeg_has_encoder(detected.ffmpeg_bin, "av1_amf") &&
                            probe_simple_encoder(detected.ffmpeg_bin, "av1_amf");
 
     /* QSV — Intel (no device path required) */
-    detected.has_h264_qsv = probe_simple_encoder(detected.ffmpeg_bin, "h264_qsv");
-    detected.has_hevc_qsv = probe_simple_encoder(detected.ffmpeg_bin, "hevc_qsv");
+    detected.has_h264_qsv = runtime_catalog_component_enabled(catalog_path, "linux", "qsv", "h264", "h264_qsv") &&
+                            probe_simple_encoder(detected.ffmpeg_bin, "h264_qsv");
+    detected.has_hevc_qsv = runtime_catalog_component_enabled(catalog_path, "linux", "qsv", "hevc", "hevc_qsv") &&
+                            probe_simple_encoder(detected.ffmpeg_bin, "hevc_qsv");
 
     /* Vulkan — any GPU with Vulkan 1.1+ (compute-shader ProRes) */
     {
         int mask = 0, count = 0;
-        int best = probe_vulkan_prores(detected.ffmpeg_bin, &mask, &count);
+        int vulkan_prores_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "vulkan", "prores_ks", "prores_ks_vulkan");
+        int best = vulkan_prores_enabled ? probe_vulkan_prores(detected.ffmpeg_bin, &mask, &count) : -1;
         detected.has_prores_ks_vulkan = (best >= 0) ? 1 : 0;
         detected.vulkan_working_mask  = mask;
         detected.vulkan_device_index  = (best >= 0) ? best : 0;
@@ -629,7 +694,8 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
     {
         int mask = 0, count = 0, best = -1;
 
-        if (ffmpeg_has_encoder(detected.ffmpeg_bin, "h264_vulkan"))
+        if (runtime_catalog_component_enabled(catalog_path, "linux", "vulkan", "h264", "h264_vulkan") &&
+            ffmpeg_has_encoder(detected.ffmpeg_bin, "h264_vulkan"))
             best = probe_vulkan_encoder(detected.ffmpeg_bin, "h264_vulkan", &mask, &count);
         detected.has_h264_vulkan = (best >= 0) ? 1 : 0;
         if (best >= 0) {
@@ -638,7 +704,8 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
             detected.vulkan_hw_device_count = count;
         }
 
-        if (ffmpeg_has_encoder(detected.ffmpeg_bin, "hevc_vulkan"))
+        if (runtime_catalog_component_enabled(catalog_path, "linux", "vulkan", "hevc", "hevc_vulkan") &&
+            ffmpeg_has_encoder(detected.ffmpeg_bin, "hevc_vulkan"))
             best = probe_vulkan_encoder(detected.ffmpeg_bin, "hevc_vulkan", &mask, &count);
         else
             best = -1;
@@ -649,7 +716,8 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
             detected.vulkan_hw_device_count = count;
         }
 
-        if (ffmpeg_has_encoder(detected.ffmpeg_bin, "av1_vulkan"))
+        if (runtime_catalog_component_enabled(catalog_path, "linux", "vulkan", "av1", "av1_vulkan") &&
+            ffmpeg_has_encoder(detected.ffmpeg_bin, "av1_vulkan"))
             best = probe_vulkan_encoder(detected.ffmpeg_bin, "av1_vulkan", &mask, &count);
         else
             best = -1;

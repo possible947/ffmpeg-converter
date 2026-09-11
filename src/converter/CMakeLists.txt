@@ -17,6 +17,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(converter PRIVATE
         platform/converter_windows.c
         ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
+        ${CMAKE_SOURCE_DIR}/src/platform/runtime_catalog.c
         ${CMAKE_SOURCE_DIR}/src/platform/windows/runtime_probe.c
     )
     target_include_directories(converter PRIVATE
@@ -31,6 +32,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         platform/converter_linux.c
         platform/converter_posix.c
         ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
+        ${CMAKE_SOURCE_DIR}/src/platform/runtime_catalog.c
         ${CMAKE_SOURCE_DIR}/src/platform/linux/runtime_probe.c
     )
     target_compile_definitions(converter PRIVATE
@@ -42,6 +44,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         platform/converter_macos.c
         platform/converter_posix.c
         ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
+        ${CMAKE_SOURCE_DIR}/src/platform/runtime_catalog.c
         ${CMAKE_SOURCE_DIR}/src/platform/macos/runtime_probe.c
     )
     target_include_directories(converter PRIVATE
@@ -51,6 +54,18 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         "-framework CoreFoundation"
     )
 
+endif()
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    enable_testing()
+    add_executable(test_runtime_probe_catalog
+        ${CMAKE_SOURCE_DIR}/src/platform/linux/test_runtime_probe_catalog.c
+    )
+    target_include_directories(test_runtime_probe_catalog PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/platform/linux
+    )
+    target_link_libraries(test_runtime_probe_catalog PRIVATE converter)
+    add_test(NAME RuntimeProbeCatalogTests COMMAND test_runtime_probe_catalog)
 endif()
 
 # Platform abstraction header directory

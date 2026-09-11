@@ -310,6 +310,27 @@ const char* cli_get_home_dir(void) {
     return (home && home[0] != '\0') ? home : ".";
 }
 
+int cli_get_presets_v2_path(char* out_path, size_t out_path_sz) {
+    char exe[4096];
+    ssize_t len;
+    char* slash;
+    const char* env = getenv("PRESETS_V2_PATH");
+    if (!out_path || out_path_sz == 0) return 0;
+    if (env && env[0]) {
+        strncpy(out_path, env, out_path_sz - 1);
+        out_path[out_path_sz - 1] = '\0';
+        return access(out_path, R_OK) == 0;
+    }
+    len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (len <= 0) return 0;
+    exe[len] = '\0';
+    slash = strrchr(exe, '/');
+    if (!slash) return 0;
+    *slash = '\0';
+    snprintf(out_path, out_path_sz, "%s/presets_v2.json", exe);
+    return access(out_path, R_OK) == 0;
+}
+
 /* ---------------------------------------------------------------
  *  File / directory helpers
  * --------------------------------------------------------------- */

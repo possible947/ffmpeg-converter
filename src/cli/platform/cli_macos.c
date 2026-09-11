@@ -15,6 +15,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <errno.h>
+#include <limits.h>
+#include <mach-o/dyld.h>
 
 #include "converter.h"
 #include "cli_platform.h"
@@ -169,6 +171,27 @@ int platform_get_default_vulkan_device(const CliPlatformHandle* h, const char* c
 const char* cli_get_home_dir(void) {
     const char* home = getenv("HOME");
     return (home && home[0] != '\0') ? home : ".";
+}
+
+int cli_get_presets_v2_path(char* out_path, size_t out_path_sz) {
+    const char* env = getenv("PRESETS_V2_PATH");
+    char exe[PATH_MAX];
+    uint32_t size = (uint32_t)sizeof(exe);
+    char* slash;
+    if (!out_path || out_path_sz == 0) return 0;
+    if (env && env[0]) {
+        strncpy(out_path, env, out_path_sz - 1);
+        out_path[out_path_sz - 1] = '\0';
+        return access(out_path, R_OK) == 0;
+    }
+    if (_NSGetExecutablePath(exe, &size) != 0) return 0;
+    slash = strrchr(exe, '/');
+    if (!slash) return 0;
+    *slash = '\0';
+    snprintf(out_path, out_path_sz, "%s/presets_v2.json", exe);
+    if (access(out_path, R_OK) == 0) return 1;
+    snprintf(out_path, out_path_sz, "%s/../Resources/presets_v2.json", exe);
+    return access(out_path, R_OK) == 0;
 }
 
 /* ---------------------------------------------------------------

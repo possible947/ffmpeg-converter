@@ -220,6 +220,9 @@ fi
 if [ -f "${APPDIR}/usr/share/ffmpeg_converter/presets.json" ]; then
     export PRESETS_PATH="${APPDIR}/usr/share/ffmpeg_converter"
 fi
+if [ -f "${APPDIR}/usr/share/ffmpeg_converter/presets_v2.json" ]; then
+    export PRESETS_V2_PATH="${APPDIR}/usr/share/ffmpeg_converter/presets_v2.json"
+fi
 
 # Run GUI with bundled libraries
 exec "${APPDIR}/usr/bin/ffmpeg_converter_gui" "$@"

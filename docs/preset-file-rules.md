@@ -115,6 +115,15 @@ The common filtering algorithm is:
 
 The GUI and CLI must use the same filtering and resolution semantics.
 
+Changes to the shared catalog and runtime-probe contract must be implemented
+for Linux, macOS, and Windows together. Linux is the current validation host;
+macOS and Windows build/debug verification may be performed separately later,
+but their source implementations must remain synchronized.
+
+Runtime hardware probing reads `presets_v2.json` as its only component catalog.
+It must not fall back to the legacy `presets.json` file. A missing or invalid
+selection catalog disables the corresponding probe components.
+
 ## Execution parameters
 
 FFmpeg parameters belong to execution preset records, not GUI or CLI source

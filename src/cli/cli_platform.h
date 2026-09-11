@@ -144,6 +144,9 @@ void platform_apply_hw_device(ConvertOptions* opts,
  */
 const char* cli_get_home_dir(void);
 
+/* Resolve the executable-adjacent generated presets_v2.json path. */
+int cli_get_presets_v2_path(char* out_path, size_t out_path_sz);
+
 /* ---------------------------------------------------------------
  *  File / directory helpers
  * --------------------------------------------------------------- */

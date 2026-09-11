@@ -19,6 +19,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Kept `presets.json` as the legacy FFmpeg execution-parameter catalog during
   the transition. GUI/CLI catalog consumption and component runtime filtering
   remain the next implementation stage.
+- Runtime hardware probing now reads component gates only from
+  `presets_v2.json`; missing or disabled catalog entries prevent probing.
+
+### Tests
+- Added the autonomous `RuntimeProbeCatalogTests` CTest, which validates enabled,
+  disabled, platform-mismatched, and final-codec-mismatched catalog entries
+  without requiring a physical GPU.
+
+## [Unreleased] — Structured CLI codec selection (2026-09-11)
+
+### Changed
+- CLI startup now synchronously detects hardware components and reports
+  `Hardware components detection in progress...` before continuing.
+- CLI component listing and selection now use `presets_v2.json` groups and
+  components. Structured arguments are `--codec <group> --encoder <name>
+  --preset <name>`; the former flat codec argument and `-p` preset alias are no
+  longer accepted.
+- Interactive CLI selection now begins with codec group and encoder selection
+  resolved through the unified catalog.
 
 ## [Unreleased] — Linux GUI dock icon, startup theme, and shutdown freeze fixes (2026-09-11)
 
