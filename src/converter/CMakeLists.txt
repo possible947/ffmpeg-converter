@@ -3,6 +3,7 @@
 add_library(converter STATIC
     converter.c
     converter_common.c
+    input_video_info.c
     ${CMAKE_SOURCE_DIR}/src/preset/preset_loader.c
 )
 
@@ -54,6 +55,22 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         "-framework CoreFoundation"
     )
 
+endif()
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(test_runtime_capabilities
+        ${CMAKE_SOURCE_DIR}/src/platform/linux/test_runtime_capabilities.c
+    )
+    target_include_directories(test_runtime_capabilities PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/platform/linux
+    )
+    target_link_libraries(test_runtime_capabilities PRIVATE converter)
+
+    add_executable(test_input_video_info
+        ${CMAKE_SOURCE_DIR}/src/converter/test_input_video_info.c
+    )
+    target_link_libraries(test_input_video_info PRIVATE converter)
+    add_test(NAME InputVideoInfoTests COMMAND test_input_video_info)
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")

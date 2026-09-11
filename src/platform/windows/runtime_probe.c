@@ -305,6 +305,25 @@ static int windows_probe_encoder(const char *ffmpeg_bin,
     return rc == 0;
 }
 
+static int windows_probe_encoder_10bit(const char *ffmpeg_bin,
+                                       const char *encoder_name,
+                                       const char *profile_args)
+{
+    char cmd[8192];
+    int rc;
+
+    if (!ffmpeg_bin || ffmpeg_bin[0] == '\0' || !encoder_name ||
+        !windows_path_is_cmd_safe(ffmpeg_bin))
+        return 0;
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" -v error -hide_banner "
+             "-f lavfi -i color=size=1280x720:rate=1,format=p010le "
+             "-frames:v 1 -vf format=p010le %s-c:v %s -f null - 2>nul",
+             ffmpeg_bin, profile_args ? profile_args : "", encoder_name);
+    rc = system(cmd);
+    return rc == 0;
+}
+
 /**
  * windows_probe_vulkan_prores()
  * Scans vk:0 through vk:7 for prores_ks_vulkan support.
@@ -490,6 +509,12 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
         runtime_catalog_component_enabled(catalog_path, "windows", "nvenc", "av1", "av1_nvenc") &&
         windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_nvenc") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "av1_nvenc");
+    g_cache.support.has_hevc_nvenc_10bit =
+        runtime_catalog_component_enabled(catalog_path, "windows", "nvenc", "hevc_10bit", "hevc_nvenc") &&
+        windows_probe_encoder_10bit(g_cache.support.bins.ffmpeg_bin, "hevc_nvenc", "-profile:v main10 ");
+    g_cache.support.has_av1_nvenc_10bit =
+        runtime_catalog_component_enabled(catalog_path, "windows", "nvenc", "av1_10bit", "av1_nvenc") &&
+        windows_probe_encoder_10bit(g_cache.support.bins.ffmpeg_bin, "av1_nvenc", "");
 
     /* Probe AMD AMF encoders */
     g_cache.support.has_h264_amf =
@@ -518,6 +543,12 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
         runtime_catalog_component_enabled(catalog_path, "windows", "qsv", "av1", "av1_qsv") &&
         windows_ffmpeg_has_encoder(g_cache.support.bins.ffmpeg_bin, "av1_qsv") &&
         windows_probe_encoder(g_cache.support.bins.ffmpeg_bin, "av1_qsv");
+    g_cache.support.has_hevc_qsv_10bit =
+        runtime_catalog_component_enabled(catalog_path, "windows", "qsv", "hevc_10bit", "hevc_qsv") &&
+        windows_probe_encoder_10bit(g_cache.support.bins.ffmpeg_bin, "hevc_qsv", "-profile:v main10 ");
+    g_cache.support.has_av1_qsv_10bit =
+        runtime_catalog_component_enabled(catalog_path, "windows", "qsv", "av1_10bit", "av1_qsv") &&
+        windows_probe_encoder_10bit(g_cache.support.bins.ffmpeg_bin, "av1_qsv", "");
 
     /* Probe Vulkan ProRes encoder (requires full Vulkan device init pipeline) */
     {

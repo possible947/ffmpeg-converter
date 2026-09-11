@@ -213,8 +213,15 @@ int cli_resolve_selection(const char* group, const char* encoder,
         value = json_object_get(item, "execution_codec");
     if (!json_is_string(value))
         goto done;
-    strncpy(final_codec, json_string_value(value), final_codec_sz - 1);
-    final_codec[final_codec_sz - 1] = '\0';
+    {
+        const char *resolved = json_string_value(value);
+        if (strstr(encoder, "_10bit") != NULL) {
+            snprintf(final_codec, final_codec_sz, "%s_10bit", resolved);
+        } else {
+            strncpy(final_codec, resolved, final_codec_sz - 1);
+            final_codec[final_codec_sz - 1] = '\0';
+        }
+    }
     result = 1;
 done:
     json_decref(root);

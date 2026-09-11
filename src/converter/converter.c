@@ -1,5 +1,6 @@
 #include "converter.h"
 #include "converter_platform.h"
+#include "input_video_info.h"
 #include "converter_common.h"
 #include <stdlib.h>
 #include <string.h>
@@ -22,7 +23,32 @@ struct Converter {
 static int codec_is_vaapi(const char* codec) {
     return codec &&
            (strcmp(codec, "h264_vaapi") == 0 ||
-            strcmp(codec, "hevc_vaapi") == 0);
+            strcmp(codec, "hevc_vaapi") == 0 ||
+            strcmp(codec, "av1_vaapi") == 0 ||
+            strcmp(codec, "hevc_vaapi_10bit") == 0 ||
+            strcmp(codec, "av1_vaapi_10bit") == 0);
+}
+
+static int codec_is_qsv(const char* codec) {
+    return codec &&
+           (strcmp(codec, "h264_qsv") == 0 ||
+            strcmp(codec, "hevc_qsv") == 0 ||
+            strcmp(codec, "av1_qsv") == 0 ||
+            strcmp(codec, "hevc_qsv_10bit") == 0 ||
+            strcmp(codec, "av1_qsv_10bit") == 0);
+}
+
+static int codec_is_nvenc(const char* codec) {
+    return codec &&
+           (strcmp(codec, "h264_nvenc") == 0 ||
+            strcmp(codec, "hevc_nvenc") == 0 ||
+            strcmp(codec, "av1_nvenc") == 0 ||
+            strcmp(codec, "hevc_nvenc_10bit") == 0 ||
+            strcmp(codec, "av1_nvenc_10bit") == 0);
+}
+
+static int codec_is_10bit(const char* codec) {
+    return codec && strstr(codec, "_10bit") != NULL;
 }
 
 static int codec_is_vulkan(const char* codec) {
@@ -69,6 +95,34 @@ static int audio_output_mode_valid(const char* mode) {
            audio_output_mode_is(mode, "fdk_aac_320_ac3_640") ||
            audio_output_mode_is(mode, "fdk_aac_320") ||
            audio_output_mode_is(mode, "fdk_aac_320_ac3_640");
+}
+
+static int cmd_cat(char* buf, size_t buf_sz, size_t* pos, const char* s);
+
+static int append_color_metadata(char *cmd, size_t cmd_size, size_t *pos,
+                                 const InputVideoInfo *info)
+{
+    char option[160];
+
+    if (!info)
+        return 0;
+    if (info->color_range[0] != '\0' && strcmp(info->color_range, "N/A") != 0) {
+        snprintf(option, sizeof(option), "-color_range %s ", info->color_range);
+        if (cmd_cat(cmd, cmd_size, pos, option) < 0) return -1;
+    }
+    if (info->color_primaries[0] != '\0' && strcmp(info->color_primaries, "N/A") != 0) {
+        snprintf(option, sizeof(option), "-color_primaries %s ", info->color_primaries);
+        if (cmd_cat(cmd, cmd_size, pos, option) < 0) return -1;
+    }
+    if (info->color_transfer[0] != '\0' && strcmp(info->color_transfer, "N/A") != 0) {
+        snprintf(option, sizeof(option), "-color_trc %s ", info->color_transfer);
+        if (cmd_cat(cmd, cmd_size, pos, option) < 0) return -1;
+    }
+    if (info->color_space[0] != '\0' && strcmp(info->color_space, "N/A") != 0) {
+        snprintf(option, sizeof(option), "-colorspace %s ", info->color_space);
+        if (cmd_cat(cmd, cmd_size, pos, option) < 0) return -1;
+    }
+    return 0;
 }
 
 static void build_audio_filter_expr(const ConvertOptions* opts, char* filter, size_t filter_sz) {
@@ -180,56 +234,6 @@ static const char* get_ffmpeg_bin(void) {
 
 static const char* get_ffprobe_bin(void) {
     return platform_get_ffprobe_bin();
-}
-
-/* Probe the video codec of the first video stream in `input`.
- * Writes a NUL-terminated codec name (e.g. "av1", "vp9", "h264") into
- * `codec_out[0..codec_out_sz)`.  Returns 1 on success, 0 on failure. */
-static int probe_input_video_codec(const char* input,
-                                   char* codec_out, size_t codec_out_sz) {
-    if (!input || !codec_out || codec_out_sz == 0) return 0;
-    codec_out[0] = '\0';
-
-    const char* ffprobe_bin = platform_get_ffprobe_bin();
-    if (!ffprobe_bin || ffprobe_bin[0] == '\0') return 0;
-
-    char* esc_ffprobe = platform_escape_path_for_command(ffprobe_bin);
-    char* esc_input   = platform_escape_path_for_command(input);
-    if (!esc_ffprobe || !esc_input) {
-        free(esc_ffprobe);
-        free(esc_input);
-        return 0;
-    }
-
-    char cmd[4096];
-    snprintf(cmd, sizeof(cmd),
-             "%s -v error -select_streams v:0 "
-             "-show_entries stream=codec_name "
-             "-of default=noprint_wrappers=1:nokey=1 "
-             "%s 2>%s",
-             esc_ffprobe, esc_input, platform_get_null_device());
-
-    free(esc_ffprobe);
-    free(esc_input);
-
-    FILE* fp = platform_popen(cmd, "r");
-    if (!fp) return 0;
-
-    char line[256];
-    int found = 0;
-    if (fgets(line, sizeof(line), fp)) {
-        size_t len = strlen(line);
-        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r'))
-            line[--len] = '\0';
-        if (len > 0 && len < codec_out_sz) {
-            strncpy(codec_out, line, codec_out_sz - 1);
-            codec_out[codec_out_sz - 1] = '\0';
-            found = 1;
-        }
-    }
-    if (platform_pclose(fp) != 0)
-        found = 0;
-    return found;
 }
 
 // ------------------------------------------------------------
@@ -839,6 +843,20 @@ static void build_ffmpeg_cmd(
     int has_aac_at = ffmpeg_encoder_available("aac_at");
     int has_libfdk_aac = ffmpeg_encoder_available("libfdk_aac");
     char audio_filter[1024];
+    InputVideoInfo input_info;
+    int have_input_info = input_video_info_probe(input, &input_info);
+    int selected_10bit = codec_is_10bit(opts->codec);
+    int output_hw = codec_is_vaapi(opts->codec) || codec_is_qsv(opts->codec) ||
+                    codec_is_nvenc(opts->codec) || codec_is_vulkan(opts->codec);
+
+    if (have_input_info && output_hw && input_info.bit_depth > 0) {
+        if (selected_10bit && input_info.bit_depth < 10 && c->cb.on_message)
+            c->cb.on_message("Input video is 8-bit; converting to 10-bit for the selected encoder.");
+        else if (!selected_10bit && input_info.bit_depth >= 10 && c->cb.on_message)
+            c->cb.on_message("Input video is 10-bit; converting to 8-bit for the selected encoder.");
+    }
+    if (have_input_info && output_hw && input_info.bit_depth == 0 && c->cb.on_message)
+        c->cb.on_message("Input video bit depth is unknown; using the selected encoder format.");
 
     /* Shell-safe escaped versions of all user-provided paths */
     char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
@@ -906,10 +924,9 @@ static void build_ffmpeg_cmd(
      * by using av1_qsv (Intel QSV/D3D11VA) when available, which uses the
      * Intel GPU instead.  All other codecs use -hwaccel none (software). */
     {
-        char input_vcodec[64];
-        int input_is_av1 = (probe_input_video_codec(input, input_vcodec,
-                                                     sizeof(input_vcodec)) &&
-                            strcmp(input_vcodec, "av1") == 0);
+        InputVideoInfo input_info;
+        int input_is_av1 = input_video_info_probe(input, &input_info) &&
+                   strcmp(input_info.codec_name, "av1") == 0;
         int output_is_hw_encode = codec_is_vaapi(opts->codec) ||
                                    codec_is_vulkan(opts->codec);
         if (input_is_av1 && output_is_hw_encode &&
@@ -957,12 +974,18 @@ static void build_ffmpeg_cmd(
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:a:0 ") < 0) goto overflow;
     }
     if (cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0) goto overflow;
+    if (append_color_metadata(cmd, sizeof(cmd), &pos,
+                              have_input_info ? &input_info : NULL) < 0)
+        goto overflow;
 
     // video codec
     // Try platform-specific codec flags first (VAAPI, VideoToolbox, NVENC, etc.)
     const char* platform_vcodec = platform_get_video_codec_flags(opts->codec, input, opts);
-    if (platform_vcodec != NULL) {
+        if (platform_vcodec != NULL) {
         if (cmd_cat(cmd, sizeof(cmd), &pos, platform_vcodec) < 0) goto overflow;
+            if (selected_10bit && (strstr(opts->codec, "hevc_") != NULL)) {
+                if (cmd_cat(cmd, sizeof(cmd), &pos, "-profile:v main10 ") < 0) goto overflow;
+            }
     }
     else if (strcmp(opts->codec, "prores") == 0 ||
              strcmp(opts->codec, "prores_ks") == 0)
@@ -1004,15 +1027,22 @@ static void build_ffmpeg_cmd(
                     "alpha=0.12:beta=0.07:gamma=0.06:delta=0.05:planes=1\" ") < 0) goto overflow;
         }
     }
-    else if (codec_is_vaapi(opts->codec) || codec_is_vulkan(opts->codec)) {
+    else if (codec_is_vaapi(opts->codec) || codec_is_vulkan(opts->codec) ||
+             codec_is_qsv(opts->codec) || codec_is_nvenc(opts->codec)) {
         /* Pixel format conversion and GPU upload for hw-accelerated codecs.
          * The filter string is provided by the platform; defaults to VAAPI. */
         const char* hw_vf = platform_get_hw_vfilter(opts->codec, opts);
+        const char *format = selected_10bit ? "p010le" : "nv12";
+        if ((codec_is_qsv(opts->codec) || codec_is_nvenc(opts->codec)) && !selected_10bit)
+            goto skip_hw_filter;
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-vf \"format=") < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos,
-                    (hw_vf && hw_vf[0] != '\0') ? hw_vf : "nv12,hwupload") < 0 ||
+                selected_10bit ? ((codec_is_qsv(opts->codec) || codec_is_nvenc(opts->codec)) ? "p010le" : "p010le,hwupload") :
+                (codec_is_qsv(opts->codec) || codec_is_nvenc(opts->codec)) ? format :
+                ((hw_vf && hw_vf[0] != '\0') ? hw_vf : "nv12,hwupload")) < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos, "\" ") < 0) goto overflow;
     }
+    skip_hw_filter:
 
     // audio codec
     if (is_dual_audio_output) {

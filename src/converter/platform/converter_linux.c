@@ -239,13 +239,22 @@ int platform_supports_codec(const char* codec) {
 
         if (strcmp(codec, "h264_vaapi")       == 0) return support.has_h264_vaapi;
         if (strcmp(codec, "hevc_vaapi")       == 0) return support.has_hevc_vaapi;
+        if (strcmp(codec, "av1_vaapi")        == 0) return support.has_av1_vaapi;
+        if (strcmp(codec, "hevc_vaapi_10bit") == 0) return support.has_hevc_vaapi_10bit;
+        if (strcmp(codec, "av1_vaapi_10bit")  == 0) return support.has_av1_vaapi_10bit;
         if (strcmp(codec, "h264_nvenc")       == 0) return support.has_h264_nvenc;
         if (strcmp(codec, "hevc_nvenc")       == 0) return support.has_hevc_nvenc;
+        if (strcmp(codec, "av1_nvenc")        == 0) return support.has_av1_nvenc;
+        if (strcmp(codec, "hevc_nvenc_10bit") == 0) return support.has_hevc_nvenc_10bit;
+        if (strcmp(codec, "av1_nvenc_10bit")  == 0) return support.has_av1_nvenc_10bit;
         if (strcmp(codec, "h264_amf")         == 0) return support.has_h264_amf;
         if (strcmp(codec, "hevc_amf")         == 0) return support.has_hevc_amf;
         if (strcmp(codec, "av1_amf")          == 0) return support.has_av1_amf;
         if (strcmp(codec, "h264_qsv")         == 0) return support.has_h264_qsv;
         if (strcmp(codec, "hevc_qsv")         == 0) return support.has_hevc_qsv;
+        if (strcmp(codec, "av1_qsv")          == 0) return support.has_av1_qsv;
+        if (strcmp(codec, "hevc_qsv_10bit")   == 0) return support.has_hevc_qsv_10bit;
+        if (strcmp(codec, "av1_qsv_10bit")    == 0) return support.has_av1_qsv_10bit;
         if (strcmp(codec, "prores_ks_vulkan") == 0) return support.has_prores_ks_vulkan;
         if (strcmp(codec, "h264_vulkan")      == 0) return support.has_h264_vulkan;
         if (strcmp(codec, "hevc_vulkan")      == 0) return support.has_hevc_vulkan;
@@ -261,9 +270,17 @@ const char* platform_get_video_codec_flags(const char* codec,
     (void)input_path;
 
     const ConvertOptions* copt = (const ConvertOptions*)opts;
+    char normalized_codec[64];
     static char prores_flags[256];
 
     if (!codec) return NULL;
+    strncpy(normalized_codec, codec, sizeof(normalized_codec) - 1);
+    normalized_codec[sizeof(normalized_codec) - 1] = '\0';
+    {
+        char *suffix = strstr(normalized_codec, "_10bit");
+        if (suffix) *suffix = '\0';
+        codec = normalized_codec;
+    }
 
     /* Speed/balance/quality preset tiers for GPU codecs (Phase 2).
      * `default` strings are byte-for-byte identical to pre-Phase-2 behavior —
@@ -289,6 +306,11 @@ const char* platform_get_video_codec_flags(const char* codec,
               "-c:v hevc_vaapi -rc_mode CQP -qp 28 ",
               "-c:v hevc_vaapi -rc_mode CQP -qp 24 ",
               "-c:v hevc_vaapi -rc_mode CQP -qp 20 " },
+                        { "av1_vaapi",
+                            "-c:v av1_vaapi -rc_mode auto ",
+                            "-c:v av1_vaapi -rc_mode CQP -qp 28 ",
+                            "-c:v av1_vaapi -rc_mode CQP -qp 24 ",
+                            "-c:v av1_vaapi -rc_mode CQP -qp 20 " },
             { "h264_nvenc",
               "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1 ",
               "-c:v h264_nvenc -preset p1 -qp 22 -spatial_aq 1 -temporal_aq 1 ",
@@ -330,6 +352,11 @@ const char* platform_get_video_codec_flags(const char* codec,
               "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
               "-c:v hevc_qsv -global_quality 25 -preset slow "
               "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 " },
+                        { "av1_qsv",
+                            "-c:v av1_qsv -global_quality 28 -preset slow ",
+                            "-c:v av1_qsv -global_quality 28 -preset veryfast ",
+                            "-c:v av1_qsv -global_quality 28 -preset medium ",
+                            "-c:v av1_qsv -global_quality 28 -preset slow " },
             { "h264_vulkan",
               "-c:v h264_vulkan -qp 18 ",
               "-c:v h264_vulkan -qp 28 ",
@@ -389,6 +416,8 @@ int platform_detect_gpu_support(void) {
     if (support.has_hevc_vaapi)       caps |= PLAT_CAP_VAAPI_HEVC;
     if (support.has_h264_nvenc)       caps |= PLAT_CAP_NVENC_H264;
     if (support.has_hevc_nvenc)       caps |= PLAT_CAP_NVENC_HEVC;
+    if (support.has_hevc_nvenc_10bit) caps |= PLAT_CAP_NVENC_HEVC_10BIT;
+    if (support.has_av1_nvenc_10bit)  caps |= PLAT_CAP_NVENC_AV1_10BIT;
     if (support.has_h264_amf)         caps |= PLAT_CAP_AMF_H264;
     if (support.has_hevc_amf)         caps |= PLAT_CAP_AMF_HEVC;
     if (support.has_av1_amf)          caps |= PLAT_CAP_AMF_AV1;

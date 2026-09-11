@@ -20,7 +20,7 @@ extern "C" {
 
 /* Version string shown by --version.  Keep in sync with CMakeLists.txt
  * project(VERSION ...) and the [Unreleased]/latest release in CHANGELOG.md. */
-#define FFMPEG_CONVERTER_VERSION "2.6.0"
+#define FFMPEG_CONVERTER_VERSION "3.0b"
 
 /* ---------------------------------------------------------------
  *  CLI Callbacks (passed to converter_set_callbacks)

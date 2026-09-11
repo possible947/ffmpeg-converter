@@ -5,6 +5,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [3.0b] — Active beta development (2026-09-11)
+
+Version 3.0b is an active beta, not a completed stable release. The Linux CLI
+is the current reference implementation for the unified codec catalog and
+hardware/input metadata work. GUI migration is unfinished, and macOS/Windows
+build, runtime, and hardware debugging remain required before Version 3 can be
+considered complete.
+
 ## [Unreleased] — Unified codec catalog build integration (2026-09-11)
 
 ### Added
@@ -26,6 +34,102 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Added the autonomous `RuntimeProbeCatalogTests` CTest, which validates enabled,
   disabled, platform-mismatched, and final-codec-mismatched catalog entries
   without requiring a physical GPU.
+
+## [Unreleased] — Input video metadata probe, Phase A (2026-09-11)
+
+### Added
+- Added the cross-platform `InputVideoInfo` probe for the first video stream.
+  It reads codec name, pixel format, raw bit depth, profile, dimensions, and
+  frame rate through the bundled `ffprobe`.
+- Added `InputVideoInfoTests` with 8-bit, 10-bit, fallback, and unknown-depth
+  fixtures. The test executable also accepts a media path for real-input probe
+  debugging.
+
+### Changed
+- The existing AV1 input decoder decision now consumes the shared input-info
+  probe while preserving its previous behavior. Pixel-format and bit-depth
+  output selection remains planned for the next phase.
+
+## [Unreleased] — Hardware bit-depth catalog, Phase B (2026-09-11)
+
+### Added
+- Extended the unified catalog with Linux `vaapi` and `qsv` AV1 variants and
+  10-bit variants for HEVC and AV1.
+- Added `bit_depths`, `pixel_format`, `profile_args`, and preset-name metadata
+  for the new variants. Each new hardware variant defines `default`, `speed`,
+  `balance`, and `quality` selections.
+- Phase B fixtures were verified: `test.mkv` is VP9 8-bit and `test_10bit.mov`
+  is ProRes `yuv422p10le` 10-bit.
+
+### Changed
+- Runtime activation and command construction for the new hardware variants
+  remain deferred to Phase C; this phase only extends the selection catalog.
+
+## [Unreleased] — Hardware capability probes, Phase C (2026-09-11)
+
+### Added
+- Linux runtime probing now performs one-frame tests for `av1_vaapi`,
+  `hevc_vaapi` 10-bit, `av1_vaapi` 10-bit, `av1_qsv`, `hevc_qsv` 10-bit, and
+  `av1_qsv` 10-bit when the corresponding catalog entries are enabled.
+- Added synchronized capability fields for the new AV1 and 10-bit hardware
+  variants in the platform runtime support structures.
+
+### Changed
+- Phase C records hardware capability only. Input-driven pixel-format/profile
+  selection and command construction remain deferred to the next phase.
+
+## [Unreleased] — Hardware bit-depth command construction, Phase D (2026-09-11)
+
+### Added
+- Added internal 10-bit VAAPI/QSV codec variants that resolve to the base
+  hardware encoders with `p010le` input and HEVC Main10 profile handling.
+- Added input-depth warnings for 8-bit input selected for 10-bit encoding and
+  10-bit input selected for an 8-bit encoder mode.
+- Added Phase D hardware format selection: VAAPI/Vulkan use `p010le,hwupload`
+  for 10-bit variants, while QSV uses `p010le` without VAAPI upload.
+
+### Tests
+- Real `test.mkv` conversion through `vaapi/hevc_10bit` completed successfully.
+  Output was verified with ffprobe as HEVC Main 10, `yuv420p10le`.
+- `test.mkv` and `test_10bit.mov` input metadata probes were verified before
+  command construction.
+
+## [Unreleased] — Color metadata propagation, Phase E (2026-09-11)
+
+### Added
+- Input video metadata probing now reads stream color range, primaries,
+  transfer characteristics, and color matrix.
+- Known color metadata is forwarded to generated FFmpeg output commands using
+  `-color_range`, `-color_primaries`, `-color_trc`, and `-colorspace`.
+- Missing color metadata remains unknown; the converter does not invent values
+  or overwrite absent input metadata.
+
+### Tests
+- Both `test.mkv` and `test_10bit.mov` color metadata were parsed successfully.
+- A real `test.mkv` VAAPI HEVC Main10 conversion preserved `tv/bt709/bt709/bt709`
+  color metadata in the output stream, verified with ffprobe.
+
+## [Unreleased] — Cross-platform hardware source synchronization, Phase F (2026-09-11)
+
+### Added
+- Synchronized the Windows QSV source path for 10-bit HEVC/AV1 capability
+  probing, converter capability flags, CLI availability, and catalog variants.
+- Kept VAAPI variants Linux-only and avoided exposing unverified macOS hardware
+  variants until native macOS validation is available.
+
+### Validation
+- Linux remains the active validation host; macOS and Windows source paths are
+  synchronized for later native build and runtime verification.
+
+## [Unreleased] — NVENC 10-bit support (2026-09-11)
+
+### Added
+- Added Linux and Windows NVENC 10-bit HEVC/AV1 catalog variants with
+  `p010le` and HEVC Main10 profile handling.
+- Added Linux and Windows runtime one-frame probes for `hevc_nvenc_10bit` and
+  `av1_nvenc_10bit`.
+- NVENC 10-bit variants now use the same input-depth warnings and command
+  construction rules as QSV 10-bit variants.
 
 ## [Unreleased] — Structured CLI codec selection (2026-09-11)
 

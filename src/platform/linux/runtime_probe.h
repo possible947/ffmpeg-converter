@@ -11,11 +11,17 @@ typedef struct {
     /* VAAPI (Intel/AMD iGPU via DRI render node) */
     int has_h264_vaapi;
     int has_hevc_vaapi;
+    int has_av1_vaapi;
+    int has_hevc_vaapi_10bit;
+    int has_av1_vaapi_10bit;
     char default_render_node[1024];
 
     /* NVIDIA NVENC */
     int has_h264_nvenc;
     int has_hevc_nvenc;
+    int has_av1_nvenc;
+    int has_hevc_nvenc_10bit;
+    int has_av1_nvenc_10bit;
 
     /* AMD AMF */
     int has_h264_amf;
@@ -25,6 +31,9 @@ typedef struct {
     /* Intel QSV */
     int has_h264_qsv;
     int has_hevc_qsv;
+    int has_av1_qsv;
+    int has_hevc_qsv_10bit;
+    int has_av1_qsv_10bit;
 
     /* Vulkan (GPU-accelerated ProRes via Vulkan) */
     int has_prores_ks_vulkan;

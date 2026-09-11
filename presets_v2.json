@@ -95,12 +95,38 @@
                 "h264": {
                   "enabled": true,
                   "final_codec": "h264_vaapi",
-                  "requires": ["h264_vaapi"]
+                  "requires": ["h264_vaapi"],
+                  "bit_depths": [8]
                 },
                 "hevc": {
                   "enabled": true,
                   "final_codec": "hevc_vaapi",
-                  "requires": ["hevc_vaapi"]
+                  "requires": ["hevc_vaapi"],
+                  "bit_depths": [8]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_vaapi",
+                  "requires": ["hevc_vaapi_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": ["default", "speed", "balance", "quality"]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_vaapi",
+                  "requires": ["av1_vaapi"],
+                  "bit_depths": [8],
+                  "presets": ["default", "speed", "balance", "quality"]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_vaapi",
+                  "requires": ["av1_vaapi_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "presets": ["default", "speed", "balance", "quality"]
                 }
               }
             },
@@ -117,6 +143,30 @@
                   "enabled": true,
                   "final_codec": "hevc_nvenc",
                   "requires": ["hevc_nvenc"]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_nvenc",
+                  "requires": ["av1_nvenc"],
+                  "bit_depths": [8],
+                  "presets": ["default", "speed", "balance", "quality"]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_nvenc",
+                  "requires": ["hevc_nvenc_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": ["default", "speed", "balance", "quality"]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_nvenc",
+                  "requires": ["av1_nvenc_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "presets": ["default", "speed", "balance", "quality"]
                 }
               }
             },
@@ -148,12 +198,38 @@
                 "h264": {
                   "enabled": true,
                   "final_codec": "h264_qsv",
-                  "requires": ["h264_qsv"]
+                  "requires": ["h264_qsv"],
+                  "bit_depths": [8]
                 },
                 "hevc": {
                   "enabled": true,
                   "final_codec": "hevc_qsv",
-                  "requires": ["hevc_qsv"]
+                  "requires": ["hevc_qsv"],
+                  "bit_depths": [8]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_qsv",
+                  "requires": ["hevc_qsv_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": ["default", "speed", "balance", "quality"]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_qsv",
+                  "requires": ["av1_qsv"],
+                  "bit_depths": [8],
+                  "presets": ["default", "speed", "balance", "quality"]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_qsv",
+                  "requires": ["av1_qsv_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "presets": ["default", "speed", "balance", "quality"]
                 }
               }
             },
@@ -236,6 +312,23 @@
                   "enabled": true,
                   "final_codec": "av1_nvenc",
                   "requires": ["av1_nvenc"]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_nvenc",
+                  "requires": ["hevc_nvenc_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": ["default", "speed", "balance", "quality"]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_nvenc",
+                  "requires": ["av1_nvenc_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "presets": ["default", "speed", "balance", "quality"]
                 }
               }
             },
@@ -272,12 +365,31 @@
                 "hevc": {
                   "enabled": true,
                   "final_codec": "hevc_qsv",
-                  "requires": ["hevc_qsv"]
+                  "requires": ["hevc_qsv"],
+                  "bit_depths": [8]
                 },
                 "av1": {
                   "enabled": true,
                   "final_codec": "av1_qsv",
-                  "requires": ["av1_qsv"]
+                  "requires": ["av1_qsv"],
+                  "bit_depths": [8]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_qsv",
+                  "requires": ["hevc_qsv_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": ["default", "speed", "balance", "quality"]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_qsv",
+                  "requires": ["av1_qsv_10bit"],
+                  "bit_depths": [10],
+                  "pixel_format": "p010le",
+                  "presets": ["default", "speed", "balance", "quality"]
                 }
               }
             },

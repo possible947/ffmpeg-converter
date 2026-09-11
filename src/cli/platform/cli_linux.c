@@ -204,13 +204,22 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
 
     if (!strcmp(codec, "h264_vaapi"))        return h->support.has_h264_vaapi;
     if (!strcmp(codec, "hevc_vaapi"))        return h->support.has_hevc_vaapi;
+    if (!strcmp(codec, "av1_vaapi"))         return h->support.has_av1_vaapi;
+    if (!strcmp(codec, "hevc_vaapi_10bit"))  return h->support.has_hevc_vaapi_10bit;
+    if (!strcmp(codec, "av1_vaapi_10bit"))   return h->support.has_av1_vaapi_10bit;
     if (!strcmp(codec, "h264_nvenc"))        return h->support.has_h264_nvenc;
     if (!strcmp(codec, "hevc_nvenc"))        return h->support.has_hevc_nvenc;
+    if (!strcmp(codec, "av1_nvenc"))         return h->support.has_av1_nvenc;
+    if (!strcmp(codec, "hevc_nvenc_10bit"))  return h->support.has_hevc_nvenc_10bit;
+    if (!strcmp(codec, "av1_nvenc_10bit"))   return h->support.has_av1_nvenc_10bit;
     if (!strcmp(codec, "h264_amf"))          return h->support.has_h264_amf;
     if (!strcmp(codec, "hevc_amf"))          return h->support.has_hevc_amf;
     if (!strcmp(codec, "av1_amf"))           return h->support.has_av1_amf;
     if (!strcmp(codec, "h264_qsv"))          return h->support.has_h264_qsv;
     if (!strcmp(codec, "hevc_qsv"))          return h->support.has_hevc_qsv;
+    if (!strcmp(codec, "av1_qsv"))           return h->support.has_av1_qsv;
+    if (!strcmp(codec, "hevc_qsv_10bit"))    return h->support.has_hevc_qsv_10bit;
+    if (!strcmp(codec, "av1_qsv_10bit"))     return h->support.has_av1_qsv_10bit;
     if (!strcmp(codec, "prores_ks_vulkan"))  return h->support.has_prores_ks_vulkan;
     if (!strcmp(codec, "h264_vulkan"))       return h->support.has_h264_vulkan;
     if (!strcmp(codec, "hevc_vulkan"))       return h->support.has_hevc_vulkan;

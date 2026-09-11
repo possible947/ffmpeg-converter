@@ -262,6 +262,10 @@ int platform_get_video_info(const char* input_path,
 #define PLAT_CAP_VULKAN_AV1     (1 << 17) /* av1_vulkan (hardware Vulkan video encode) */
 #define PLAT_CAP_QSV_AV1        (1 << 18) /* av1_qsv (Intel QSV AV1 encode, Xe-HPG/Arc or 12th-gen+ iGPU) */
 #define PLAT_CAP_NVENC_AV1      (1 << 19) /* av1_nvenc (NVIDIA NVENC AV1 encode, Ada Lovelace/RTX 40-series+) */
+#define PLAT_CAP_QSV_HEVC_10BIT (1 << 20) /* hevc_qsv Main10 */
+#define PLAT_CAP_QSV_AV1_10BIT  (1 << 21) /* av1_qsv 10-bit */
+#define PLAT_CAP_NVENC_HEVC_10BIT (1 << 22) /* hevc_nvenc Main10 */
+#define PLAT_CAP_NVENC_AV1_10BIT  (1 << 23) /* av1_nvenc 10-bit */
 
 /**
  * Returns pre-input hardware device initialization flags for the given codec.

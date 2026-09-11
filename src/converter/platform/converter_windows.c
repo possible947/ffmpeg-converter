@@ -6,6 +6,7 @@
 
 #include "../converter_platform.h"
 #include "../converter.h"
+#include "../../platform/windows/runtime_probe.h"
 #include <windows.h>
 #include <shlwapi.h>    /* PathFindOnPathW */
 #include <direct.h>     /* _mkdir */
@@ -504,6 +505,8 @@ int platform_supports_codec(const char* codec) {
         strcmp(codec, "h264_qsv")         == 0 ||
         strcmp(codec, "hevc_qsv")         == 0 ||
         strcmp(codec, "av1_qsv")          == 0 ||
+        strcmp(codec, "hevc_qsv_10bit")   == 0 ||
+        strcmp(codec, "av1_qsv_10bit")    == 0 ||
         strcmp(codec, "prores_ks_vulkan") == 0 ||
         strcmp(codec, "h264_vulkan")      == 0 ||
         strcmp(codec, "hevc_vulkan")      == 0 ||
@@ -513,12 +516,16 @@ int platform_supports_codec(const char* codec) {
         if (strcmp(codec, "h264_nvenc")       == 0) return (caps & PLAT_CAP_NVENC_H264)     ? 1 : 0;
         if (strcmp(codec, "hevc_nvenc")       == 0) return (caps & PLAT_CAP_NVENC_HEVC)     ? 1 : 0;
         if (strcmp(codec, "av1_nvenc")        == 0) return (caps & PLAT_CAP_NVENC_AV1)      ? 1 : 0;
+        if (strcmp(codec, "hevc_nvenc_10bit") == 0) return (caps & PLAT_CAP_NVENC_HEVC_10BIT) ? 1 : 0;
+        if (strcmp(codec, "av1_nvenc_10bit")  == 0) return (caps & PLAT_CAP_NVENC_AV1_10BIT)  ? 1 : 0;
         if (strcmp(codec, "h264_amf")         == 0) return (caps & PLAT_CAP_AMF_H264)       ? 1 : 0;
         if (strcmp(codec, "hevc_amf")         == 0) return (caps & PLAT_CAP_AMF_HEVC)       ? 1 : 0;
         if (strcmp(codec, "av1_amf")          == 0) return (caps & PLAT_CAP_AMF_AV1)        ? 1 : 0;
         if (strcmp(codec, "h264_qsv")         == 0) return (caps & PLAT_CAP_QSV_H264)       ? 1 : 0;
         if (strcmp(codec, "hevc_qsv")         == 0) return (caps & PLAT_CAP_QSV_HEVC)       ? 1 : 0;
         if (strcmp(codec, "av1_qsv")          == 0) return (caps & PLAT_CAP_QSV_AV1)        ? 1 : 0;
+        if (strcmp(codec, "hevc_qsv_10bit")   == 0) return (caps & PLAT_CAP_QSV_HEVC_10BIT) ? 1 : 0;
+        if (strcmp(codec, "av1_qsv_10bit")    == 0) return (caps & PLAT_CAP_QSV_AV1_10BIT)  ? 1 : 0;
         if (strcmp(codec, "prores_ks_vulkan") == 0) return (caps & PLAT_CAP_VULKAN_PRORES)  ? 1 : 0;
         if (strcmp(codec, "h264_vulkan")      == 0) return (caps & PLAT_CAP_VULKAN_H264)    ? 1 : 0;
         if (strcmp(codec, "hevc_vulkan")      == 0) return (caps & PLAT_CAP_VULKAN_HEVC)    ? 1 : 0;
@@ -536,8 +543,16 @@ const char* platform_get_video_codec_flags(const char* codec,
 
     const ConvertOptions* copt = (const ConvertOptions*)opts;
     static char prores_flags[256];
+    char normalized_codec[64];
 
     if (!codec) return NULL;
+    strncpy(normalized_codec, codec, sizeof(normalized_codec) - 1);
+    normalized_codec[sizeof(normalized_codec) - 1] = '\0';
+    {
+        char *suffix = strstr(normalized_codec, "_10bit");
+        if (suffix) *suffix = '\0';
+        codec = normalized_codec;
+    }
 
     /* Speed/balance/quality preset tiers for GPU codecs (Phase 2).
      * `default` strings are byte-for-byte identical to pre-Phase-2 behavior —
@@ -730,6 +745,15 @@ int platform_detect_gpu_support(void) {
         if (strstr(line, " libfdk_aac"))        caps |= PLAT_CAP_LIBFDK_AAC;
     }
     _pclose(fp);
+
+    {
+        WindowsCodecSupport support;
+        windows_probe_codec_support(&support);
+        if (support.has_hevc_nvenc_10bit) caps |= PLAT_CAP_NVENC_HEVC_10BIT;
+        if (support.has_av1_nvenc_10bit)  caps |= PLAT_CAP_NVENC_AV1_10BIT;
+        if (support.has_hevc_qsv_10bit) caps |= PLAT_CAP_QSV_HEVC_10BIT;
+        if (support.has_av1_qsv_10bit)  caps |= PLAT_CAP_QSV_AV1_10BIT;
+    }
 
     /* Probe decoders: flag av1_qsv only when Intel QSV is present.
      * av1_qsv uses D3D11VA via Intel Arc/UHD and reliably decodes AV1

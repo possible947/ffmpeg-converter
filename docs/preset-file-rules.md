@@ -43,6 +43,10 @@ Each selectable group or component has these applicable fields:
 - `final_codec`: existing built-in codec ID, when applicable;
 - `requires`: runtime capability names for probing;
 - `presets_source`: link to built-in execution presets or an external source.
+- `bit_depths`: input/output bit depths supported by the selection variant;
+- `pixel_format`: required pixel format for a bit-depth-specific variant;
+- `profile_args`: encoder-specific profile flags, when required;
+- `presets`: available preset names for a catalog variant.
 
 ## Selection groups
 
@@ -76,6 +80,23 @@ codec ID, for example:
   "requires": ["hevc_nvenc"]
 }
 ```
+
+Bit-depth variants are selection entries, not new FFmpeg codec IDs. For
+example, `hevc_10bit` resolves to `hevc_vaapi` or `hevc_qsv` with `p010le` and
+the encoder-specific 10-bit profile arguments. Runtime activation and command
+construction for these variants are implemented in the later hardware encoding
+phase.
+
+Phase C runtime probing performs one-frame capability tests for Linux VAAPI and
+QSV AV1, HEVC 10-bit, and AV1 10-bit entries. The probe uses the catalog's
+`requires` names and does not enable a bit-depth variant from encoder listing
+alone. Command construction and input-driven pixel-format switching remain a
+separate phase.
+
+Phase F keeps the platform sources synchronized without exposing unsupported
+backends: VAAPI variants remain Linux-only, Windows QSV 10-bit variants use
+Windows runtime probes, and macOS exposes only its VideoToolbox catalog until
+its 10-bit capabilities are verified on macOS hardware.
 
 ### Pipeline group
 

@@ -325,6 +325,33 @@ static int probe_simple_encoder(const char *ffmpeg_bin,
     return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
 }
 
+static int probe_simple_encoder_format(const char *ffmpeg_bin,
+                                       const char *encoder_name,
+                                       const char *pixel_format,
+                                       const char *extra_args)
+{
+    char cmd[8192];
+    char *q;
+    int rc;
+
+    if (!ffmpeg_bin || !encoder_name || !pixel_format)
+        return 0;
+    q = posix_shell_quote(ffmpeg_bin);
+    if (!q)
+        return 0;
+    snprintf(cmd, sizeof(cmd),
+             "%s -v error -hide_banner -f lavfi "
+             "-i color=size=1920x1080:rate=1,format=%s "
+             "-frames:v 1 -vf format=%s %s-c:v %s -f null - >/dev/null 2>&1",
+             q, pixel_format, pixel_format,
+             extra_args ? extra_args : "", encoder_name);
+    free(q);
+    rc = system(cmd);
+    if (rc == -1)
+        return 0;
+    return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
+}
+
 /* Forward declaration: skips CPU-only (llvmpipe/lavapipe) Vulkan devices.
  * Defined below; needed here so probe_vulkan_prores() can use the same
  * software-device filter as probe_vulkan_encoder(). */
@@ -556,7 +583,7 @@ static int probe_vaapi_encoder(const char *ffmpeg_bin,
     snprintf(cmd,
              sizeof(cmd),
              "%s -v error -hide_banner "
-             "-init_hw_device vaapi=va:%s "
+             "-init_hw_device vaapi=va:%s -filter_hw_device va "
              "-f lavfi -i color=size=1920x1080:rate=1 "
              "-frames:v 1 -vf format=nv12,hwupload "
              "-c:v %s -f null - >/dev/null 2>&1",
@@ -573,6 +600,41 @@ static int probe_vaapi_encoder(const char *ffmpeg_bin,
     return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
 }
 
+static int probe_vaapi_encoder_format(const char *ffmpeg_bin,
+                                      const char *render_node,
+                                      const char *encoder_name,
+                                      const char *pixel_format,
+                                      const char *extra_args)
+{
+    char cmd[8192];
+    char *q;
+    char *q_node;
+    int rc;
+
+    if (!ffmpeg_bin || !render_node || !encoder_name || !pixel_format)
+        return 0;
+    q = posix_shell_quote(ffmpeg_bin);
+    q_node = posix_shell_quote(render_node);
+    if (!q || !q_node) {
+        free(q);
+        free(q_node);
+        return 0;
+    }
+    snprintf(cmd, sizeof(cmd),
+             "%s -v error -hide_banner "
+             "-init_hw_device vaapi=va:%s -filter_hw_device va "
+             "-f lavfi -i color=size=1920x1080:rate=1,format=%s "
+             "-frames:v 1 -vf format=%s,hwupload %s-c:v %s -f null - >/dev/null 2>&1",
+             q, q_node, pixel_format, pixel_format,
+             extra_args ? extra_args : "", encoder_name);
+    free(q);
+    free(q_node);
+    rc = system(cmd);
+    if (rc == -1)
+        return 0;
+    return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
+}
+
 int linux_probe_codec_support(LinuxCodecSupport *out_support)
 {
     LinuxCodecSupport detected;
@@ -581,6 +643,12 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
     char catalog_path[PATH_MAX];
     int vaapi_h264_enabled;
     int vaapi_hevc_enabled;
+    int vaapi_av1_enabled;
+    int vaapi_hevc_10bit_enabled;
+    int vaapi_av1_10bit_enabled;
+    int qsv_av1_enabled;
+    int qsv_hevc_10bit_enabled;
+    int qsv_av1_10bit_enabled;
 
     if (g_cache.initialized) {
         if (out_support)
@@ -619,6 +687,18 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
                                                    "h264", "h264_vaapi");
     vaapi_hevc_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "vaapi",
                                                    "hevc", "hevc_vaapi");
+    vaapi_av1_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "vaapi",
+                                                   "av1", "av1_vaapi");
+    vaapi_hevc_10bit_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "vaapi",
+                                                   "hevc_10bit", "hevc_vaapi");
+    vaapi_av1_10bit_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "vaapi",
+                                                   "av1_10bit", "av1_vaapi");
+    qsv_av1_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "qsv",
+                                                   "av1", "av1_qsv");
+    qsv_hevc_10bit_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "qsv",
+                                                   "hevc_10bit", "hevc_qsv");
+    qsv_av1_10bit_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "qsv",
+                                                   "av1_10bit", "av1_qsv");
 
     dir = opendir("/dev/dri");
     if (dir) {
@@ -639,6 +719,18 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
             has_hevc = vaapi_hevc_enabled &&
                        probe_vaapi_encoder(detected.ffmpeg_bin, render_node, "hevc_vaapi");
 
+            if (vaapi_av1_enabled &&
+                probe_vaapi_encoder(detected.ffmpeg_bin, render_node, "av1_vaapi"))
+                detected.has_av1_vaapi = 1;
+            if (vaapi_hevc_10bit_enabled &&
+                probe_vaapi_encoder_format(detected.ffmpeg_bin, render_node,
+                                           "hevc_vaapi", "p010le", "-profile:v main10 "))
+                detected.has_hevc_vaapi_10bit = 1;
+            if (vaapi_av1_10bit_enabled &&
+                probe_vaapi_encoder_format(detected.ffmpeg_bin, render_node,
+                                           "av1_vaapi", "p010le", ""))
+                detected.has_av1_vaapi_10bit = 1;
+
             if (!detected.default_render_node[0] && (has_h264 || has_hevc)) {
                 copy_string(detected.default_render_node,
                             sizeof(detected.default_render_node),
@@ -658,6 +750,13 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
                               probe_simple_encoder(detected.ffmpeg_bin, "h264_nvenc");
     detected.has_hevc_nvenc = runtime_catalog_component_enabled(catalog_path, "linux", "nvenc", "hevc", "hevc_nvenc") &&
                               probe_simple_encoder(detected.ffmpeg_bin, "hevc_nvenc");
+    detected.has_av1_nvenc = runtime_catalog_component_enabled(catalog_path, "linux", "nvenc", "av1", "av1_nvenc") &&
+                             ffmpeg_has_encoder(detected.ffmpeg_bin, "av1_nvenc") &&
+                             probe_simple_encoder(detected.ffmpeg_bin, "av1_nvenc");
+    detected.has_hevc_nvenc_10bit = runtime_catalog_component_enabled(catalog_path, "linux", "nvenc", "hevc_10bit", "hevc_nvenc") &&
+                                    probe_simple_encoder_format(detected.ffmpeg_bin, "hevc_nvenc", "p010le", "-profile:v main10 ");
+    detected.has_av1_nvenc_10bit = runtime_catalog_component_enabled(catalog_path, "linux", "nvenc", "av1_10bit", "av1_nvenc") &&
+                                   probe_simple_encoder_format(detected.ffmpeg_bin, "av1_nvenc", "p010le", "");
 
     /* AMF — AMD (no device path required) */
     detected.has_h264_amf = runtime_catalog_component_enabled(catalog_path, "linux", "amf", "h264", "h264_amf") &&
@@ -675,6 +774,14 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
                             probe_simple_encoder(detected.ffmpeg_bin, "h264_qsv");
     detected.has_hevc_qsv = runtime_catalog_component_enabled(catalog_path, "linux", "qsv", "hevc", "hevc_qsv") &&
                             probe_simple_encoder(detected.ffmpeg_bin, "hevc_qsv");
+    detected.has_av1_qsv = qsv_av1_enabled &&
+                           probe_simple_encoder(detected.ffmpeg_bin, "av1_qsv");
+    detected.has_hevc_qsv_10bit = qsv_hevc_10bit_enabled &&
+                                  probe_simple_encoder_format(detected.ffmpeg_bin, "hevc_qsv",
+                                                              "p010le", "-profile:v main10 ");
+    detected.has_av1_qsv_10bit = qsv_av1_10bit_enabled &&
+                                 probe_simple_encoder_format(detected.ffmpeg_bin, "av1_qsv",
+                                                             "p010le", "");
 
     /* Vulkan — any GPU with Vulkan 1.1+ (compute-shader ProRes) */
     {
