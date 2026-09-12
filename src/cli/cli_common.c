@@ -1187,13 +1187,19 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
                 selection_group, selection_encoder);
         return 0;
     }
-    if (!strcmp(opts->codec, "copy"))
-        strcpy(opts->preset, "default");
-    else if (!strcmp(opts->codec, "mux") &&
-             (!strcmp(selection_encoder, "mkv") ||
-              !strcmp(selection_encoder, "mov") ||
-              !strcmp(selection_encoder, "m4v")))
-        strncpy(opts->preset, selection_encoder, sizeof(opts->preset) - 1);
+    if (!preset_explicit) {
+        if (!strcmp(opts->codec, "copy"))
+            strcpy(opts->preset, "default");
+        else if (!strcmp(opts->codec, "mux") &&
+                 (!strcmp(selection_encoder, "mkv") ||
+                  !strcmp(selection_encoder, "mov") ||
+                  !strcmp(selection_encoder, "m4v")))
+            strncpy(opts->preset, selection_encoder, sizeof(opts->preset) - 1);
+        else if (strstr(opts->codec, "prores") != NULL)
+            strcpy(opts->preset, "standard");
+        else
+            strcpy(opts->preset, "default");
+    }
 
     {
         int is_hw = strstr(opts->codec, "_vaapi") != NULL ||
@@ -1351,6 +1357,10 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
             free_temp_files(temp_files, temp_file_count);
             return -1;
         }
+        if (strstr(final_codec, "prores") != NULL)
+            strcpy(preset, "standard");
+        else
+            strcpy(preset, "default");
     }
 
     step = entries[codec_idx].needs_profile ? 2 : 4;

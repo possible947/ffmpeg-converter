@@ -15,6 +15,13 @@ considered complete.
 
 ## [Unreleased] — Unified preset catalog & architecture cleanup (2026-09-12)
 
+### Fixed
+- Fixed NVENC encoding failures across `h264_nvenc`, `hevc_nvenc`, and `av1_nvenc`:
+  - Corrected invalid hyphenation in `h264_nvenc` FFmpeg arguments (`-spatial-aq 1 -temporal-aq 1` instead of underscores).
+  - Corrected invalid preset identifier `-preset hq` to `-preset p4` in `hevc_nvenc` default preset.
+  - Added missing Linux `av1_nvenc`, `av1_vaapi`, and `av1_qsv` definitions to `presets.json.in`.
+  - Fixed CLI default preset initialization when `--preset` is not explicitly provided (defaulting to `"default"` rather than `"standard"` for hardware encoders).
+
 ### Changed
 - Unified the dual-layer preset catalogs (`presets_v2.json` and `presets.json`) into a single `presets.json` catalog (schema v3.0). It combines both UI/CLI selection menu hierarchy (`selection`) and execution FFmpeg arguments (`linux`, `macos`, `windows`).
 - Updated CMake build system and build scripts (`fpc/build/Makefile`, `package_appimage.sh`) to generate and copy a single `presets.json` artifact from `presets.json.in`.
