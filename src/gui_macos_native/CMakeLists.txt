@@ -40,6 +40,7 @@ target_compile_options(macos_gui_native PRIVATE -fobjc-arc)
 
 target_include_directories(macos_gui_native
     PRIVATE ${CMAKE_SOURCE_DIR}/src/converter
+    PRIVATE ${CMAKE_SOURCE_DIR}/src/platform
 )
 
 target_link_libraries(macos_gui_native

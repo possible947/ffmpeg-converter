@@ -928,7 +928,6 @@ int linux_get_vaapi_device_name(const char *device_path, char *out_name, size_t 
     FILE *fp;
     int device_num = 0;
     const char *node_name;
-    static int device_counter = 0;
 
     if (!device_path || !out_name || out_sz == 0) {
         if (out_name && out_sz > 0)
@@ -945,7 +944,7 @@ int linux_get_vaapi_device_name(const char *device_path, char *out_name, size_t 
 
     /* Try to extract device number from node name (renderD128 -> 128) */
     if (sscanf(node_name, "renderD%d", &device_num) != 1)
-        device_num = device_counter++;
+        device_num = 0;
 
     /* Try to read device name from sysfs */
     /* Path like: /sys/class/drm/renderD128/name */
@@ -968,7 +967,7 @@ int linux_get_vaapi_device_name(const char *device_path, char *out_name, size_t 
         fclose(fp);
     }
 
-    /* Fallback: use just the device node name with a simple prefix */
-    snprintf(out_name, out_sz, "GPU %d (%s)", device_counter++, node_name);
+    /* Fallback: derive the label from the stable render-node number. */
+    snprintf(out_name, out_sz, "GPU %d (%s)", device_num, node_name);
     return 0;
 }

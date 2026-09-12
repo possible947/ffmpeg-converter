@@ -9,6 +9,7 @@
 #include "converter.h"
 #include "m4v.h"
 #include "linux/runtime_probe.h"
+#include "selection_catalog.h"
 
 typedef enum {
     GUI_JOB_NONE = 0,
@@ -26,12 +27,15 @@ typedef struct {
 
     /* Controls */
     GtkWidget *codec_combo;
+    GtkWidget *encoder_combo;
     GtkWidget *vulkan_device_label;
     GtkWidget *vulkan_device_combo;
     GtkWidget *vaapi_device_label;
     GtkWidget *vaapi_device_combo;
     GtkWidget *profile_combo;
     GtkWidget *deblock_combo;
+    GtkWidget *filter_combo;
+    GtkWidget *filter_preset_combo;
 
     GtkWidget *audio_norm_combo;
     GtkWidget *audio_output_combo;
@@ -64,6 +68,7 @@ typedef struct {
     GMutex   thread_lock;           /* protects worker_thread */
     Converter *current_converter;   /* protected by thread_lock */
     gboolean shutting_down;         /* set during app shutdown */
+    gboolean updating_selection;    /* blocks nested combo refresh signals */
 
     /* Deferred UI updates to avoid re-entrancy in signal handlers */
     guint dependent_update_source_id;
@@ -75,9 +80,11 @@ typedef struct {
 
     /* Linux runtime codec support cache */
     LinuxCodecSupport linux_codec_support;
+    SelectionCatalog *selection_catalog;
 
     /* Backing models for combos that are populated dynamically */
     GtkStringList *codec_list;          /* model for codec_combo */
+    GtkStringList *encoder_list;        /* model for encoder_combo */
     GtkStringList *preset_list;         /* model for profile_combo (dynamic presets per codec) */
     GtkStringList *vulkan_device_list;  /* model for vulkan_device_combo */
     GArray        *vulkan_device_ids;   /* parallel: combo-index → vk device number (-1=auto) */

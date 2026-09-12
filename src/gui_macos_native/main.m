@@ -2,10 +2,12 @@
 #import "converter_bridge.h"
 #include "preset_loader.h"
 #include "macos/runtime_probe.h"
+#include "selection_catalog.h"
 #include <string.h>
 
 typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
 static PresetDb *gPresetDb = NULL;
+static SelectionCatalog *gSelectionCatalog = NULL;
 
 @interface DropWindow : NSWindow
 @property (copy, nonatomic) DropPathsHandler dropHandler;
@@ -71,8 +73,11 @@ static PresetDb *gPresetDb = NULL;
 @property (strong, nonatomic) ConverterBridge *bridge;
 @property (strong, nonatomic) NSTextField *outputLabel;
 @property (strong, nonatomic) NSPopUpButton *codecPopup;
+@property (strong, nonatomic) NSPopUpButton *encoderPopup;
 @property (strong, nonatomic) NSPopUpButton *profilePopup;
+@property (strong, nonatomic) NSPopUpButton *filterPopup;
 @property (strong, nonatomic) NSPopUpButton *deblockPopup;
+@property (strong, nonatomic) NSPopUpButton *filterPresetPopup;
 @property (strong, nonatomic) NSPopUpButton *audioPopup;
 @property (strong, nonatomic) NSPopUpButton *audioOutputPopup;
 @property (strong, nonatomic) NSPopUpButton *genrePopup;
@@ -98,7 +103,9 @@ static PresetDb *gPresetDb = NULL;
  - (void)onAddTrackClicked:(id)sender;
  - (BOOL)promptAppleM4VOptions:(AppleM4VOptions *)options;
  - (void)populateCodecPopup;
+ - (void)populateEncoderPopup;
  - (void)populatePresetPopup;
+ - (NSString *)resolvedCodecForCurrentSelection;
 @end
 
 @implementation AppDelegate
@@ -155,12 +162,39 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
            strcmp(codec, "mux") == 0;
 }
 
+static int macSelectionCapability(void *context,
+                                  const char *group,
+                                  const char *encoder,
+                                  const char *finalCodec,
+                                  const char *const *requires,
+                                  size_t requiresCount) {
+    MacosCodecSupport *support = context;
+    size_t index;
+    (void)group;
+    (void)encoder;
+    (void)finalCodec;
+    if (!support || requiresCount == 0) return 1;
+    for (index = 0; index < requiresCount; index++) {
+        const char *name = requires[index];
+        BOOL available = YES;
+        if (strcmp(name, "h264_videotoolbox") == 0) available = support->has_h264_videotoolbox;
+        else if (strcmp(name, "hevc_videotoolbox") == 0) available = support->has_hevc_videotoolbox;
+        else if (strcmp(name, "prores_videotoolbox") == 0) available = support->has_prores_videotoolbox;
+        else if (strcmp(name, "mkvmerge") == 0) available = macos_is_bundled_mkvmerge_available();
+        else if (strcmp(name, "mp4box") == 0) available = macos_is_bundled_mp4box_available();
+        if (!available) return 0;
+    }
+    return 1;
+}
+
 - (void)setRunningUIState:(BOOL)running {
     [self.startButton setEnabled:!running];
     [self.stopButton setEnabled:running];
     [self.appleM4VButton setEnabled:!running];
 
     [self.codecPopup setEnabled:!running];
+    [self.encoderPopup setEnabled:!running];
+    [self.filterPopup setEnabled:!running];
     [self.audioPopup setEnabled:!running];
     [self.audioOutputPopup setEnabled:!running];
     [self.overwriteCheck setEnabled:!running];
@@ -178,6 +212,7 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     } else {
         [self.profilePopup setEnabled:NO];
         [self.deblockPopup setEnabled:NO];
+        [self.filterPresetPopup setEnabled:NO];
         [self.genrePopup setEnabled:NO];
     }
 }
@@ -188,6 +223,8 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     [self.appleM4VButton setEnabled:!running];
 
     [self.codecPopup setEnabled:!running];
+    [self.encoderPopup setEnabled:!running];
+    [self.filterPopup setEnabled:!running];
     [self.audioPopup setEnabled:!running];
     [self.audioOutputPopup setEnabled:!running];
     [self.overwriteCheck setEnabled:!running];
@@ -205,6 +242,7 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     } else {
         [self.profilePopup setEnabled:NO];
         [self.deblockPopup setEnabled:NO];
+        [self.filterPresetPopup setEnabled:NO];
         [self.genrePopup setEnabled:NO];
     }
 }
@@ -216,6 +254,8 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     self.filePaths = [[NSMutableArray alloc] init];
     NSString *resourcePath = [[NSBundle mainBundle] resourcePath];
     gPresetDb = preset_db_load(resourcePath.UTF8String);
+    NSString *selectionPath = [resourcePath stringByAppendingPathComponent:@"presets.json"];
+    gSelectionCatalog = selection_catalog_load(selectionPath.UTF8String, "macos");
     NSError *dirError = nil;
     [self.bridge ensureDefaultOutputDirectoryExists:&dirError];
 
@@ -240,75 +280,120 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
 
     NSView *content = [self.window contentView];
 
-    NSTextField *codecLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 556, 60, 24)];
+    NSTextField *codecLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 556, 74, 24)];
     [codecLabel setStringValue:@"Codec:"];
     [codecLabel setBezeled:NO];
     [codecLabel setEditable:NO];
     [codecLabel setDrawsBackground:NO];
+    [codecLabel setAlignment:NSTextAlignmentRight];
     [content addSubview:codecLabel];
 
-    self.codecPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(82, 554, 160, 28) pullsDown:NO];
+    self.codecPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(94, 554, 145, 28) pullsDown:NO];
     [self.codecPopup setTarget:self];
     [self.codecPopup setAction:@selector(onCodecChanged:)];
     [self populateCodecPopup];
     [content addSubview:self.codecPopup];
 
-    NSTextField *profileLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 522, 60, 24)];
+    NSTextField *encoderLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 522, 74, 24)];
+    [encoderLabel setStringValue:@"Encoder:"];
+    [encoderLabel setBezeled:NO];
+    [encoderLabel setEditable:NO];
+    [encoderLabel setDrawsBackground:NO];
+    [encoderLabel setAlignment:NSTextAlignmentRight];
+    [content addSubview:encoderLabel];
+
+    self.encoderPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(94, 520, 145, 28) pullsDown:NO];
+    [self.encoderPopup setTarget:self];
+    [self.encoderPopup setAction:@selector(onEncoderChanged:)];
+    [self populateEncoderPopup];
+    [content addSubview:self.encoderPopup];
+
+    NSTextField *profileLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 488, 74, 24)];
     [profileLabel setStringValue:@"Preset:"];
     [profileLabel setBezeled:NO];
     [profileLabel setEditable:NO];
     [profileLabel setDrawsBackground:NO];
+    [profileLabel setAlignment:NSTextAlignmentRight];
     [content addSubview:profileLabel];
 
-    self.profilePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(82, 520, 150, 28) pullsDown:NO];
+    self.profilePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(94, 486, 145, 28) pullsDown:NO];
     [content addSubview:self.profilePopup];
     [self populatePresetPopup];
 
-    NSTextField *deblockLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(248, 522, 80, 24)];
+    NSTextField *filterLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(614, 556, 70, 24)];
+    [filterLabel setStringValue:@"Filter:"];
+    [filterLabel setBezeled:NO];
+    [filterLabel setEditable:NO];
+    [filterLabel setDrawsBackground:NO];
+    [filterLabel setAlignment:NSTextAlignmentRight];
+    [content addSubview:filterLabel];
+
+    self.filterPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(684, 554, 98, 28) pullsDown:NO];
+    [self.filterPopup addItemsWithTitles:@[@"none", @"weak", @"strong"]];
+    [self.filterPopup selectItemAtIndex:0];
+    [content addSubview:self.filterPopup];
+
+    NSTextField *deblockLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(614, 488, 70, 24)];
     [deblockLabel setStringValue:@"Deblock:"];
     [deblockLabel setBezeled:NO];
     [deblockLabel setEditable:NO];
     [deblockLabel setDrawsBackground:NO];
+    [deblockLabel setAlignment:NSTextAlignmentRight];
     [content addSubview:deblockLabel];
 
-    self.deblockPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(332, 520, 180, 28) pullsDown:NO];
+    self.deblockPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(684, 486, 98, 28) pullsDown:NO];
     [self.deblockPopup addItemsWithTitles:@[@"none", @"weak", @"strong"]];
     [self.deblockPopup selectItemAtIndex:0];
     [content addSubview:self.deblockPopup];
 
-    NSTextField *audioLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(248, 556, 80, 24)];
+    NSTextField *filterPresetLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(614, 522, 96, 24)];
+    [filterPresetLabel setStringValue:@"Filter preset:"];
+    [filterPresetLabel setBezeled:NO];
+    [filterPresetLabel setEditable:NO];
+    [filterPresetLabel setDrawsBackground:NO];
+    [filterPresetLabel setAlignment:NSTextAlignmentRight];
+    [content addSubview:filterPresetLabel];
+
+    self.filterPresetPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(614, 520, 168, 28) pullsDown:NO];
+    [self.filterPresetPopup addItemWithTitle:@"default"];
+    [content addSubview:self.filterPresetPopup];
+
+    NSTextField *audioLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(300, 556, 80, 24)];
     [audioLabel setStringValue:@"Audio norm:"];
     [audioLabel setBezeled:NO];
     [audioLabel setEditable:NO];
     [audioLabel setDrawsBackground:NO];
+    [audioLabel setAlignment:NSTextAlignmentRight];
     [content addSubview:audioLabel];
 
-    self.audioPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(332, 554, 180, 28) pullsDown:NO];
+    self.audioPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(380, 554, 200, 28) pullsDown:NO];
     [self.audioPopup addItemsWithTitles:@[@"none", @"peak_norm", @"peak_norm_2pass", @"loudness_norm", @"loudness_norm_2pass"]];
     [self.audioPopup setTarget:self];
     [self.audioPopup setAction:@selector(onAudioNormChanged:)];
     [content addSubview:self.audioPopup];
 
-    NSTextField *audioOutLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(524, 522, 68, 24)];
+    NSTextField *audioOutLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(300, 488, 80, 24)];
     [audioOutLabel setStringValue:@"Audio out:"];
     [audioOutLabel setBezeled:NO];
     [audioOutLabel setEditable:NO];
     [audioOutLabel setDrawsBackground:NO];
+    [audioOutLabel setAlignment:NSTextAlignmentRight];
     [content addSubview:audioOutLabel];
 
-    self.audioOutputPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(592, 520, 190, 28) pullsDown:NO];
+    self.audioOutputPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(380, 486, 200, 28) pullsDown:NO];
     [self.audioOutputPopup addItemsWithTitles:@[@"pcm", @"fdk_aac_320", @"fdk_aac_320_ac3_640"]];
     [self.audioOutputPopup selectItemAtIndex:0];
     [content addSubview:self.audioOutputPopup];
 
-    NSTextField *genreLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(524, 556, 54, 24)];
+    NSTextField *genreLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(300, 522, 80, 24)];
     [genreLabel setStringValue:@"Genre:"];
     [genreLabel setBezeled:NO];
     [genreLabel setEditable:NO];
     [genreLabel setDrawsBackground:NO];
+    [genreLabel setAlignment:NSTextAlignmentRight];
     [content addSubview:genreLabel];
 
-    self.genrePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(582, 554, 200, 28) pullsDown:NO];
+    self.genrePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(380, 520, 200, 28) pullsDown:NO];
     [self.genrePopup addItemsWithTitles:@[@"edm", @"rock", @"hiphop", @"classical", @"podcast"]];
     [self.genrePopup selectItemAtIndex:0];
     [content addSubview:self.genrePopup];
@@ -327,63 +412,63 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
 
     NSString *defaultOutput = [self.bridge defaultOutputDirectory];
 
-    NSTextField *outputLabelTitle = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 490, 74, 24)];
+    NSTextField *outputLabelTitle = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 450, 74, 24)];
     [outputLabelTitle setStringValue:@"Output dir:"];
     [outputLabelTitle setBezeled:NO];
     [outputLabelTitle setEditable:NO];
     [outputLabelTitle setDrawsBackground:NO];
     [content addSubview:outputLabelTitle];
 
-    self.outputLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(94, 490, 586, 24)];
+    self.outputLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(94, 450, 586, 24)];
     [self.outputLabel setStringValue:defaultOutput];
     [self.outputLabel setBezeled:NO];
     [self.outputLabel setEditable:NO];
     [self.outputLabel setDrawsBackground:NO];
     [content addSubview:self.outputLabel];
 
-    self.chooseOutputButton = [[NSButton alloc] initWithFrame:NSMakeRect(684, 486, 98, 30)];
+    self.chooseOutputButton = [[NSButton alloc] initWithFrame:NSMakeRect(684, 446, 98, 30)];
     [self.chooseOutputButton setTitle:@"Choose..."];
     [self.chooseOutputButton setBezelStyle:NSBezelStyleRounded];
     [self.chooseOutputButton setTarget:self];
     [self.chooseOutputButton setAction:@selector(onChooseOutputClicked:)];
     [content addSubview:self.chooseOutputButton];
 
-    self.addFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(16, 456, 110, 30)];
+    self.addFilesButton = [[NSButton alloc] initWithFrame:NSMakeRect(16, 416, 110, 30)];
     [self.addFilesButton setTitle:@"Add files..."];
     [self.addFilesButton setBezelStyle:NSBezelStyleRounded];
     [self.addFilesButton setTarget:self];
     [self.addFilesButton setAction:@selector(onAddFilesClicked:)];
     [content addSubview:self.addFilesButton];
 
-    self.removeButton = [[NSButton alloc] initWithFrame:NSMakeRect(132, 456, 128, 30)];
+    self.removeButton = [[NSButton alloc] initWithFrame:NSMakeRect(132, 416, 128, 30)];
     [self.removeButton setTitle:@"Remove selected"];
     [self.removeButton setBezelStyle:NSBezelStyleRounded];
     [self.removeButton setTarget:self];
     [self.removeButton setAction:@selector(onRemoveSelectedClicked:)];
     [content addSubview:self.removeButton];
 
-    self.clearButton = [[NSButton alloc] initWithFrame:NSMakeRect(266, 456, 94, 30)];
+    self.clearButton = [[NSButton alloc] initWithFrame:NSMakeRect(266, 416, 94, 30)];
     [self.clearButton setTitle:@"Clear list"];
     [self.clearButton setBezelStyle:NSBezelStyleRounded];
     [self.clearButton setTarget:self];
     [self.clearButton setAction:@selector(onClearListClicked:)];
     [content addSubview:self.clearButton];
 
-    self.addTrackButton = [[NSButton alloc] initWithFrame:NSMakeRect(366, 456, 110, 30)];
+    self.addTrackButton = [[NSButton alloc] initWithFrame:NSMakeRect(366, 416, 110, 30)];
     [self.addTrackButton setTitle:@"Add track..."];
     [self.addTrackButton setBezelStyle:NSBezelStyleRounded];
     [self.addTrackButton setTarget:self];
     [self.addTrackButton setAction:@selector(onAddTrackClicked:)];
     [content addSubview:self.addTrackButton];
 
-    NSTextField *videoTrackTitle = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 432, 90, 20)];
+    NSTextField *videoTrackTitle = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 392, 90, 20)];
     [videoTrackTitle setStringValue:@"Video track:"];
     [videoTrackTitle setBezeled:NO];
     [videoTrackTitle setEditable:NO];
     [videoTrackTitle setDrawsBackground:NO];
     [content addSubview:videoTrackTitle];
 
-    self.videoTrackLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(110, 432, 672, 20)];
+    self.videoTrackLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(110, 392, 672, 20)];
     [self.videoTrackLabel setStringValue:@"(not set)"];
     [self.videoTrackLabel setBezeled:NO];
     [self.videoTrackLabel setEditable:NO];
@@ -392,7 +477,7 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
 
     self.videoTrackPath = @"";
 
-    NSScrollView *fileListScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 218, 766, 230)];
+    NSScrollView *fileListScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 178, 766, 190)];
     self.tableView = [[NSTableView alloc] initWithFrame:[fileListScroll bounds]];
     NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:@"file"];
     [col setTitle:@"Input files"];
@@ -405,14 +490,14 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     [fileListScroll setHasVerticalScroller:YES];
     [content addSubview:fileListScroll];
 
-    self.startButton = [[NSButton alloc] initWithFrame:NSMakeRect(16, 182, 96, 32)];
+    self.startButton = [[NSButton alloc] initWithFrame:NSMakeRect(16, 142, 96, 32)];
     [self.startButton setTitle:@"Start"];
     [self.startButton setBezelStyle:NSBezelStyleRounded];
     [self.startButton setTarget:self];
     [self.startButton setAction:@selector(onStartClicked:)];
     [content addSubview:self.startButton];
 
-    self.stopButton = [[NSButton alloc] initWithFrame:NSMakeRect(120, 182, 96, 32)];
+    self.stopButton = [[NSButton alloc] initWithFrame:NSMakeRect(120, 142, 96, 32)];
     [self.stopButton setTitle:@"Stop"];
     [self.stopButton setBezelStyle:NSBezelStyleRounded];
     [self.stopButton setEnabled:NO];
@@ -420,21 +505,21 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     [self.stopButton setAction:@selector(onStopClicked:)];
     [content addSubview:self.stopButton];
 
-    self.appleM4VButton = [[NSButton alloc] initWithFrame:NSMakeRect(224, 182, 160, 32)];
+    self.appleM4VButton = [[NSButton alloc] initWithFrame:NSMakeRect(224, 142, 160, 32)];
     [self.appleM4VButton setTitle:@"Apple m4v creator"];
     [self.appleM4VButton setBezelStyle:NSBezelStyleRounded];
     [self.appleM4VButton setTarget:self];
     [self.appleM4VButton setAction:@selector(onAppleM4VClicked:)];
     [content addSubview:self.appleM4VButton];
 
-    self.progress = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(16, 154, 766, 20)];
+    self.progress = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(16, 114, 766, 20)];
     [self.progress setIndeterminate:NO];
     [self.progress setMinValue:0.0];
     [self.progress setMaxValue:100.0];
     [self.progress setDoubleValue:0.0];
     [content addSubview:self.progress];
 
-    NSScrollView *logScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 42, 766, 102)];
+    NSScrollView *logScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 4, 766, 102)];
     self.logView = [[NSTextView alloc] initWithFrame:[logScroll bounds]];
     [self.logView setEditable:NO];
     if (dirError) {
@@ -473,7 +558,7 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
         return;
     }
 
-    NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *codec = [self resolvedCodecForCurrentSelection];
     NSString *preset = self.profilePopup.titleOfSelectedItem ?: @"default";
     NSInteger deblock = self.deblockPopup.isEnabled ? (NSInteger)self.deblockPopup.indexOfSelectedItem + 1 : 0;
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
@@ -616,7 +701,7 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
         return;
     }
 
-    NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *codec = [self resolvedCodecForCurrentSelection];
     NSString *preset = self.profilePopup.titleOfSelectedItem ?: @"default";
     NSInteger deblock = self.deblockPopup.isEnabled ? (NSInteger)self.deblockPopup.indexOfSelectedItem + 1 : 0;
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
@@ -871,6 +956,12 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
 
 - (void)onCodecChanged:(id)sender {
     (void)sender;
+    [self populateEncoderPopup];
+    [self updateDependentControls];
+}
+
+- (void)onEncoderChanged:(id)sender {
+    (void)sender;
     [self updateDependentControls];
 }
 
@@ -880,34 +971,54 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
 }
 
 - (void)populateCodecPopup {
-    NSString *selectedCodec = self.codecPopup.titleOfSelectedItem;
-    const char **codecs = NULL;
+    NSString *selectedGroup = self.codecPopup.titleOfSelectedItem;
+    const char **groups = NULL;
     MacosCodecSupport support;
     memset(&support, 0, sizeof(support));
     macos_probe_codec_support(&support);
 
     [self.codecPopup removeAllItems];
-    int count = gPresetDb ? preset_db_list_codecs(gPresetDb, "macos", &codecs) : 0;
+    int count = gSelectionCatalog ? selection_catalog_list_groups(
+        gSelectionCatalog, macSelectionCapability, &support, &groups) : 0;
     for (int index = 0; index < count; index++) {
-        if (macGuiSupportsCodec(codecs[index], &support)) {
-            [self.codecPopup addItemWithTitle:[NSString stringWithUTF8String:codecs[index]]];
-        }
+        [self.codecPopup addItemWithTitle:[NSString stringWithUTF8String:groups[index]]];
     }
     if (self.codecPopup.numberOfItems == 0) {
         [self.codecPopup addItemWithTitle:@"copy"];
     }
-    if (selectedCodec.length > 0 && [self.codecPopup itemWithTitle:selectedCodec]) {
-        [self.codecPopup selectItemWithTitle:selectedCodec];
+    if (selectedGroup.length > 0 && [self.codecPopup itemWithTitle:selectedGroup]) {
+        [self.codecPopup selectItemWithTitle:selectedGroup];
     } else {
         [self.codecPopup selectItemAtIndex:0];
     }
+    selection_catalog_free_list(groups);
+    [self populateEncoderPopup];
+}
+
+- (void)populateEncoderPopup {
+    NSString *group = self.codecPopup.titleOfSelectedItem ?: @"";
+    const char **encoders = NULL;
+    MacosCodecSupport support;
+    memset(&support, 0, sizeof(support));
+    macos_probe_codec_support(&support);
+    [self.encoderPopup removeAllItems];
+    int count = gSelectionCatalog ? selection_catalog_list_encoders(
+        gSelectionCatalog, group.UTF8String, macSelectionCapability, &support, &encoders) : 0;
+    for (int index = 0; index < count; index++)
+        [self.encoderPopup addItemWithTitle:[NSString stringWithUTF8String:encoders[index]]];
+    if (self.encoderPopup.numberOfItems == 0)
+        [self.encoderPopup addItemWithTitle:@"copy"];
+    [self.encoderPopup selectItemAtIndex:0];
+    selection_catalog_free_list(encoders);
 }
 
 - (void)populatePresetPopup {
-    NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *group = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *encoder = self.encoderPopup.titleOfSelectedItem ?: @"";
     NSString *selectedPreset = self.profilePopup.titleOfSelectedItem;
     const char **presets = NULL;
-    int count = gPresetDb ? preset_db_list_presets(gPresetDb, "macos", codec.UTF8String, &presets) : 0;
+    int count = gSelectionCatalog ? selection_catalog_list_presets(
+        gSelectionCatalog, group.UTF8String, encoder.UTF8String, &presets) : 0;
 
     [self.profilePopup removeAllItems];
     for (int index = 0; index < count; index++) {
@@ -921,16 +1032,18 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     } else {
         [self.profilePopup selectItemAtIndex:0];
     }
+    selection_catalog_free_list(presets);
 }
 
 - (void)updateDependentControls {
     NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
-    BOOL isMux = [codec isEqualToString:@"mux"];
+    NSString *resolvedCodec = [self resolvedCodecForCurrentSelection];
+    BOOL isMux = [resolvedCodec isEqualToString:@"mux"];
     [self populatePresetPopup];
     BOOL profileEnabled = self.profilePopup.numberOfItems > 1;
     // Deblock: software prores encoders only; hardware encoders skip
-    BOOL deblockEnabled = ([codec isEqualToString:@"prores"] ||
-                           [codec isEqualToString:@"prores_ks"]);
+    BOOL deblockEnabled = ([resolvedCodec isEqualToString:@"prores"] ||
+                           [resolvedCodec isEqualToString:@"prores_ks"]);
     [self.profilePopup setEnabled:profileEnabled];
     [self.deblockPopup setEnabled:deblockEnabled];
     [self.addFilesButton setEnabled:!isMux];
@@ -939,6 +1052,17 @@ static BOOL macGuiSupportsCodec(const char *codec, const MacosCodecSupport *supp
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     BOOL genreEnabled = [audioNorm isEqualToString:@"loudness_norm_2pass"];
     [self.genrePopup setEnabled:genreEnabled];
+}
+
+- (NSString *)resolvedCodecForCurrentSelection {
+    NSString *group = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *encoder = self.encoderPopup.titleOfSelectedItem ?: @"";
+    char resolved[32];
+    if (gSelectionCatalog && selection_catalog_resolve(
+            gSelectionCatalog, group.UTF8String, encoder.UTF8String,
+            resolved, sizeof(resolved)))
+        return [NSString stringWithUTF8String:resolved];
+    return group;
 }
 
 - (void)appendLogLine:(NSString *)line {

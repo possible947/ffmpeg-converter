@@ -76,12 +76,19 @@ type
     cmbAudioNorm: TComboBox;
     cmbAudioOutput: TComboBox;
     cmbCodec: TComboBox;
+    cmbEncoder: TComboBox;
     cmbDeblock: TComboBox;
+    cmbFilter: TComboBox;
+    cmbFilterPreset: TComboBox;
     cmbGenre: TComboBox;
     cmbProfile: TComboBox;
     lblAudioNorm: TLabel;
+    lblAudioOutput: TLabel;
     lblCodec: TLabel;
+    lblEncoder: TLabel;
     lblDeblock: TLabel;
+    lblFilter: TLabel;
+    lblFilterPreset: TLabel;
     lblGenre: TLabel;
     lblOutputDir: TLabel;
     lblOutputDirValue: TLabel;
@@ -111,11 +118,13 @@ type
 
     procedure SetupControls;
     procedure UpdateDependentWidgets;
+    procedure PopulateEncodersCombo;
     procedure PopulatePresetsCombo;
     procedure BuildCurrentOptions(out Opts: TConvertOptions);
     procedure CollectOptions(out Opts: TConvertOptions; out Files: array of string; out Count: Integer);
 
     procedure CodecChanged(Sender: TObject);
+    procedure EncoderChanged(Sender: TObject);
     procedure AudioNormChanged(Sender: TObject);
     procedure VulkanDeviceChanged(Sender: TObject);
     procedure PopulateVulkanDeviceCombo(DeviceCount: Integer);
@@ -170,7 +179,8 @@ uses
   path_utils,
   tool_paths,
   mux_postprocess,
-  preset_loader;
+  preset_loader,
+  selection_catalog;
 
 type
   PLogData = ^TLogData;
@@ -210,7 +220,48 @@ type
 
 var
   GMainForm: TMainForm = nil;
+  GSelectionCatalog: TSelectionCatalog = nil;
+  {$IFDEF Windows}
+  GWindowsCapability: TWindowsHWInfo;
+  {$ENDIF}
   GPresetDb: TPresetDb = nil;
+
+function SelectionCapability(const GroupName, EncoderName, FinalCodec: string;
+  const Requires: TStringArray): Boolean;
+var
+  I: Integer;
+begin
+  Result := True;
+  {$IFDEF Windows}
+  for I := 0 to High(Requires) do
+  begin
+    if (Requires[I] = 'h264_nvenc') or (Requires[I] = 'hevc_nvenc') then
+      Result := GWindowsCapability.HasNVENC
+    else if Requires[I] = 'av1_nvenc' then
+      Result := GWindowsCapability.HasAV1NVENC
+    else if (Requires[I] = 'h264_amf') or (Requires[I] = 'hevc_amf') then
+      Result := GWindowsCapability.HasAMF
+    else if Requires[I] = 'av1_amf' then
+      Result := GWindowsCapability.HasAV1AMF
+    else if (Requires[I] = 'h264_qsv') or (Requires[I] = 'hevc_qsv') then
+      Result := GWindowsCapability.HasQSV
+    else if Requires[I] = 'av1_qsv' then
+      Result := GWindowsCapability.HasAV1QSV
+    else if Requires[I] = 'prores_ks_vulkan' then
+      Result := GWindowsCapability.HasVulkan
+    else if Requires[I] = 'h264_vulkan' then
+      Result := GWindowsCapability.HasVulkanH264
+    else if Requires[I] = 'hevc_vulkan' then
+      Result := GWindowsCapability.HasVulkanHEVC
+    else if Requires[I] = 'av1_vulkan' then
+      Result := GWindowsCapability.HasVulkanAV1
+    else if Requires[I] = 'mkvmerge' then
+      Result := GWindowsCapability.HasMkvmerge;
+    if not Result then
+      Exit;
+  end;
+  {$ENDIF}
+end;
 
 procedure SetAnsiField(var Dest: array of AnsiChar; const S: string); forward;
 procedure QueueLog(const S: string); forward;
@@ -879,6 +930,7 @@ begin
   {$IFDEF Windows}
   UiLog('HW detection: probing encoders (may take a moment)...');
   FWindowsHW := DetectWindowsHardware(Tools.FfmpegBin);
+  GWindowsCapability := FWindowsHW;
   GetWindowsHardwareLogLines(FWindowsHW, HWLines, HWLineCount);
   for I := 0 to HWLineCount - 1 do
     UiLog(HWLines[I]);
@@ -892,19 +944,43 @@ begin
 end;
 
 procedure TMainForm.SetupControls;
+var
+  CatalogPath: string;
 begin
+  CatalogPath := GetEnvironmentVariable('PRESETS_PATH');
+  if CatalogPath <> '' then
+    CatalogPath := IncludeTrailingPathDelimiter(CatalogPath) + 'presets.json'
+  else
+  begin
+    CatalogPath := IncludeTrailingPathDelimiter(ExtractFileDir(ParamStr(0))) + 'presets.json';
+    if not FileExists(CatalogPath) then
+      CatalogPath := ExpandFileName(IncludeTrailingPathDelimiter(
+        ExtractFileDir(ParamStr(0))) + '..' + PathDelim + '..' + PathDelim +
+        'presets.json');
+  end;
+  GSelectionCatalog := TSelectionCatalog.Create;
+  if not GSelectionCatalog.Load(CatalogPath, GetPlatformName) then
+    UiLog('WARNING: selection catalog unavailable: ' + GSelectionCatalog.GetLastError);
+
   cmbCodec.Style := csDropDownList;
+  cmbEncoder.Style := csDropDownList;
   cmbProfile.Style := csDropDownList;
   cmbDeblock.Style := csDropDownList;
+  cmbFilter.Style := csDropDownList;
+  cmbFilterPreset.Style := csDropDownList;
   cmbAudioNorm.Style := csDropDownList;
   cmbAudioOutput.Style := csDropDownList;
   cmbGenre.Style := csDropDownList;
 
   cmbCodec.Items.Clear;
-  cmbCodec.Items.Add('copy');
-  cmbCodec.Items.Add('prores');
-  cmbCodec.Items.Add('prores_ks');
-  cmbCodec.ItemIndex := 0;
+  if Assigned(GSelectionCatalog) then
+  begin
+    { Platform-specific population runs below after controls are initialized. }
+    cmbCodec.ItemIndex := -1;
+  end;
+
+  cmbEncoder.Items.Clear;
+  PopulateEncodersCombo;
 
   {$IF defined(Linux) or defined(Windows)}
   { Create Vulkan device selector controls (dynamically, not in .lfm) }
@@ -932,10 +1008,6 @@ begin
   PopulateVulkanDeviceCombo(0);
   {$ENDIF}
 
-{$IFDEF Linux}
-  PopulateLinuxCodecs;
-{$ENDIF}
-
   cmbProfile.Items.Clear;
 
   cmbDeblock.Items.Clear;
@@ -943,6 +1015,15 @@ begin
   cmbDeblock.Items.Add('weak');
   cmbDeblock.Items.Add('strong');
   cmbDeblock.ItemIndex := 0;
+
+  cmbFilter.Items.Clear;
+  cmbFilter.Items.Add('none');
+  cmbFilter.Items.Add('weak');
+  cmbFilter.Items.Add('strong');
+  cmbFilter.ItemIndex := 0;
+  cmbFilterPreset.Items.Clear;
+  cmbFilterPreset.Items.Add('default');
+  cmbFilterPreset.ItemIndex := 0;
 
   cmbAudioNorm.Items.Clear;
   cmbAudioNorm.Items.Add('none');
@@ -981,6 +1062,7 @@ begin
   btnStop.Enabled := False;
 
   cmbCodec.OnChange := @CodecChanged;
+  cmbEncoder.OnChange := @EncoderChanged;
   cmbAudioNorm.OnChange := @AudioNormChanged;
   btnAddFiles.OnClick := @AddFilesClicked;
   btnChooseOutputDir.OnClick := @ChooseOutputDirClicked;
@@ -990,6 +1072,10 @@ begin
   btnStart.OnClick := @StartClicked;
   btnStop.OnClick := @StopClicked;
   btnAppleM4VCreator.OnClick := @AppleM4VCreatorClicked;
+
+{$IFDEF Linux}
+  PopulateLinuxCodecs;
+{$ENDIF}
 end;
 
 procedure TMainForm.BuildCurrentOptions(out Opts: TConvertOptions);
@@ -997,12 +1083,31 @@ var
   ResolvedDir: string;
   DirError: string;
   CodecText: string;
+  EncoderText: string;
+  ResolvedCodec: string;
 begin
   InitDefaultOptions(Opts);
 
   CodecText := ComboSelectedText(cmbCodec);
-  if CodecText <> '' then
-    SetAnsiField(Opts.codec, CodecText);
+  EncoderText := ComboSelectedText(cmbEncoder);
+  ResolvedCodec := CodecText;
+  if Assigned(GSelectionCatalog) then
+    GSelectionCatalog.Resolve(CodecText, EncoderText, ResolvedCodec);
+  if CodecText = 'mux' then
+  begin
+    if EncoderText = 'copy' then
+    begin
+      ResolvedCodec := 'copy';
+      SetAnsiField(Opts.preset, 'default');
+    end
+    else
+    begin
+      ResolvedCodec := 'mux';
+      SetAnsiField(Opts.preset, EncoderText);
+    end;
+  end;
+  if ResolvedCodec <> '' then
+    SetAnsiField(Opts.codec, ResolvedCodec);
 
   { cmbProfile is populated dynamically per-codec from presets.json, so the
     preset name must always come from the actual combo text, never from a
@@ -1011,6 +1116,14 @@ begin
     SetAnsiField(Opts.preset, cmbProfile.Items[cmbProfile.ItemIndex])
   else
     SetAnsiField(Opts.preset, 'default');
+
+  if CodecText = 'mux' then
+  begin
+    if EncoderText = 'copy' then
+      SetAnsiField(Opts.preset, 'default')
+    else
+      SetAnsiField(Opts.preset, EncoderText);
+  end;
 
   case cmbDeblock.ItemIndex of
     0: Opts.deblock := 1;
@@ -1024,18 +1137,18 @@ begin
   if cmbAudioOutput.ItemIndex >= 0 then
     SetAnsiField(Opts.audio_output_mode, cmbAudioOutput.Items[cmbAudioOutput.ItemIndex]);
 
-  if CodecIsMux(CodecText) then
+  if CodecIsMux(ResolvedCodec) then
     SetAnsiField(Opts.video_track_path, FVideoTrackPath);
 
   Opts.genre := cmbGenre.ItemIndex + 1;
   Opts.overwrite := Ord(chkOverwrite.Checked);
 
-  if CodecIsAnyVulkan(CodecText) then
+  if CodecIsAnyVulkan(ResolvedCodec) then
   begin
     if FVulkanDeviceIndex >= 0 then
       Opts.vulkan_device := FVulkanDeviceIndex
     else if RecommendedVulkanDeviceIndex(CodecText) >= 0 then
-      Opts.vulkan_device := RecommendedVulkanDeviceIndex(CodecText)
+      Opts.vulkan_device := RecommendedVulkanDeviceIndex(ResolvedCodec)
     else
       Opts.vulkan_device := 0;
   end
@@ -1058,23 +1171,30 @@ end;
 procedure TMainForm.UpdateDependentWidgets;
 var
   CodecText: string;
+  EncoderText: string;
+  ResolvedCodec: string;
   AudioNormText: string;
 begin
   CodecText := ComboSelectedText(cmbCodec);
+  EncoderText := ComboSelectedText(cmbEncoder);
+  ResolvedCodec := CodecText;
+  if Assigned(GSelectionCatalog) then
+    GSelectionCatalog.Resolve(CodecText, EncoderText, ResolvedCodec);
   AudioNormText := cmbAudioNorm.Text;
 
   PopulatePresetsCombo;
 
   { cmbProfile is data-driven from presets.json (via PopulatePresetsCombo) —
     enable it whenever the current codec has more than one preset. }
-  cmbProfile.Enabled := cmbProfile.Items.Count > 1;
-  cmbDeblock.Enabled := CodecUsesSoftwareProres(CodecText);
+  cmbProfile.Enabled := (CodecText <> 'mux') and (cmbProfile.Items.Count > 1);
+  cmbDeblock.Enabled := CodecUsesSoftwareProres(ResolvedCodec);
   cmbGenre.Enabled := (AudioNormText = 'loudness_norm_2pass');
 
-  btnAddFiles.Enabled := not CodecIsMux(CodecText);
-  btnAddTrack.Enabled := CodecIsMux(CodecText) and (lstFiles.Count = 1);
+  btnAddFiles.Enabled := CodecText <> 'mux';
+  btnAddTrack.Enabled := (CodecText = 'mux') and (EncoderText <> 'copy') and
+                         (lstFiles.Count = 1);
 
-  if not CodecIsMux(CodecText) then
+  if not CodecIsMux(ResolvedCodec) then
   begin
     FVideoTrackPath := '';
     lblVideoTrackValue.Caption := '(not set)';
@@ -1083,8 +1203,8 @@ begin
   {$IF defined(Linux) or defined(Windows)}
   if Assigned(lblVulkanDevice) and Assigned(cmbVulkanDevice) then
   begin
-    lblVulkanDevice.Visible := CodecIsAnyVulkan(CodecText);
-    cmbVulkanDevice.Visible := CodecIsAnyVulkan(CodecText);
+    lblVulkanDevice.Visible := CodecIsAnyVulkan(ResolvedCodec);
+    cmbVulkanDevice.Visible := CodecIsAnyVulkan(ResolvedCodec);
   end;
   {$ENDIF}
 end;
@@ -1112,11 +1232,12 @@ begin
       UiLog('WARNING: ' + GPresetDb.GetLastError);
   end;
 
-  { Get platform name for preset lookup }
+  { Load presets for the selected group and encoder from the shared catalog. }
   PlatformName := GetPlatformName;
-
-  { Load presets for the selected codec }
-  PresetList := GPresetDb.ListPresets(PlatformName, CodecText);
+  if Assigned(GSelectionCatalog) then
+    PresetList := GSelectionCatalog.ListPresets(CodecText, ComboSelectedText(cmbEncoder))
+  else
+    PresetList := GPresetDb.ListPresets(PlatformName, CodecText);
 
   { Clear existing presets and add new ones }
   cmbProfile.Clear;
@@ -1126,6 +1247,37 @@ begin
       cmbProfile.Items.Add(PresetList[I]);
     cmbProfile.ItemIndex := 0;
   end;
+  if CodecText = 'mux' then
+  begin
+    cmbProfile.Clear;
+    cmbProfile.Items.Add('default');
+    cmbProfile.ItemIndex := 0;
+  end;
+end;
+
+procedure TMainForm.PopulateEncodersCombo;
+var
+  GroupText: string;
+  PreviousEncoder: string;
+  PreviousIndex: Integer;
+  EncoderList: TStringArray;
+  I: Integer;
+begin
+  if not Assigned(cmbEncoder) then
+    Exit;
+  GroupText := ComboSelectedText(cmbCodec);
+  PreviousEncoder := ComboSelectedText(cmbEncoder);
+  EncoderList := nil;
+  if Assigned(GSelectionCatalog) then
+    EncoderList := GSelectionCatalog.ListEncoders(GroupText, @SelectionCapability);
+  cmbEncoder.Clear;
+  for I := 0 to Length(EncoderList) - 1 do
+    cmbEncoder.Items.Add(EncoderList[I]);
+  PreviousIndex := cmbEncoder.Items.IndexOf(PreviousEncoder);
+  if PreviousIndex >= 0 then
+    cmbEncoder.ItemIndex := PreviousIndex
+  else if cmbEncoder.Items.Count > 0 then
+    cmbEncoder.ItemIndex := 0;
 end;
 
 procedure TMainForm.CollectOptions(out Opts: TConvertOptions; out Files: array of string; out Count: Integer);
@@ -1141,11 +1293,19 @@ end;
 
 procedure TMainForm.CodecChanged(Sender{%H-}: TObject);
 begin
+  PopulateEncodersCombo;
   { Repopulate before UpdateDependentWidgets so the combo's item list (and
     the "auto" recommendation) matches the newly selected codec family:
     prores_ks_vulkan and h264/hevc/av1_vulkan are probed independently and
     may report different working devices. }
   RefreshVulkanDeviceComboForCodec(ComboSelectedText(cmbCodec));
+  UpdateDependentWidgets;
+end;
+
+procedure TMainForm.EncoderChanged(Sender{%H-}: TObject);
+begin
+  { Encoder is a child selection: rebuild only its preset list and dependent
+    enablement. Do not rebuild Encoder itself from this callback. }
   UpdateDependentWidgets;
 end;
 
@@ -1235,54 +1395,17 @@ end;
 procedure TMainForm.PopulateLinuxCodecs;
 var
   PreviousCodec: string;
+  GroupList: TStringArray;
   I: Integer;
 begin
   PreviousCodec := cmbCodec.Text;
+  if not Assigned(GSelectionCatalog) then
+    Exit;
 
-  I := cmbCodec.Items.Count - 1;
-  while I >= 0 do
-  begin
-    if CodecIsLinuxHW(cmbCodec.Items[I]) then
-      cmbCodec.Items.Delete(I);
-    Dec(I);
-  end;
-
-  { 'mux' is not a Linux-HW entry (CodecIsLinuxHW does not match it) and was
-    missing from the static SetupControls list, leaving mux mode entirely
-    unreachable in the GUI. Matches the always-offered 'mux' entry in the
-    C/GTK4 codec combo and the Windows codec population below. }
-  if cmbCodec.Items.IndexOf('mux') < 0 then
-    cmbCodec.Items.Add('mux');
-
-  if FLinuxSupport.HasVaapiH264 then
-    cmbCodec.Items.Add('h264_vaapi');
-  if FLinuxSupport.HasVaapiHEVC then
-    cmbCodec.Items.Add('hevc_vaapi');
-  if FLinuxSupport.HasNVENC then
-  begin
-    cmbCodec.Items.Add('h264_nvenc');
-    cmbCodec.Items.Add('hevc_nvenc');
-  end;
-  if FLinuxSupport.HasAMF then
-  begin
-    cmbCodec.Items.Add('h264_amf');
-    cmbCodec.Items.Add('hevc_amf');
-  end;
-  if FLinuxSupport.HasAV1AMF then
-    cmbCodec.Items.Add('av1_amf');
-  if FLinuxSupport.HasQSV then
-  begin
-    cmbCodec.Items.Add('h264_qsv');
-    cmbCodec.Items.Add('hevc_qsv');
-  end;
-  if FLinuxSupport.HasVulkan then
-    cmbCodec.Items.Add('prores_ks_vulkan');
-  if FLinuxSupport.HasVulkanH264 then
-    cmbCodec.Items.Add('h264_vulkan');
-  if FLinuxSupport.HasVulkanHEVC then
-    cmbCodec.Items.Add('hevc_vulkan');
-  if FLinuxSupport.HasVulkanAV1 then
-    cmbCodec.Items.Add('av1_vulkan');
+  GroupList := GSelectionCatalog.ListGroups(@SelectionCapability);
+  cmbCodec.Clear;
+  for I := 0 to Length(GroupList) - 1 do
+    cmbCodec.Items.Add(GroupList[I]);
 
   I := cmbCodec.Items.IndexOf(PreviousCodec);
   if I >= 0 then
@@ -1291,8 +1414,10 @@ begin
     cmbCodec.ItemIndex := 0;
 
   { Populate using the codec now actually selected (after restoring the
-    previous selection above), so the combo reflects the right prores-vs-hw
-    Vulkan probe family. }
+    previous selection above), then populate the dependent Encoder and Preset
+    controls from the same catalog model. }
+  PopulateEncodersCombo;
+  PopulatePresetsCombo;
   RefreshVulkanDeviceComboForCodec(cmbCodec.Text);
 end;
 {$ENDIF}
@@ -1301,53 +1426,17 @@ end;
 procedure TMainForm.PopulateWindowsCodecs;
 var
   PreviousCodec: string;
+  GroupList: TStringArray;
   I: Integer;
 begin
   PreviousCodec := cmbCodec.Text;
+  if not Assigned(GSelectionCatalog) then
+    Exit;
 
-  { Remove any previously added Windows HW codecs (keep copy/prores/prores_ks) }
-  I := cmbCodec.Items.Count - 1;
-  while I >= 0 do
-  begin
-    if CodecIsWindowsHW(cmbCodec.Items[I]) then
-      cmbCodec.Items.Delete(I);
-    Dec(I);
-  end;
-
-  { Also add 'mux' if mkvmerge is available (needed for mux mode) }
-  if cmbCodec.Items.IndexOf('mux') < 0 then
-    cmbCodec.Items.Add('mux');
-
-  { Add hardware encoder entries based on detection results }
-  if FWindowsHW.HasNVENC then
-  begin
-    cmbCodec.Items.Add('h264_nvenc');
-    cmbCodec.Items.Add('hevc_nvenc');
-  end;
-  if FWindowsHW.HasAV1NVENC then
-    cmbCodec.Items.Add('av1_nvenc');
-  if FWindowsHW.HasAMF then
-  begin
-    cmbCodec.Items.Add('h264_amf');
-    cmbCodec.Items.Add('hevc_amf');
-  end;
-  if FWindowsHW.HasAV1AMF then
-    cmbCodec.Items.Add('av1_amf');
-  if FWindowsHW.HasQSV then
-  begin
-    cmbCodec.Items.Add('h264_qsv');
-    cmbCodec.Items.Add('hevc_qsv');
-  end;
-  if FWindowsHW.HasAV1QSV then
-    cmbCodec.Items.Add('av1_qsv');
-  if FWindowsHW.HasVulkan then
-    cmbCodec.Items.Add('prores_ks_vulkan');
-  if FWindowsHW.HasVulkanH264 then
-    cmbCodec.Items.Add('h264_vulkan');
-  if FWindowsHW.HasVulkanHEVC then
-    cmbCodec.Items.Add('hevc_vulkan');
-  if FWindowsHW.HasVulkanAV1 then
-    cmbCodec.Items.Add('av1_vulkan');
+  GroupList := GSelectionCatalog.ListGroups(@SelectionCapability);
+  cmbCodec.Clear;
+  for I := 0 to Length(GroupList) - 1 do
+    cmbCodec.Items.Add(GroupList[I]);
 
   { Restore previous codec selection if still available }
   I := cmbCodec.Items.IndexOf(PreviousCodec);
@@ -1360,6 +1449,7 @@ begin
     previous selection above), so the combo reflects the right prores-vs-hw
     Vulkan probe family. }
   RefreshVulkanDeviceComboForCodec(cmbCodec.Text);
+  PopulateEncodersCombo;
 end;
 
 {$ENDIF}
@@ -1439,7 +1529,8 @@ begin
     Exit;
   end;
 
-  if CodecIsMux(ComboSelectedText(cmbCodec)) then
+    if (ComboSelectedText(cmbCodec) = 'mux') and
+      (ComboSelectedText(cmbEncoder) <> 'copy') then
   begin
     if lstFiles.Items.Count <> 1 then
     begin
@@ -1470,7 +1561,8 @@ begin
 
   SetLength(FileArr, lstFiles.Items.Count);
   CollectOptions(Opts, FileArr, Count);
-  if CodecIsMux(ComboSelectedText(cmbCodec)) then
+    if (ComboSelectedText(cmbCodec) = 'mux') and
+      (ComboSelectedText(cmbEncoder) <> 'copy') then
   begin
     SetAnsiField(Opts.codec, 'mux');
     SetAnsiField(Opts.video_track_path, FVideoTrackPath);
@@ -1533,6 +1625,12 @@ begin
   end;
 
   BuildCurrentOptions(ConvertOpts);
+  { The dedicated Apple M4V workflow owns the final pipeline. Its optional
+    edit-before-mux phase must create only a stream-copy intermediate. }
+  SetAnsiField(ConvertOpts.codec, 'copy');
+  SetAnsiField(ConvertOpts.preset, 'default');
+  ConvertOpts.deblock := 0;
+  SetAnsiField(ConvertOpts.video_track_path, '');
   if not EnsureOutputDirWritable(string(PAnsiChar(@ConvertOpts.output_dir[0])), ResolvedDir, DirError) then
   begin
     MessageDlg('Output preflight failed: ' + DirError, mtError, [mbOK], 0);
