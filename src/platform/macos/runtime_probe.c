@@ -287,6 +287,7 @@ int macos_probe_codec_support(MacosCodecSupport *out_support)
 {
     char catalog_path[PATH_MAX] = "";
     char process_dir[PATH_MAX];
+    const char *presets_env = getenv("PRESETS_PATH");
     const char *catalog_env = getenv("PRESETS_V2_PATH");
     if (g_cache.probed) {
         if (out_support)
@@ -300,15 +301,28 @@ int macos_probe_codec_support(MacosCodecSupport *out_support)
                              sizeof(g_cache.support.bins.ffmpeg_bin),
                              &g_cache.support.bins.using_bundled_ffmpeg);
 
-    if (catalog_env && access(catalog_env, R_OK) == 0)
+    if (presets_env && presets_env[0]) {
+        snprintf(catalog_path, sizeof(catalog_path), "%s/presets.json", presets_env);
+        if (access(catalog_path, R_OK) != 0) {
+            copy_string(catalog_path, sizeof(catalog_path), presets_env);
+        }
+    }
+    if ((catalog_path[0] == '\0' || access(catalog_path, R_OK) != 0) && catalog_env && access(catalog_env, R_OK) == 0)
         copy_string(catalog_path, sizeof(catalog_path), catalog_env);
-    else if (macos_get_process_dir(process_dir, sizeof(process_dir))) {
-        snprintf(catalog_path, sizeof(catalog_path), "%s/presets_v2.json", process_dir);
+    else if ((catalog_path[0] == '\0' || access(catalog_path, R_OK) != 0) && macos_get_process_dir(process_dir, sizeof(process_dir))) {
+        snprintf(catalog_path, sizeof(catalog_path), "%s/presets.json", process_dir);
         if (access(catalog_path, R_OK) != 0) {
             snprintf(catalog_path, sizeof(catalog_path),
-                     "%s/../Resources/presets_v2.json", process_dir);
-            if (access(catalog_path, R_OK) != 0)
-                catalog_path[0] = '\0';
+                     "%s/../Resources/presets.json", process_dir);
+            if (access(catalog_path, R_OK) != 0) {
+                snprintf(catalog_path, sizeof(catalog_path), "%s/presets_v2.json", process_dir);
+                if (access(catalog_path, R_OK) != 0) {
+                    snprintf(catalog_path, sizeof(catalog_path),
+                             "%s/../Resources/presets_v2.json", process_dir);
+                    if (access(catalog_path, R_OK) != 0)
+                        catalog_path[0] = '\0';
+                }
+            }
         }
     }
 

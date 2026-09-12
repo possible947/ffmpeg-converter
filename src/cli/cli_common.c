@@ -97,7 +97,7 @@ void print_usage(const CliPlatformHandle* h) {
     printf("      --preset <name>       Preset for the selected encoder\n");
     /* Legacy flat codec IDs and -p are intentionally not advertised. */
     /* Keep this group list descriptive; availability is resolved from the catalog. */
-    printf("  Available groups are filtered from presets_v2.json after hardware detection.\n");
+    printf("  Available groups are filtered from presets.json after hardware detection.\n");
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
     printf("      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>\n");
@@ -831,7 +831,7 @@ void cli_print_codecs_list(const CliPlatformHandle* h) {
     json_t *group;
 
     if (!root) {
-        fprintf(stderr, "Error: presets_v2.json could not be loaded\n");
+        fprintf(stderr, "Error: presets.json catalog could not be loaded\n");
         return;
     }
     selection = json_object_get(root, "selection");
@@ -1309,7 +1309,7 @@ int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
     strcpy(m4v_audio_lang, "rus");
 
     /* Structured selection replaces the former flat codec menu.  The
-     * resolver validates the group/encoder pair against presets_v2.json and
+     * resolver validates the group/encoder pair against presets.json and
      * the platform handle supplies the post-probe availability check. */
     {
         char group[64] = "software";

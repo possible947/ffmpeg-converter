@@ -13,6 +13,16 @@ hardware/input metadata work. GUI migration is unfinished, and macOS/Windows
 build, runtime, and hardware debugging remain required before Version 3 can be
 considered complete.
 
+## [Unreleased] — Unified preset catalog & architecture cleanup (2026-09-12)
+
+### Changed
+- Unified the dual-layer preset catalogs (`presets_v2.json` and `presets.json`) into a single `presets.json` catalog (schema v3.0). It combines both UI/CLI selection menu hierarchy (`selection`) and execution FFmpeg arguments (`linux`, `macos`, `windows`).
+- Updated CMake build system and build scripts (`fpc/build/Makefile`, `package_appimage.sh`) to generate and copy a single `presets.json` artifact from `presets.json.in`.
+- Updated C platform probing (`runtime_probe.c`), CLI (`cli_common.c`, `cli_linux.c`, `cli_macos.c`, `cli_windows.c`), and unit tests to locate and parse `presets.json` directly via `PRESETS_PATH` / `PRESETS_V2_PATH`.
+
+### Removed
+- Removed obsolete `presets_v2.json` and `encoder_presets_v2.json` from repository root to eliminate file duplication and keep the root clean.
+
 ## [Unreleased] — Preset-driven hardware command path (2026-09-12)
 
 ### Added

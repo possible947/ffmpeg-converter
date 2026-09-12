@@ -328,12 +328,20 @@ int cli_get_presets_v2_path(char* out_path, size_t out_path_sz) {
     char exe[4096];
     ssize_t len;
     char* slash;
-    const char* env = getenv("PRESETS_V2_PATH");
+    const char* env_path = getenv("PRESETS_PATH");
+    const char* env_v2 = getenv("PRESETS_V2_PATH");
     if (!out_path || out_path_sz == 0) return 0;
-    if (env && env[0]) {
-        strncpy(out_path, env, out_path_sz - 1);
+    if (env_path && env_path[0]) {
+        snprintf(out_path, out_path_sz, "%s/presets.json", env_path);
+        if (access(out_path, R_OK) == 0) return 1;
+        strncpy(out_path, env_path, out_path_sz - 1);
         out_path[out_path_sz - 1] = '\0';
-        return access(out_path, R_OK) == 0;
+        if (access(out_path, R_OK) == 0) return 1;
+    }
+    if (env_v2 && env_v2[0]) {
+        strncpy(out_path, env_v2, out_path_sz - 1);
+        out_path[out_path_sz - 1] = '\0';
+        if (access(out_path, R_OK) == 0) return 1;
     }
     len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
     if (len <= 0) return 0;
@@ -341,6 +349,8 @@ int cli_get_presets_v2_path(char* out_path, size_t out_path_sz) {
     slash = strrchr(exe, '/');
     if (!slash) return 0;
     *slash = '\0';
+    snprintf(out_path, out_path_sz, "%s/presets.json", exe);
+    if (access(out_path, R_OK) == 0) return 1;
     snprintf(out_path, out_path_sz, "%s/presets_v2.json", exe);
     return access(out_path, R_OK) == 0;
 }

@@ -18,7 +18,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 
 ## Version 3.0b Status
 
-- **Linux CLI:** active beta implementation using `presets_v2.json`, synchronous
+- **Linux CLI:** active beta implementation using `presets.json`, synchronous
   hardware detection, structured codec selection, AV1/10-bit capability probes,
   input bit-depth detection, color metadata propagation, and tested mux/M4V
   workflows.

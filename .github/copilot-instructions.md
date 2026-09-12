@@ -11,6 +11,11 @@ Prefer the executable sources in this repo (CMake, Makefiles, scripts, and platf
 - **Windows GUI is Pascal-only** (`fpc/gui/`) — there is NO Windows C GUI
 - **macOS Pascal is discontinued** (v2.4+) — use C/Cocoa GUI only; FPC Makefile hard-blocks Darwin with exit error
 - `presets.json` is copied next to each binary automatically by the build system
+- HQ_converter is an external Linux/macOS dependency. Its prepared release must
+  be placed in `third_party/hq_converter/` before configuring/building; the build
+  copies the complete tree to `bin/hq_converter/` and bundles it with AppImage/
+  application packages. The built application is monolithic and must not modify
+  or update HQ_converter at runtime. Windows builds do not include HQ_converter.
 
 ## Build, test, and validation commands
 

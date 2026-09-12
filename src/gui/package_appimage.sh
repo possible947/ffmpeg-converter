@@ -133,15 +133,6 @@ else
     echo "  WARNING: presets.json not found; AppImage will use built-in fallback"
 fi
 
-if [ -f "${BIN_DIR}/presets_v2.json" ]; then
-    echo "Copying presets_v2.json..."
-    mkdir -p "${APPDIR}/usr/share/ffmpeg_converter"
-    cp "${BIN_DIR}/presets_v2.json" "${APPDIR}/usr/share/ffmpeg_converter/presets_v2.json"
-    echo "  presets_v2.json → bundled"
-else
-    echo "  WARNING: presets_v2.json not found; structured codec catalog is unavailable"
-fi
-
 # Collect shared library dependencies
 echo "Resolving shared library dependencies..."
 
@@ -219,9 +210,6 @@ fi
 # Set preset search path to bundled presets
 if [ -f "${APPDIR}/usr/share/ffmpeg_converter/presets.json" ]; then
     export PRESETS_PATH="${APPDIR}/usr/share/ffmpeg_converter"
-fi
-if [ -f "${APPDIR}/usr/share/ffmpeg_converter/presets_v2.json" ]; then
-    export PRESETS_V2_PATH="${APPDIR}/usr/share/ffmpeg_converter/presets_v2.json"
 fi
 
 # Run GUI with bundled libraries

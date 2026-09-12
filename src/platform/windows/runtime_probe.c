@@ -474,6 +474,7 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
 {
     char catalog_path[MAX_PATH * 4] = "";
     char process_dir[MAX_PATH * 4];
+    const char *presets_env = getenv("PRESETS_PATH");
     const char *catalog_env = getenv("PRESETS_V2_PATH");
     if (g_cache.probed) {
         if (out_support)
@@ -487,12 +488,21 @@ int windows_probe_codec_support(WindowsCodecSupport *out_support)
                              sizeof(g_cache.support.bins.ffmpeg_bin),
                              &g_cache.support.bins.using_bundled_ffmpeg);
 
-    if (catalog_env && GetFileAttributesA(catalog_env) != INVALID_FILE_ATTRIBUTES)
+    if (presets_env && presets_env[0]) {
+        snprintf(catalog_path, sizeof(catalog_path), "%s\\presets.json", presets_env);
+        if (GetFileAttributesA(catalog_path) == INVALID_FILE_ATTRIBUTES) {
+            copy_string(catalog_path, sizeof(catalog_path), presets_env);
+        }
+    }
+    if ((catalog_path[0] == '\0' || GetFileAttributesA(catalog_path) == INVALID_FILE_ATTRIBUTES) && catalog_env && GetFileAttributesA(catalog_env) != INVALID_FILE_ATTRIBUTES)
         copy_string(catalog_path, sizeof(catalog_path), catalog_env);
-    else if (windows_get_process_dir(process_dir, sizeof(process_dir))) {
-        snprintf(catalog_path, sizeof(catalog_path), "%s\\presets_v2.json", process_dir);
-        if (GetFileAttributesA(catalog_path) == INVALID_FILE_ATTRIBUTES)
-            catalog_path[0] = '\0';
+    else if ((catalog_path[0] == '\0' || GetFileAttributesA(catalog_path) == INVALID_FILE_ATTRIBUTES) && windows_get_process_dir(process_dir, sizeof(process_dir))) {
+        snprintf(catalog_path, sizeof(catalog_path), "%s\\presets.json", process_dir);
+        if (GetFileAttributesA(catalog_path) == INVALID_FILE_ATTRIBUTES) {
+            snprintf(catalog_path, sizeof(catalog_path), "%s\\presets_v2.json", process_dir);
+            if (GetFileAttributesA(catalog_path) == INVALID_FILE_ATTRIBUTES)
+                catalog_path[0] = '\0';
+        }
     }
 
     /* Probe NVENC encoders */

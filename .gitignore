@@ -18,6 +18,9 @@ src/platform/macos/bin/ffmpeg
 src/platform/macos/bin/ffprobe
 src/platform/linux/bin/
 
+# External HQ_converter release; prepared separately and required locally at build time
+/third_party/hq_converter/
+
 # Local agent/project metadata
 AGENTS.md
 # Pascal compiled units and intermediate files

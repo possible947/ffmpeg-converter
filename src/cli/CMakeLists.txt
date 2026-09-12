@@ -106,7 +106,6 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
         add_custom_command(TARGET linux_cli POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_cli>/presets.json"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets_v2.json" "$<TARGET_FILE_DIR:linux_cli>/presets_v2.json"
             COMMENT "Copying presets.json next to linux_cli"
         )
     endif()
@@ -154,7 +153,6 @@ if (APPLE)
     if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
         add_custom_command(TARGET macos_cli POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:macos_cli>/presets.json"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets_v2.json" "$<TARGET_FILE_DIR:macos_cli>/presets_v2.json"
             COMMENT "Copying presets.json next to macos_cli"
         )
     endif()
@@ -201,7 +199,6 @@ if (WIN32)
     if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
         add_custom_command(TARGET windows_cli POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:windows_cli>/presets.json"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets_v2.json" "$<TARGET_FILE_DIR:windows_cli>/presets_v2.json"
             COMMENT "Copying presets.json next to windows_cli"
         )
     endif()

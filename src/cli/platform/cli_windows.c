@@ -355,15 +355,23 @@ const char* cli_get_home_dir(void) {
 }
 
 int cli_get_presets_v2_path(char* out_path, size_t out_path_sz) {
-    const char* env = getenv("PRESETS_V2_PATH");
+    const char* env_path = getenv("PRESETS_PATH");
+    const char* env_v2 = getenv("PRESETS_V2_PATH");
     char exe[MAX_PATH * 4];
     DWORD len;
     char* slash;
     if (!out_path || out_path_sz == 0) return 0;
-    if (env && env[0]) {
-        strncpy(out_path, env, out_path_sz - 1);
+    if (env_path && env_path[0]) {
+        snprintf(out_path, out_path_sz, "%s\\presets.json", env_path);
+        if (GetFileAttributesA(out_path) != INVALID_FILE_ATTRIBUTES) return 1;
+        strncpy(out_path, env_path, out_path_sz - 1);
         out_path[out_path_sz - 1] = '\0';
-        return GetFileAttributesA(out_path) != INVALID_FILE_ATTRIBUTES;
+        if (GetFileAttributesA(out_path) != INVALID_FILE_ATTRIBUTES) return 1;
+    }
+    if (env_v2 && env_v2[0]) {
+        strncpy(out_path, env_v2, out_path_sz - 1);
+        out_path[out_path_sz - 1] = '\0';
+        if (GetFileAttributesA(out_path) != INVALID_FILE_ATTRIBUTES) return 1;
     }
     len = GetModuleFileNameA(NULL, exe, sizeof(exe) - 1);
     if (!len) return 0;
@@ -372,6 +380,8 @@ int cli_get_presets_v2_path(char* out_path, size_t out_path_sz) {
     if (!slash) slash = strrchr(exe, '/');
     if (!slash) return 0;
     *slash = '\0';
+    snprintf(out_path, out_path_sz, "%s\\presets.json", exe);
+    if (GetFileAttributesA(out_path) != INVALID_FILE_ATTRIBUTES) return 1;
     snprintf(out_path, out_path_sz, "%s\\presets_v2.json", exe);
     return GetFileAttributesA(out_path) != INVALID_FILE_ATTRIBUTES;
 }

@@ -34,6 +34,7 @@ int linux_probe_catalog_component_enabled(const char *catalog_path,
 
 static int resolve_presets_v2(char *out_path, size_t out_path_sz)
 {
+    const char *presets_env = getenv("PRESETS_PATH");
     const char *env_path = getenv("PRESETS_V2_PATH");
     char process_dir[PATH_MAX];
 
@@ -41,16 +42,31 @@ static int resolve_presets_v2(char *out_path, size_t out_path_sz)
         return 0;
     out_path[0] = '\0';
 
+    if (presets_env && presets_env[0]) {
+        snprintf(out_path, out_path_sz, "%s/presets.json", presets_env);
+        if (access(out_path, R_OK) == 0)
+            return 1;
+        copy_string(out_path, out_path_sz, presets_env);
+        if (access(out_path, R_OK) == 0)
+            return 1;
+    }
     if (env_path && access(env_path, R_OK) == 0) {
         copy_string(out_path, out_path_sz, env_path);
         return 1;
     }
     if (get_process_dir(process_dir, sizeof(process_dir))) {
+        snprintf(out_path, out_path_sz, "%s/presets.json", process_dir);
+        if (access(out_path, R_OK) == 0)
+            return 1;
         snprintf(out_path, out_path_sz, "%s/presets_v2.json", process_dir);
         if (access(out_path, R_OK) == 0)
             return 1;
     }
 #ifdef FFMPEG_CONVERTER_SOURCE_DIR
+    snprintf(out_path, out_path_sz, "%s/build/generated/presets.json",
+             FFMPEG_CONVERTER_SOURCE_DIR);
+    if (access(out_path, R_OK) == 0)
+        return 1;
     snprintf(out_path, out_path_sz, "%s/build/generated/presets_v2.json",
              FFMPEG_CONVERTER_SOURCE_DIR);
     if (access(out_path, R_OK) == 0)

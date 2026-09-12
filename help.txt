@@ -1,0 +1,82 @@
+Hardware components detection in progress...
+Hardware components detection completed.
+Usage: ffmpeg_converter [options] file1 file2 ...
+
+Options:
+  -h, --help                Show this help message
+      --codecs-list         List all available codecs and presets
+      --version             Show version information
+
+  -c, --codec <group>       Codec group (software, mux, or hardware group)
+      --encoder <name>      Encoder inside the selected group
+      --preset <name>       Preset for the selected encoder
+  Available groups are filtered from presets.json after hardware detection.
+  -d, --deblock <none|weak|strong>
+  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>
+      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>
+      --video-track <file>  replacement video track for mux mode
+  -g, --genre <edm|rock|hiphop|classical|podcast>
+      (genre is used only with loudnorm2)
+  --overwrite        overwrite output files
+  --dry-run          print the conversion plan without running ffmpeg
+  --version          show version and exit
+      --vk_device <N>    Vulkan adapter index for prores_ks_vulkan, h264_vulkan, hevc_vulkan, av1_vulkan (default: 1)
+      --hw_device <path> VAAPI render node for h264_vaapi/hevc_vaapi (default: auto-detected)
+  -o, --output <directory> set output directory
+  -h, --help         show this help
+
+Mux mode:
+  - requires exactly one source file
+  - requires --video-track <file>
+  - runs normal audio processing, then writes final .mkv
+
+Apple M4V options (only used with -c m4v):
+      --m4v-video-track <N>   video stream index (default: 0)
+      --m4v-audio-track <N>   audio stream index (default: 0)
+      --m4v-ac3-bitrate <kbps> AC3 bitrate in kbps (default: 640)
+      --m4v-lang <tag>        audio language tag (default: rus)
+      --m4v-chapters          embed chapter markers (default: on)
+      --no-m4v-chapters       disable chapter markers
+
+Apple M4V mode:
+  - requires MP4Box (GPAC) on PATH
+  - uses libfdk_aac CBR 320k for AAC encoding (fixed)
+  - accepts input with h264, hevc, or prores video
+  - produces dual-audio .m4v (AAC + AC3) compatible with Apple TV
+
+Examples:
+  ffmpeg_converter input.mov
+  ffmpeg_converter -c software --encoder prores_ks --preset hq input.mov
+  ffmpeg_converter -a loudnorm2 -g rock input1.mov input2.mov
+  ffmpeg_converter -c m4v --m4v-lang eng input.mov
+
+Available codec groups and encoders for linux:
+==============================================
+software:
+  prores (prores)
+  prores_ks (prores_ks)
+mux:
+  copy (copy)
+  mux (mux)
+  m4v (m4v)
+vaapi:
+  h264 (h264_vaapi)
+  hevc (hevc_vaapi)
+  hevc_10bit (hevc_vaapi)
+  av1 (av1_vaapi)
+  av1_10bit (av1_vaapi)
+nvenc:
+  h264 (h264_nvenc)
+  hevc (hevc_nvenc)
+  hevc_10bit (hevc_nvenc)
+amf:
+qsv:
+  h264 (h264_qsv)
+  hevc (hevc_qsv)
+  hevc_10bit (hevc_qsv)
+  av1 (av1_qsv)
+  av1_10bit (av1_qsv)
+vulkan:
+  prores_ks (prores_ks_vulkan)
+  h264 (h264_vulkan)
+  hevc (hevc_vulkan)

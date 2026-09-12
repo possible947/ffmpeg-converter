@@ -59,43 +59,37 @@ endif()
 set(GENERATED_PRESETS_DIR "${CMAKE_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${GENERATED_PRESETS_DIR}")
 
-# Generate the unified selection catalog with build-time availability gates.
-# The legacy presets.json remains the FFmpeg execution catalog until the
-# loader migration is complete.
-file(READ "${CMAKE_SOURCE_DIR}/presets_v2.json" PRESETS_V2_CONTENT)
-if (HQ_CONVERTER_ENABLED)
-  string(REPLACE "\"hq_converter\": false" "\"hq_converter\": true"
-   PRESETS_V2_CONTENT "${PRESETS_V2_CONTENT}")
-endif()
-if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  string(REPLACE "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_V2_CONTENT "${PRESETS_V2_CONTENT}")
-  string(REPLACE "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_V2_CONTENT "${PRESETS_V2_CONTENT}")
-elseif (APPLE)
-  string(REPLACE "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_V2_CONTENT "${PRESETS_V2_CONTENT}")
-  string(REPLACE "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_V2_CONTENT "${PRESETS_V2_CONTENT}")
-else()
-  string(REPLACE "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_V2_CONTENT "${PRESETS_V2_CONTENT}")
-  string(REPLACE "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_V2_CONTENT "${PRESETS_V2_CONTENT}")
-endif()
-file(WRITE "${GENERATED_PRESETS_DIR}/presets_v2.json" "${PRESETS_V2_CONTENT}")
-
+# Generate the unified catalog with build-time availability gates.
 configure_file(
   "${CMAKE_SOURCE_DIR}/presets.json.in"
   "${GENERATED_PRESETS_DIR}/presets.json"
   @ONLY
 )
+
+file(READ "${GENERATED_PRESETS_DIR}/presets.json" PRESETS_CONTENT)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  string(REPLACE "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": true"
+     "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": false"
+   PRESETS_CONTENT "${PRESETS_CONTENT}")
+  string(REPLACE "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": true"
+     "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": false"
+   PRESETS_CONTENT "${PRESETS_CONTENT}")
+elseif (APPLE)
+  string(REPLACE "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": true"
+     "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": false"
+   PRESETS_CONTENT "${PRESETS_CONTENT}")
+  string(REPLACE "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": true"
+     "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": false"
+   PRESETS_CONTENT "${PRESETS_CONTENT}")
+else()
+  string(REPLACE "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": true"
+     "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": false"
+   PRESETS_CONTENT "${PRESETS_CONTENT}")
+  string(REPLACE "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": true"
+     "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": false"
+   PRESETS_CONTENT "${PRESETS_CONTENT}")
+endif()
+file(WRITE "${GENERATED_PRESETS_DIR}/presets.json" "${PRESETS_CONTENT}")
 
 if (HQ_CONVERTER_ENABLED)
   message(STATUS "HQ_converter runtime feature: enabled")

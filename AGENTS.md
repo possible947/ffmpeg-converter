@@ -6,7 +6,7 @@ sources (CMake/Makefile/scripts) over docs when they conflict.
 ## Two implementations — keep in sync
 
 - **C/CMake** (`src/`) — primary engine for all platforms: macOS (Cocoa GUI + CLI), Linux (GTK4 GUI + CLI), Windows (CLI only, MSVC).
-- **Free Pascal** (`fpc/`) — complete port, **Linux + Windows only**. macOS Pascal is discontinued since v2.4 and hard-blocked in `fpc/build/Makefile` (errors out on Darwin) — do not re-add it.
+- **Free Pascal** (`fpc/`) — Windows-only CLI/GUI/library. Linux and macOS Pascal builds were removed; do not re-add them.
 
 Both share the same CLI and conversion model. Cross-cutting concepts (Apple M4V pipeline, codec strings, audio modes) are implemented independently in each — change one, update the other.
 
@@ -32,6 +32,14 @@ make -C fpc/build gui        # needs lazbuild
 ```
 
 Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat` (distinct from the MSVC `windows_build.ps1`). Linux and macOS use the C/CMake implementation.
+
+HQ_converter is an external Linux/macOS project. Its prepared release must be
+placed in `third_party/hq_converter/` before configuring or building this
+project. The build copies the complete release to `bin/hq_converter/` and into
+application bundles. A built `ffmpeg-converter` is treated as a monolithic,
+unchanged application; HQ_converter is never modified or updated at runtime.
+Windows builds do not include or expose HQ_converter. See
+`docs/hq-converter-integration-policy.md`.
 
 ### Hard prerequisites that abort the build
 

@@ -117,7 +117,6 @@ endif()
 if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
     add_custom_command(TARGET linux_gui POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_gui>/presets.json"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets_v2.json" "$<TARGET_FILE_DIR:linux_gui>/presets_v2.json"
         COMMENT "Copying presets.json next to linux_gui"
     )
 else()

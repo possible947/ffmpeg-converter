@@ -1,22 +1,15 @@
 # Preset File Rules
 
 This document defines the preset data model for the GUI and CLI codec-selection
-update.
+and execution.
 
 ## Files and responsibilities
 
-The preset data has two layers:
+The preset data is consolidated into a single unified catalog:
 
-- `presets_v2.json` is the unified selection catalog. It describes groups,
-  encoders, availability gates, runtime requirements, and mappings to execution
-  codec IDs.
-- `presets.json` is the current built-in execution catalog. It contains the
-  FFmpeg command parameters and remains the execution source until the loader
-  migration is completed.
+- `presets.json` (generated from `presets.json.in`) is the unified catalog. It contains both selection hierarchy (`selection`) describing groups, encoders, availability gates, runtime requirements, and execution parameters (`linux`, `macos`, `windows` FFmpeg arguments).
 
-The selection layer must not duplicate FFmpeg command construction logic. GUI
-and CLI code select a group, encoder, and preset; the execution layer resolves
-that selection to the existing FFmpeg parameters.
+GUI and CLI code select a group, encoder, and preset, resolving parameters directly from `presets.json`.
 
 ## Schema rules
 
