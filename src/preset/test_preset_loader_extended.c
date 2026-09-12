@@ -43,7 +43,7 @@ void assert_null(const char *name, void *ptr) {
     }
 }
 
-void assert_not_null(const char *name, void *ptr) {
+void assert_not_null(const char *name, const void *ptr) {
     total_tests++;
     if (ptr != NULL) {
         printf("✓ PASS: %s\n", name);

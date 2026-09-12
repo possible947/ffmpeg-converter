@@ -93,16 +93,16 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     )
     target_link_libraries(test_runtime_probe_catalog PRIVATE converter)
     add_test(NAME RuntimeProbeCatalogTests COMMAND test_runtime_probe_catalog)
-
-    add_executable(test_selection_catalog
-        ${CMAKE_SOURCE_DIR}/src/platform/test_selection_catalog.c
-    )
-    target_compile_definitions(test_selection_catalog PRIVATE
-        FFMPEG_CONVERTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
-    )
-    target_link_libraries(test_selection_catalog PRIVATE converter)
-    add_test(NAME SelectionCatalogTests COMMAND test_selection_catalog)
 endif()
+
+add_executable(test_selection_catalog
+    ${CMAKE_SOURCE_DIR}/src/platform/test_selection_catalog.c
+)
+target_compile_definitions(test_selection_catalog PRIVATE
+    FFMPEG_CONVERTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+target_link_libraries(test_selection_catalog PRIVATE converter)
+add_test(NAME SelectionCatalogTests COMMAND test_selection_catalog)
 
 # Platform abstraction header directory
 target_include_directories(converter PRIVATE

@@ -320,7 +320,7 @@ static int macSelectionCapability(void *context,
     [content addSubview:self.profilePopup];
     [self populatePresetPopup];
 
-    NSTextField *filterLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(614, 556, 70, 24)];
+    NSTextField *filterLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(580, 556, 100, 24)];
     [filterLabel setStringValue:@"Filter:"];
     [filterLabel setBezeled:NO];
     [filterLabel setEditable:NO];
@@ -333,7 +333,19 @@ static int macSelectionCapability(void *context,
     [self.filterPopup selectItemAtIndex:0];
     [content addSubview:self.filterPopup];
 
-    NSTextField *deblockLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(614, 488, 70, 24)];
+    NSTextField *filterPresetLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(580, 522, 100, 24)];
+    [filterPresetLabel setStringValue:@"Filter preset:"];
+    [filterPresetLabel setBezeled:NO];
+    [filterPresetLabel setEditable:NO];
+    [filterPresetLabel setDrawsBackground:NO];
+    [filterPresetLabel setAlignment:NSTextAlignmentRight];
+    [content addSubview:filterPresetLabel];
+
+    self.filterPresetPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(684, 520, 98, 28) pullsDown:NO];
+    [self.filterPresetPopup addItemWithTitle:@"default"];
+    [content addSubview:self.filterPresetPopup];
+
+    NSTextField *deblockLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(580, 488, 100, 24)];
     [deblockLabel setStringValue:@"Deblock:"];
     [deblockLabel setBezeled:NO];
     [deblockLabel setEditable:NO];
@@ -345,18 +357,6 @@ static int macSelectionCapability(void *context,
     [self.deblockPopup addItemsWithTitles:@[@"none", @"weak", @"strong"]];
     [self.deblockPopup selectItemAtIndex:0];
     [content addSubview:self.deblockPopup];
-
-    NSTextField *filterPresetLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(614, 522, 96, 24)];
-    [filterPresetLabel setStringValue:@"Filter preset:"];
-    [filterPresetLabel setBezeled:NO];
-    [filterPresetLabel setEditable:NO];
-    [filterPresetLabel setDrawsBackground:NO];
-    [filterPresetLabel setAlignment:NSTextAlignmentRight];
-    [content addSubview:filterPresetLabel];
-
-    self.filterPresetPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(614, 520, 168, 28) pullsDown:NO];
-    [self.filterPresetPopup addItemWithTitle:@"default"];
-    [content addSubview:self.filterPresetPopup];
 
     NSTextField *audioLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(300, 556, 80, 24)];
     [audioLabel setStringValue:@"Audio norm:"];
@@ -519,9 +519,10 @@ static int macSelectionCapability(void *context,
     [self.progress setDoubleValue:0.0];
     [content addSubview:self.progress];
 
-    NSScrollView *logScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 4, 766, 102)];
+    NSScrollView *logScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 30, 766, 80)];
     self.logView = [[NSTextView alloc] initWithFrame:[logScroll bounds]];
     [self.logView setEditable:NO];
+    [self.logView setTextColor:[NSColor textColor]];
     if (dirError) {
         [self.logView setString:[NSString stringWithFormat:@"Native macOS UI skeleton initialized.\nDefault output dir error: %@\n", dirError.localizedDescription]];
     } else {
@@ -531,7 +532,7 @@ static int macSelectionCapability(void *context,
     [logScroll setHasVerticalScroller:YES];
     [content addSubview:logScroll];
 
-    self.statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 12, 766, 24)];
+    self.statusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 4, 766, 22)];
     [self.statusLabel setStringValue:@"Ready"];
     [self.statusLabel setBezeled:NO];
     [self.statusLabel setEditable:NO];
