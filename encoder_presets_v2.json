@@ -1,0 +1,1299 @@
+{
+  "schema_version": "v2",
+  "description": "Session presets v2. Extends v1 with explicit field_allowed_values for every override-parameter to enable strict key and value validation at job-creation time. Parameters not described in field_allowed_values are rejected.",
+  "session_field_allowed_values": {
+    "colorprim": [
+      "bt709",
+      "bt2020",
+      "bt470m",
+      "bt470bg",
+      "smpte170m",
+      "smpte240m",
+      "film"
+    ],
+    "transfer": [
+      "bt709",
+      "smpte2084",
+      "arib-std-b67",
+      "linear",
+      "log100",
+      "log316"
+    ],
+    "colormatrix": [
+      "bt709",
+      "bt2020nc",
+      "bt2020c",
+      "smpte170m",
+      "smpte240m"
+    ],
+    "hdr_mode": [
+      "auto",
+      "off"
+    ],
+    "color_processing_mode": [
+      "cpmSDR",
+      "cpmHDRAuto",
+      "cpmHDRFallback"
+    ],
+    "color_processing_reason": [],
+    "sdr_filter": [
+      "zscale-default",
+      "zscale-reinhard",
+      "tonemap-hable",
+      "tonemap-mobius"
+    ],
+    "dolby_vision_profile": [],
+    "dolby_vision_compat_id": [],
+    "master_display": [],
+    "max_cll": []
+  },
+  "dispatcher_task_input": {
+    "quality_value": "QP",
+    "optional_overrides": [
+      "quality_mode",
+      "preset_flag",
+      "profile_flag",
+      "tune_flag"
+    ]
+  },
+  "task_override_policy": {
+    "mode": "per_task_subset",
+    "default_behavior": "inherit_session",
+    "allowed_fields": [
+      "quality_mode",
+      "preset_flag",
+      "profile_flag",
+      "tune_flag"
+    ],
+    "declared_but_unsupported": [
+      "level_flag",
+      "pix_fmt_flag",
+      "base_flags",
+      "qp_mode_flags",
+      "mode_flags"
+    ]
+  },
+  "session_locked_fields": [
+    "quality_mode",
+    "preset_flag",
+    "profile_flag",
+    "level_flag",
+    "tune_flag",
+    "pix_fmt_flag",
+    "base_flags",
+    "qp_mode_flags",
+    "crf_mode_flags",
+    "params_qp_line",
+    "params_crf_line",
+    "hdr_mode"
+  ],
+  "encoders": {
+    "x264": {
+      "default_preset": "fullhd",
+      "allow_task_overrides": true,
+      "allowed_override_fields": [
+        "quality_mode",
+        "preset_flag",
+        "profile_flag",
+        "level_flag",
+        "tune_flag",
+        "pix_fmt_flag",
+        "base_flags",
+        "qp_mode_flags",
+        "crf_mode_flags",
+        "mode_flags"
+      ],
+      "presets": {
+        "fullhd": {
+          "quality_mode": "qp",
+          "target_bit_depth": 8,
+          "preset_flag": "-preset medium",
+          "profile_flag": "-profile:v high",
+          "level_flag": "-level:v 3.1",
+          "tune_flag": "",
+          "pix_fmt_flag": "-pix_fmt yuv420p",
+          "base_flags": "-x264-params scenecut=0:psy=0",
+          "qp_mode_flags": "-x264-params scenecut=0:psy=0:aq-mode=0",
+          "crf_mode_flags": "-x264-params scenecut=0:psy=0:aq-mode=2:aq-strength=1.0",
+          "params_qp_line": "-c:v libx264 -preset medium -profile:v high -level:v 3.1 -pix_fmt yuv420p -x264-params scenecut=0:psy=0:aq-mode=0 -qp {QP}",
+          "params_crf_line": "-c:v libx264 -preset medium -profile:v high -level:v 3.1 -pix_fmt yuv420p -x264-params scenecut=0:psy=0:aq-mode=2:aq-strength=1.0 -crf {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "-preset ultrafast",
+              "-preset superfast",
+              "-preset veryfast",
+              "-preset faster",
+              "-preset fast",
+              "-preset medium",
+              "-preset slow",
+              "-preset slower",
+              "-preset veryslow",
+              "-preset placebo"
+            ],
+            "profile_flag": [
+              "",
+              "-profile:v baseline",
+              "-profile:v main",
+              "-profile:v high",
+              "-profile:v high10",
+              "-profile:v high422",
+              "-profile:v high444"
+            ],
+            "level_flag": [
+              "",
+              "-level:v 1.0",
+              "-level:v 1.1",
+              "-level:v 1.2",
+              "-level:v 1.3",
+              "-level:v 2.0",
+              "-level:v 2.1",
+              "-level:v 2.2",
+              "-level:v 3.0",
+              "-level:v 3.1",
+              "-level:v 3.2",
+              "-level:v 4.0",
+              "-level:v 4.1",
+              "-level:v 4.2",
+              "-level:v 5.0",
+              "-level:v 5.1",
+              "-level:v 5.2"
+            ],
+            "tune_flag": [
+              "",
+              "-tune film",
+              "-tune animation",
+              "-tune grain",
+              "-tune stillimage",
+              "-tune psnr",
+              "-tune ssim",
+              "-tune fastdecode",
+              "-tune zerolatency"
+            ],
+            "pix_fmt_flag": [
+              "",
+              "-pix_fmt yuv420p",
+              "-pix_fmt yuv420p10le",
+              "-pix_fmt yuv422p",
+              "-pix_fmt yuv422p10le",
+              "-pix_fmt yuv444p",
+              "-pix_fmt yuv444p10le"
+            ],
+            "base_flags": [
+              "",
+              "-x264-params scenecut=0:psy=0"
+            ],
+            "qp_mode_flags": [
+              "",
+              "-x264-params scenecut=0:psy=0:aq-mode=0"
+            ],
+            "crf_mode_flags": [
+              "",
+              "-x264-params scenecut=0:psy=0:aq-mode=2:aq-strength=1.0"
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        },
+        "uhd4k": {
+          "quality_mode": "qp",
+          "target_bit_depth": 8,
+          "preset_flag": "-preset slow",
+          "profile_flag": "-profile:v high",
+          "level_flag": "-level:v 5.1",
+          "tune_flag": "",
+          "pix_fmt_flag": "-pix_fmt yuv420p",
+          "base_flags": "-x264-params scenecut=0:psy=0",
+          "qp_mode_flags": "-x264-params scenecut=0:psy=0:aq-mode=0",
+          "crf_mode_flags": "-x264-params scenecut=0:psy=0:aq-mode=2:aq-strength=1.0",
+          "params_qp_line": "-c:v libx264 -preset slow -profile:v high -level:v 5.1 -pix_fmt yuv420p -x264-params scenecut=0:psy=0:aq-mode=0 -qp {QP}",
+          "params_crf_line": "-c:v libx264 -preset slow -profile:v high -level:v 5.1 -pix_fmt yuv420p -x264-params scenecut=0:psy=0:aq-mode=2:aq-strength=1.0 -crf {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "-preset ultrafast",
+              "-preset superfast",
+              "-preset veryfast",
+              "-preset faster",
+              "-preset fast",
+              "-preset medium",
+              "-preset slow",
+              "-preset slower",
+              "-preset veryslow",
+              "-preset placebo"
+            ],
+            "profile_flag": [
+              "",
+              "-profile:v baseline",
+              "-profile:v main",
+              "-profile:v high",
+              "-profile:v high10",
+              "-profile:v high422",
+              "-profile:v high444"
+            ],
+            "level_flag": [
+              "",
+              "-level:v 1.0",
+              "-level:v 1.1",
+              "-level:v 1.2",
+              "-level:v 1.3",
+              "-level:v 2.0",
+              "-level:v 2.1",
+              "-level:v 2.2",
+              "-level:v 3.0",
+              "-level:v 3.1",
+              "-level:v 3.2",
+              "-level:v 4.0",
+              "-level:v 4.1",
+              "-level:v 4.2",
+              "-level:v 5.0",
+              "-level:v 5.1",
+              "-level:v 5.2"
+            ],
+            "tune_flag": [
+              "",
+              "-tune film",
+              "-tune animation",
+              "-tune grain",
+              "-tune stillimage",
+              "-tune psnr",
+              "-tune ssim",
+              "-tune fastdecode",
+              "-tune zerolatency"
+            ],
+            "pix_fmt_flag": [
+              "",
+              "-pix_fmt yuv420p",
+              "-pix_fmt yuv420p10le",
+              "-pix_fmt yuv422p",
+              "-pix_fmt yuv422p10le",
+              "-pix_fmt yuv444p",
+              "-pix_fmt yuv444p10le"
+            ],
+            "base_flags": [
+              "",
+              "-x264-params scenecut=0:psy=0"
+            ],
+            "qp_mode_flags": [
+              "",
+              "-x264-params scenecut=0:psy=0:aq-mode=0"
+            ],
+            "crf_mode_flags": [
+              "",
+              "-x264-params scenecut=0:psy=0:aq-mode=2:aq-strength=1.0"
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        },
+        "youtube4k": {
+          "quality_mode": "crf",
+          "target_bit_depth": 8,
+          "preset_flag": "-preset slow",
+          "profile_flag": "-profile:v high",
+          "level_flag": "-level:v 5.1",
+          "tune_flag": "-tune film",
+          "pix_fmt_flag": "-pix_fmt yuv420p",
+          "base_flags": "-x264-params scenecut=0:psy=0",
+          "qp_mode_flags": "-x264-params scenecut=0:psy=0:aq-mode=0",
+          "crf_mode_flags": "-x264-params scenecut=0:psy=0:aq-mode=2:aq-strength=1.0",
+          "params_qp_line": "-c:v libx264 -preset slow -profile:v high -level:v 5.1 -pix_fmt yuv420p -x264-params scenecut=0:psy=0:aq-mode=0 -qp {QP}",
+          "params_crf_line": "-c:v libx264 -preset slow -profile:v high -level:v 5.1 -pix_fmt yuv420p -x264-params scenecut=0:psy=0:aq-mode=2:aq-strength=1.0 -crf {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "-preset ultrafast",
+              "-preset superfast",
+              "-preset veryfast",
+              "-preset faster",
+              "-preset fast",
+              "-preset medium",
+              "-preset slow",
+              "-preset slower",
+              "-preset veryslow",
+              "-preset placebo"
+            ],
+            "profile_flag": [
+              "",
+              "-profile:v baseline",
+              "-profile:v main",
+              "-profile:v high",
+              "-profile:v high10",
+              "-profile:v high422",
+              "-profile:v high444"
+            ],
+            "level_flag": [
+              "",
+              "-level:v 1.0",
+              "-level:v 1.1",
+              "-level:v 1.2",
+              "-level:v 1.3",
+              "-level:v 2.0",
+              "-level:v 2.1",
+              "-level:v 2.2",
+              "-level:v 3.0",
+              "-level:v 3.1",
+              "-level:v 3.2",
+              "-level:v 4.0",
+              "-level:v 4.1",
+              "-level:v 4.2",
+              "-level:v 5.0",
+              "-level:v 5.1",
+              "-level:v 5.2"
+            ],
+            "tune_flag": [
+              "",
+              "-tune film",
+              "-tune animation",
+              "-tune grain",
+              "-tune stillimage",
+              "-tune psnr",
+              "-tune ssim",
+              "-tune fastdecode",
+              "-tune zerolatency"
+            ],
+            "pix_fmt_flag": [
+              "",
+              "-pix_fmt yuv420p",
+              "-pix_fmt yuv420p10le",
+              "-pix_fmt yuv422p",
+              "-pix_fmt yuv422p10le",
+              "-pix_fmt yuv444p",
+              "-pix_fmt yuv444p10le"
+            ],
+            "base_flags": [
+              "",
+              "-x264-params scenecut=0:psy=0"
+            ],
+            "qp_mode_flags": [
+              "",
+              "-x264-params scenecut=0:psy=0:aq-mode=0"
+            ],
+            "crf_mode_flags": [
+              "",
+              "-x264-params scenecut=0:psy=0:aq-mode=2:aq-strength=1.0"
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        }
+      }
+    },
+    "x265": {
+      "default_preset": "Medium",
+      "allow_task_overrides": true,
+      "allowed_override_fields": [
+        "quality_mode",
+        "preset_flag",
+        "profile_flag",
+        "level_flag",
+        "tune_flag",
+        "pix_fmt_flag",
+        "base_flags",
+        "qp_mode_flags",
+        "crf_mode_flags",
+        "mode_flags"
+      ],
+      "global_flags": {
+        "base_flags": ""
+      },
+      "presets": {
+        "Medium": {
+          "quality_mode": "qp",
+          "target_bit_depth": 8,
+          "preset_flag": "--preset medium",
+          "profile_flag": "--profile main",
+          "tune_flag": "",
+          "level_flag": "",
+          "pix_fmt_flag": "",
+          "base_flags": "",
+          "qp_mode_flags": "",
+          "crf_mode_flags": "",
+          "mode_flags": "",
+          "params_qp_line": "--preset medium --profile main --qp {QP}",
+          "params_crf_line": "--preset medium --profile main --crf {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "--preset ultrafast",
+              "--preset superfast",
+              "--preset veryfast",
+              "--preset faster",
+              "--preset fast",
+              "--preset medium",
+              "--preset slow",
+              "--preset slower",
+              "--preset veryslow",
+              "--preset placebo"
+            ],
+            "profile_flag": [
+              "",
+              "--profile main",
+              "--profile main10",
+              "--profile mainstillpicture"
+            ],
+            "level_flag": [
+              "",
+              "--level-idc 1.0",
+              "--level-idc 1.1",
+              "--level-idc 1.2",
+              "--level-idc 1.3",
+              "--level-idc 2.0",
+              "--level-idc 2.1",
+              "--level-idc 2.2",
+              "--level-idc 3.0",
+              "--level-idc 3.1",
+              "--level-idc 3.2",
+              "--level-idc 4.0",
+              "--level-idc 4.1",
+              "--level-idc 4.2",
+              "--level-idc 5.0",
+              "--level-idc 5.1",
+              "--level-idc 5.2",
+              "--level-idc 6.0",
+              "--level-idc 6.1",
+              "--level-idc 6.2"
+            ],
+            "tune_flag": [
+              "",
+              "--tune psnr",
+              "--tune ssim",
+              "--tune grain",
+              "--tune zerolatency",
+              "--tune fastdecode"
+            ],
+            "pix_fmt_flag": [
+              ""
+            ],
+            "base_flags": [
+              ""
+            ],
+            "qp_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "crf_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        },
+        "Slow": {
+          "quality_mode": "qp",
+          "target_bit_depth": 8,
+          "preset_flag": "--preset slow",
+          "profile_flag": "--profile main",
+          "tune_flag": "",
+          "level_flag": "",
+          "pix_fmt_flag": "",
+          "base_flags": "",
+          "qp_mode_flags": "",
+          "crf_mode_flags": "",
+          "mode_flags": "",
+          "params_qp_line": "--preset slow --profile main --qp {QP}",
+          "params_crf_line": "--preset slow --profile main --crf {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "--preset ultrafast",
+              "--preset superfast",
+              "--preset veryfast",
+              "--preset faster",
+              "--preset fast",
+              "--preset medium",
+              "--preset slow",
+              "--preset slower",
+              "--preset veryslow",
+              "--preset placebo"
+            ],
+            "profile_flag": [
+              "",
+              "--profile main",
+              "--profile main10",
+              "--profile mainstillpicture"
+            ],
+            "level_flag": [
+              "",
+              "--level-idc 1.0",
+              "--level-idc 1.1",
+              "--level-idc 1.2",
+              "--level-idc 1.3",
+              "--level-idc 2.0",
+              "--level-idc 2.1",
+              "--level-idc 2.2",
+              "--level-idc 3.0",
+              "--level-idc 3.1",
+              "--level-idc 3.2",
+              "--level-idc 4.0",
+              "--level-idc 4.1",
+              "--level-idc 4.2",
+              "--level-idc 5.0",
+              "--level-idc 5.1",
+              "--level-idc 5.2",
+              "--level-idc 6.0",
+              "--level-idc 6.1",
+              "--level-idc 6.2"
+            ],
+            "tune_flag": [
+              "",
+              "--tune psnr",
+              "--tune ssim",
+              "--tune grain",
+              "--tune zerolatency",
+              "--tune fastdecode"
+            ],
+            "pix_fmt_flag": [
+              ""
+            ],
+            "base_flags": [
+              ""
+            ],
+            "qp_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "crf_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        },
+        "Music": {
+          "quality_mode": "qp",
+          "target_bit_depth": 10,
+          "preset_flag": "--preset medium",
+          "profile_flag": "--profile main10",
+          "tune_flag": "",
+          "pix_fmt_flag": "",
+          "base_flags": "",
+          "qp_mode_flags": "--aq-mode 0",
+          "crf_mode_flags": "--aq-mode 3",
+          "params_qp_line": "--preset medium --profile main10 --aq-mode 0 --qp {QP}",
+          "params_crf_line": "--preset medium --profile main10 --aq-mode 3 --crf {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "--preset ultrafast",
+              "--preset superfast",
+              "--preset veryfast",
+              "--preset faster",
+              "--preset fast",
+              "--preset medium",
+              "--preset slow",
+              "--preset slower",
+              "--preset veryslow",
+              "--preset placebo"
+            ],
+            "profile_flag": [
+              "",
+              "--profile main",
+              "--profile main10",
+              "--profile mainstillpicture"
+            ],
+            "level_flag": [
+              "",
+              "--level-idc 1.0",
+              "--level-idc 1.1",
+              "--level-idc 1.2",
+              "--level-idc 1.3",
+              "--level-idc 2.0",
+              "--level-idc 2.1",
+              "--level-idc 2.2",
+              "--level-idc 3.0",
+              "--level-idc 3.1",
+              "--level-idc 3.2",
+              "--level-idc 4.0",
+              "--level-idc 4.1",
+              "--level-idc 4.2",
+              "--level-idc 5.0",
+              "--level-idc 5.1",
+              "--level-idc 5.2",
+              "--level-idc 6.0",
+              "--level-idc 6.1",
+              "--level-idc 6.2"
+            ],
+            "tune_flag": [
+              "",
+              "--tune psnr",
+              "--tune ssim",
+              "--tune grain",
+              "--tune zerolatency",
+              "--tune fastdecode"
+            ],
+            "pix_fmt_flag": [
+              ""
+            ],
+            "base_flags": [
+              ""
+            ],
+            "qp_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "crf_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        },
+        "UHD": {
+          "quality_mode": "qp",
+          "target_bit_depth": 10,
+          "preset_flag": "--preset slow",
+          "profile_flag": "--profile main10",
+          "tune_flag": "",
+          "level_flag": "",
+          "pix_fmt_flag": "",
+          "base_flags": "",
+          "qp_mode_flags": "--aq-mode 0",
+          "crf_mode_flags": "--aq-mode 3",
+          "mode_flags": "",
+          "params_qp_line": "--preset slow --profile main10 --aq-mode 0 --qp {QP}",
+          "params_crf_line": "--preset slow --profile main10 --aq-mode 3 --crf {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "--preset ultrafast",
+              "--preset superfast",
+              "--preset veryfast",
+              "--preset faster",
+              "--preset fast",
+              "--preset medium",
+              "--preset slow",
+              "--preset slower",
+              "--preset veryslow",
+              "--preset placebo"
+            ],
+            "profile_flag": [
+              "",
+              "--profile main",
+              "--profile main10",
+              "--profile mainstillpicture"
+            ],
+            "level_flag": [
+              "",
+              "--level-idc 1.0",
+              "--level-idc 1.1",
+              "--level-idc 1.2",
+              "--level-idc 1.3",
+              "--level-idc 2.0",
+              "--level-idc 2.1",
+              "--level-idc 2.2",
+              "--level-idc 3.0",
+              "--level-idc 3.1",
+              "--level-idc 3.2",
+              "--level-idc 4.0",
+              "--level-idc 4.1",
+              "--level-idc 4.2",
+              "--level-idc 5.0",
+              "--level-idc 5.1",
+              "--level-idc 5.2",
+              "--level-idc 6.0",
+              "--level-idc 6.1",
+              "--level-idc 6.2"
+            ],
+            "tune_flag": [
+              "",
+              "--tune psnr",
+              "--tune ssim",
+              "--tune grain",
+              "--tune zerolatency",
+              "--tune fastdecode"
+            ],
+            "pix_fmt_flag": [
+              ""
+            ],
+            "base_flags": [
+              ""
+            ],
+            "qp_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "crf_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        },
+        "UHD_grain": {
+          "quality_mode": "qp",
+          "target_bit_depth": 10,
+          "preset_flag": "--preset slow",
+          "profile_flag": "--profile main10",
+          "tune_flag": "--tune grain",
+          "level_flag": "",
+          "pix_fmt_flag": "",
+          "base_flags": "",
+          "qp_mode_flags": "--aq-mode 0",
+          "crf_mode_flags": "--aq-mode 3",
+          "mode_flags": "",
+          "params_qp_line": "--preset slow --profile main10 --tune grain --aq-mode 0 --qp {QP}",
+          "params_crf_line": "--preset slow --profile main10 --tune grain --aq-mode 3 --crf {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "--preset ultrafast",
+              "--preset superfast",
+              "--preset veryfast",
+              "--preset faster",
+              "--preset fast",
+              "--preset medium",
+              "--preset slow",
+              "--preset slower",
+              "--preset veryslow",
+              "--preset placebo"
+            ],
+            "profile_flag": [
+              "",
+              "--profile main",
+              "--profile main10",
+              "--profile mainstillpicture"
+            ],
+            "level_flag": [
+              "",
+              "--level-idc 1.0",
+              "--level-idc 1.1",
+              "--level-idc 1.2",
+              "--level-idc 1.3",
+              "--level-idc 2.0",
+              "--level-idc 2.1",
+              "--level-idc 2.2",
+              "--level-idc 3.0",
+              "--level-idc 3.1",
+              "--level-idc 3.2",
+              "--level-idc 4.0",
+              "--level-idc 4.1",
+              "--level-idc 4.2",
+              "--level-idc 5.0",
+              "--level-idc 5.1",
+              "--level-idc 5.2",
+              "--level-idc 6.0",
+              "--level-idc 6.1",
+              "--level-idc 6.2"
+            ],
+            "tune_flag": [
+              "",
+              "--tune psnr",
+              "--tune ssim",
+              "--tune grain",
+              "--tune zerolatency",
+              "--tune fastdecode"
+            ],
+            "pix_fmt_flag": [
+              ""
+            ],
+            "base_flags": [
+              ""
+            ],
+            "qp_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "crf_mode_flags": [
+              "",
+              "--aq-mode 0",
+              "--aq-mode 1",
+              "--aq-mode 2",
+              "--aq-mode 3"
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        }
+      }
+    },
+    "svt-hevc": {
+      "default_preset": "balanced_4k",
+      "allow_task_overrides": true,
+      "allowed_override_fields": [
+        "quality_mode",
+        "preset_flag",
+        "profile_flag",
+        "level_flag",
+        "tune_flag",
+        "pix_fmt_flag",
+        "base_flags",
+        "qp_mode_flags",
+        "mode_flags"
+      ],
+      "global_flags": {
+        "base_flags": ""
+      },
+      "presets": {
+        "balanced_4k": {
+          "quality_mode": "qp",
+          "target_bit_depth": 10,
+          "preset_flag": "-encMode 5",
+          "profile_flag": "-profile 2",
+          "level_flag": "",
+          "tune_flag": "",
+          "pix_fmt_flag": "",
+          "base_flags": "-rc 0 -scd 1 -tier 1 -vid-info 1 -tpic 1 -hierarchical-levels 0 -pred-struct 0",
+          "qp_mode_flags": "",
+          "params_qp_line": "-encMode 5 -profile 2 -rc 0 -scd 1 -tier 1 -vid-info 1 -tpic 1 -hierarchical-levels 0 -pred-struct 0 -q {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "-encMode 0",
+              "-encMode 1",
+              "-encMode 2",
+              "-encMode 3",
+              "-encMode 4",
+              "-encMode 5",
+              "-encMode 6",
+              "-encMode 7",
+              "-encMode 8",
+              "-encMode 9",
+              "-encMode 10",
+              "-encMode 11"
+            ],
+            "profile_flag": [
+              "",
+              "-profile 1",
+              "-profile 2"
+            ],
+            "level_flag": [
+              "",
+              "-level 0",
+              "-level 1",
+              "-level 2",
+              "-level 2.1",
+              "-level 3",
+              "-level 3.1",
+              "-level 4",
+              "-level 4.1",
+              "-level 5",
+              "-level 5.1",
+              "-level 5.2",
+              "-level 6",
+              "-level 6.1",
+              "-level 6.2"
+            ],
+            "tune_flag": [
+              ""
+            ],
+            "pix_fmt_flag": [
+              "",
+              "-color-format 1",
+              "-color-format 2",
+              "-color-format 3"
+            ],
+            "base_flags": [
+              "",
+              "-rc 0 -scd 1 -tier 1 -vid-info 1 -tpic 1 -hierarchical-levels 0 -pred-struct 0",
+              "-rc 0 -scd 1 -sharp 1 -sao 1 -tier 1 -vid-info 1 -tpic 1 -hierarchical-levels 0 -pred-struct 0"
+            ],
+            "qp_mode_flags": [
+              ""
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        },
+        "balanced_grain": {
+          "quality_mode": "qp",
+          "target_bit_depth": 10,
+          "preset_flag": "-encMode 5",
+          "profile_flag": "-profile 2",
+          "level_flag": "",
+          "tune_flag": "",
+          "pix_fmt_flag": "",
+          "base_flags": "-rc 0 -scd 1 -sharp 1 -sao 1 -tier 1 -vid-info 1 -tpic 1 -hierarchical-levels 0 -pred-struct 0",
+          "qp_mode_flags": "",
+          "params_qp_line": "-encMode 5 -profile 2 -rc 0 -scd 1 -sharp 1 -sao 1 -tier 1 -vid-info 1 -tpic 1 -hierarchical-levels 0 -pred-struct 0 -q {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "-encMode 0",
+              "-encMode 1",
+              "-encMode 2",
+              "-encMode 3",
+              "-encMode 4",
+              "-encMode 5",
+              "-encMode 6",
+              "-encMode 7",
+              "-encMode 8",
+              "-encMode 9",
+              "-encMode 10",
+              "-encMode 11"
+            ],
+            "profile_flag": [
+              "",
+              "-profile 1",
+              "-profile 2"
+            ],
+            "level_flag": [
+              "",
+              "-level 0",
+              "-level 1",
+              "-level 2",
+              "-level 2.1",
+              "-level 3",
+              "-level 3.1",
+              "-level 4",
+              "-level 4.1",
+              "-level 5",
+              "-level 5.1",
+              "-level 5.2",
+              "-level 6",
+              "-level 6.1",
+              "-level 6.2"
+            ],
+            "tune_flag": [
+              ""
+            ],
+            "pix_fmt_flag": [
+              "",
+              "-color-format 1",
+              "-color-format 2",
+              "-color-format 3"
+            ],
+            "base_flags": [
+              "",
+              "-rc 0 -scd 1 -tier 1 -vid-info 1 -tpic 1 -hierarchical-levels 0 -pred-struct 0",
+              "-rc 0 -scd 1 -sharp 1 -sao 1 -tier 1 -vid-info 1 -tpic 1 -hierarchical-levels 0 -pred-struct 0"
+            ],
+            "qp_mode_flags": [
+              ""
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        }
+      }
+    },
+    "svt-av1": {
+      "default_preset": "balanced",
+      "allow_task_overrides": true,
+      "allowed_override_fields": [
+        "quality_mode",
+        "preset_flag",
+        "profile_flag",
+        "level_flag",
+        "tune_flag",
+        "pix_fmt_flag",
+        "base_flags",
+        "qp_mode_flags",
+        "crf_mode_flags",
+        "mode_flags"
+      ],
+      "presets": {
+        "balanced": {
+          "quality_mode": "qp",
+          "target_bit_depth": 10,
+          "preset_flag": "--preset 8",
+          "profile_flag": "",
+          "tune_flag": "",
+          "pix_fmt_flag": "",
+          "base_flags": "--rc 0",
+          "qp_mode_flags": "--aq-mode 0",
+          "crf_mode_flags": "--aq-mode 2",
+          "params_qp_line": "--preset 8 --rc 0 --aq-mode 0 --qp {QP}",
+          "params_crf_line": "--preset 8 --rc 0 --aq-mode 2 --crf {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              "",
+              "--preset 0",
+              "--preset 1",
+              "--preset 2",
+              "--preset 3",
+              "--preset 4",
+              "--preset 5",
+              "--preset 6",
+              "--preset 7",
+              "--preset 8",
+              "--preset 9",
+              "--preset 10",
+              "--preset 11",
+              "--preset 12",
+              "--preset 13"
+            ],
+            "profile_flag": [
+              "",
+              "--profile 0",
+              "--profile 1",
+              "--profile 2"
+            ],
+            "level_flag": [
+              "",
+              "--level 0",
+              "--level 2.0",
+              "--level 2.1",
+              "--level 3.0",
+              "--level 3.1",
+              "--level 4.0",
+              "--level 4.1",
+              "--level 5.0",
+              "--level 5.1",
+              "--level 5.2",
+              "--level 6.0",
+              "--level 6.1",
+              "--level 6.2",
+              "--level 7.0",
+              "--level 7.1",
+              "--level 7.2",
+              "--level 7.3"
+            ],
+            "tune_flag": [
+              "",
+              "--tune 0",
+              "--tune 1",
+              "--tune 2",
+              "--tune 3",
+              "--tune 4"
+            ],
+            "pix_fmt_flag": [
+              "",
+              "--color-format 0",
+              "--color-format 1",
+              "--color-format 2",
+              "--color-format 3"
+            ],
+            "base_flags": [
+              "",
+              "--rc 0"
+            ],
+            "qp_mode_flags": [
+              "",
+              "--aq-mode 0"
+            ],
+            "crf_mode_flags": [
+              "",
+              "--aq-mode 2"
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        }
+      }
+    },
+    "ffmpeg-prores": {
+      "default_preset": "standard",
+      "allow_task_overrides": true,
+      "allowed_override_fields": [
+        "quality_mode",
+        "preset_flag",
+        "profile_flag",
+        "level_flag",
+        "tune_flag",
+        "pix_fmt_flag",
+        "base_flags",
+        "qp_mode_flags",
+        "crf_mode_flags",
+        "mode_flags"
+      ],
+      "presets": {
+        "standard": {
+          "quality_mode": "qp",
+          "target_bit_depth": 10,
+          "preset_flag": "",
+          "profile_flag": "-profile:v 2",
+          "tune_flag": "",
+          "pix_fmt_flag": "-pix_fmt yuv422p10le",
+          "params_qp_line": "-c:v prores -profile:v 2 -pix_fmt yuv422p10le -q:v {QP}",
+          "params_crf_line": "-c:v prores -profile:v 2 -pix_fmt yuv422p10le -q:v {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              ""
+            ],
+            "profile_flag": [
+              "",
+              "-profile:v 0",
+              "-profile:v 1",
+              "-profile:v 2",
+              "-profile:v 3"
+            ],
+            "level_flag": [
+              ""
+            ],
+            "tune_flag": [
+              ""
+            ],
+            "pix_fmt_flag": [
+              "",
+              "-pix_fmt yuv422p10le",
+              "-pix_fmt yuv444p10le",
+              "-pix_fmt yuva444p10le"
+            ],
+            "base_flags": [
+              ""
+            ],
+            "qp_mode_flags": [
+              ""
+            ],
+            "crf_mode_flags": [
+              ""
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        }
+      }
+    },
+    "ffmpeg-prores_ks": {
+      "default_preset": "hq",
+      "allow_task_overrides": true,
+      "allowed_override_fields": [
+        "quality_mode",
+        "preset_flag",
+        "profile_flag",
+        "level_flag",
+        "tune_flag",
+        "pix_fmt_flag",
+        "base_flags",
+        "qp_mode_flags",
+        "crf_mode_flags",
+        "mode_flags"
+      ],
+      "presets": {
+        "hq": {
+          "quality_mode": "qp",
+          "target_bit_depth": 10,
+          "preset_flag": "",
+          "profile_flag": "-profile:v 3",
+          "tune_flag": "",
+          "pix_fmt_flag": "-pix_fmt yuv422p10le",
+          "params_qp_line": "-c:v prores_ks -profile:v 3 -vendor apl0 -pix_fmt yuv422p10le -q:v {QP}",
+          "params_crf_line": "-c:v prores_ks -profile:v 3 -vendor apl0 -pix_fmt yuv422p10le -q:v {QP}",
+          "field_allowed_values": {
+            "quality_mode": [
+              "crf",
+              "qp"
+            ],
+            "preset_flag": [
+              ""
+            ],
+            "profile_flag": [
+              "",
+              "-profile:v -1",
+              "-profile:v 0",
+              "-profile:v 1",
+              "-profile:v 2",
+              "-profile:v 3",
+              "-profile:v 4",
+              "-profile:v 5"
+            ],
+            "level_flag": [
+              ""
+            ],
+            "tune_flag": [
+              ""
+            ],
+            "pix_fmt_flag": [
+              "",
+              "-pix_fmt yuv422p10le",
+              "-pix_fmt yuv444p10le",
+              "-pix_fmt yuva444p10le"
+            ],
+            "base_flags": [
+              ""
+            ],
+            "qp_mode_flags": [
+              ""
+            ],
+            "crf_mode_flags": [
+              ""
+            ],
+            "mode_flags": [
+              ""
+            ]
+          }
+        }
+      }
+    }
+  }
+}

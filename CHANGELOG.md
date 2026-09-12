@@ -13,6 +13,36 @@ hardware/input metadata work. GUI migration is unfinished, and macOS/Windows
 build, runtime, and hardware debugging remain required before Version 3 can be
 considered complete.
 
+## [Unreleased] — Preset-driven hardware command path (2026-09-12)
+
+### Added
+- Added Linux `av1_vaapi` and `av1_qsv` execution preset sections to
+  `presets.json`, matching the values previously embedded in
+  `converter_linux.c`.
+- Added `encoder_presets_v2.json` to the repository as the HQ/session preset
+  catalog input.
+- Added `LinuxPresetArgsTests` to verify Linux hardware encoder args are loaded
+  from `presets.json`, including synthetic 10-bit codec names such as
+  `hevc_nvenc_10bit`, `hevc_qsv_10bit`, `av1_qsv_10bit`, and
+  `av1_vaapi_10bit`.
+
+### Changed
+- Linux hardware encoder command construction now reads `ffmpeg_args` from
+  `presets.json` instead of using a duplicated `converter_linux.c` preset
+  table. The platform layer still keeps runtime capability checks for synthetic
+  10-bit encoder names, but no longer stores their preset values in C code.
+- CLI `Summary` output now follows the unified selection schema and displays
+  `Codec`, `Encoder`, and `Preset` for all codec/encoder/preset combinations.
+  The displayed codec/encoder pair is resolved from `presets_v2.json`, so
+  internal final codec names such as `h264_qsv` are shown as `qsv` + `h264`.
+- Increased the preset loader per-platform codec capacity so the expanded
+  execution catalog is not truncated.
+
+### Fixed
+- Fixed hardware encoders silently falling back to stream copy when their
+  preset-backed `ffmpeg_args` could not be resolved. Command construction now
+  fails clearly instead of running an unintended `-c:v copy` encode path.
+
 ## [Unreleased] — Hardware encoder verification fixes (2026-09-12)
 
 ### Fixed

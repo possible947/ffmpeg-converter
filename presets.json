@@ -125,6 +125,44 @@
         ]
       }
     },
+    "av1_vaapi": {
+      "default": {
+        "ffmpeg_args": "-c:v av1_vaapi -rc_mode auto",
+        "pre_input_args": "-vaapi_device {vaapi_device}",
+        "video_filter": "format=nv12,hwupload",
+        "container": "mkv",
+        "requires": [
+          "av1_vaapi"
+        ]
+      },
+      "speed": {
+        "ffmpeg_args": "-c:v av1_vaapi -rc_mode CQP -global_quality 28",
+        "pre_input_args": "-vaapi_device {vaapi_device}",
+        "video_filter": "format=nv12,hwupload",
+        "container": "mkv",
+        "requires": [
+          "av1_vaapi"
+        ]
+      },
+      "balance": {
+        "ffmpeg_args": "-c:v av1_vaapi -rc_mode CQP -global_quality 25",
+        "pre_input_args": "-vaapi_device {vaapi_device}",
+        "video_filter": "format=nv12,hwupload",
+        "container": "mkv",
+        "requires": [
+          "av1_vaapi"
+        ]
+      },
+      "quality": {
+        "ffmpeg_args": "-c:v av1_vaapi -rc_mode CQP -global_quality 22",
+        "pre_input_args": "-vaapi_device {vaapi_device}",
+        "video_filter": "format=nv12,hwupload",
+        "container": "mkv",
+        "requires": [
+          "av1_vaapi"
+        ]
+      }
+    },
     "prores_ks_vulkan": {
       "lt": {
         "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v lt",
@@ -340,6 +378,36 @@
         "container": "mkv",
         "requires": [
           "hevc_qsv"
+        ]
+      }
+    },
+    "av1_qsv": {
+      "default": {
+        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "container": "mkv",
+        "requires": [
+          "av1_qsv"
+        ]
+      },
+      "speed": {
+        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset veryfast -extbrc 1",
+        "container": "mkv",
+        "requires": [
+          "av1_qsv"
+        ]
+      },
+      "balance": {
+        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset medium -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "container": "mkv",
+        "requires": [
+          "av1_qsv"
+        ]
+      },
+      "quality": {
+        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "container": "mkv",
+        "requires": [
+          "av1_qsv"
         ]
       }
     },

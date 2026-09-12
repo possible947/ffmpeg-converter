@@ -22,6 +22,15 @@
 
 static const char* get_platform_name(void);
 
+static int codec_uses_vaapi_device(const char* codec) {
+    return codec &&
+           (strcmp(codec, "h264_vaapi") == 0 ||
+            strcmp(codec, "hevc_vaapi") == 0 ||
+            strcmp(codec, "av1_vaapi") == 0 ||
+            strcmp(codec, "hevc_vaapi_10bit") == 0 ||
+            strcmp(codec, "av1_vaapi_10bit") == 0);
+}
+
 /* ---------------------------------------------------------------
  *  CLI Callbacks
  * --------------------------------------------------------------- */
@@ -232,28 +241,132 @@ void print_version(void) {
     printf("ffmpeg_converter %s\n", FFMPEG_CONVERTER_VERSION);
 }
 
+typedef struct {
+    char codec[64];
+    char encoder[64];
+} CliSummarySelection;
+
+static void summary_copy(char* dst, size_t dst_sz, const char* src) {
+    if (!dst || dst_sz == 0)
+        return;
+    if (!src)
+        src = "";
+    strncpy(dst, src, dst_sz - 1);
+    dst[dst_sz - 1] = '\0';
+}
+
+static int summary_item_matches_codec(json_t* item,
+                                      const char* item_name,
+                                      const char* final_codec) {
+    json_t* value;
+    const char* resolved;
+    char synthetic[96];
+
+    if (!item || !item_name || !final_codec)
+        return 0;
+    value = json_object_get(item, "final_codec");
+    if (!value)
+        value = json_object_get(item, "execution_codec");
+    if (!json_is_string(value))
+        return 0;
+    resolved = json_string_value(value);
+    if (!strcmp(final_codec, resolved))
+        return 1;
+    if (strstr(item_name, "_10bit") != NULL) {
+        snprintf(synthetic, sizeof(synthetic), "%s_10bit", resolved);
+        return !strcmp(final_codec, synthetic);
+    }
+    return 0;
+}
+
+static int summary_find_in_groups(json_t* groups,
+                                  const char* final_codec,
+                                  CliSummarySelection* out) {
+    const char* group_name;
+    json_t* group;
+
+    if (!groups || !out)
+        return 0;
+    json_object_foreach(groups, group_name, group) {
+        json_t* items;
+        const char* item_name;
+        json_t* item;
+
+        if (!json_is_true(json_object_get(group, "enabled")))
+            continue;
+        items = json_object_get(group, "encoders");
+        if (!items)
+            items = json_object_get(group, "modes");
+        if (!items)
+            continue;
+        json_object_foreach(items, item_name, item) {
+            if (!json_is_true(json_object_get(item, "enabled")))
+                continue;
+            if (summary_item_matches_codec(item, item_name, final_codec)) {
+                summary_copy(out->codec, sizeof(out->codec), group_name);
+                summary_copy(out->encoder, sizeof(out->encoder), item_name);
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static void summary_resolve_selection(const ConvertOptions* opts,
+                                      CliSummarySelection* out) {
+    json_t *root, *selection, *common, *platforms, *platform_obj;
+    json_t *hwaccel, *groups;
+
+    summary_copy(out->codec, sizeof(out->codec), opts->codec);
+    summary_copy(out->encoder, sizeof(out->encoder), opts->codec);
+
+    if (!strcmp(opts->codec, "mux")) {
+        summary_copy(out->codec, sizeof(out->codec), "mux");
+        summary_copy(out->encoder, sizeof(out->encoder), "mux");
+        return;
+    }
+
+    root = load_selection_catalog();
+    if (!root)
+        return;
+
+    selection = json_object_get(root, "selection");
+    common = selection ? json_object_get(selection, "common") : NULL;
+    platforms = selection ? json_object_get(selection, "platforms") : NULL;
+    platform_obj = platforms ? json_object_get(platforms, get_platform_name()) : NULL;
+
+    if (summary_find_in_groups(common, opts->codec, out)) {
+        json_decref(root);
+        return;
+    }
+
+    hwaccel = platform_obj ? json_object_get(platform_obj, "hwaccel") : NULL;
+    groups = hwaccel ? json_object_get(hwaccel, "groups") : NULL;
+    summary_find_in_groups(groups, opts->codec, out);
+    json_decref(root);
+}
+
 void print_summary(const ConvertOptions* opts,
                    const CliM4VOptions* m4v_opts,
                    const char** files, int file_count)
 {
     int i;
+    CliSummarySelection selection;
+    const char* preset = opts->preset[0] != '\0' ? opts->preset : "default";
 
+    summary_resolve_selection(opts, &selection);
     printf("\033[1;1H\033[2J");
     printf("\n=== Summary ===\n");
-    printf("Codec:        %s\n", opts->codec);
+    printf("Codec:        %s\n", selection.codec);
+    printf("Encoder:      %s\n", selection.encoder);
+    printf("Preset:       %s\n", preset);
 
     if (!strcmp(opts->codec, "m4v")) {
-        printf("Profile:      (m4v)\n");
         printf("Deblock:      (m4v)\n");
     } else if (!strcmp(opts->codec, "mux")) {
-        printf("Profile:      (mux)\n");
         printf("Deblock:      (mux)\n");
-        printf("Container:    %s\n",
-               opts->preset[0] != '\0' ? opts->preset : "mkv");
     } else if (!strcmp(opts->codec, "prores") ||
                !strcmp(opts->codec, "prores_ks")) {
-        printf("Profile:      %s\n", opts->preset[0] != '\0' ? opts->preset : "standard");
-
         const char* deblock_str = "none";
         switch (opts->deblock) {
             case 1: deblock_str = "none";   break;
@@ -261,20 +374,12 @@ void print_summary(const ConvertOptions* opts,
             case 3: deblock_str = "strong"; break;
         }
         printf("Deblock:      %s\n", deblock_str);
-    } else if (!strcmp(opts->codec, "prores_videotoolbox")) {
-        printf("Profile:      %s\n", opts->preset[0] != '\0' ? opts->preset : "standard");
-        printf("Deblock:      (n/a)\n");
-    } else if (!strcmp(opts->codec, "h264_vaapi") ||
-               !strcmp(opts->codec, "hevc_vaapi")) {
-         printf("Preset:       %s\n",
-             opts->preset[0] != '\0' ? opts->preset : "default");
-        printf("Profile:      (n/a)\n");
-        printf("Deblock:      (n/a)\n");
-        printf("HW device:    %s\n",
-               opts->hw_device[0] != '\0' ? opts->hw_device : "(auto)");
     } else {
-        printf("Profile:      (n/a)\n");
         printf("Deblock:      (n/a)\n");
+        if (codec_uses_vaapi_device(opts->codec)) {
+            printf("HW device:    %s\n",
+                   opts->hw_device[0] != '\0' ? opts->hw_device : "(auto)");
+        }
     }
 
     printf("Audio norm:   %s\n", opts->audio_norm);

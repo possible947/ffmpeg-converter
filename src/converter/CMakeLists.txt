@@ -71,6 +71,15 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     )
     target_link_libraries(test_input_video_info PRIVATE converter)
     add_test(NAME InputVideoInfoTests COMMAND test_input_video_info)
+
+    add_executable(test_linux_preset_args
+        ${CMAKE_SOURCE_DIR}/src/converter/test_linux_preset_args.c
+    )
+    target_compile_definitions(test_linux_preset_args PRIVATE
+        FFMPEG_CONVERTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    target_link_libraries(test_linux_preset_args PRIVATE converter)
+    add_test(NAME LinuxPresetArgsTests COMMAND test_linux_preset_args)
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")

@@ -47,6 +47,13 @@ static int codec_is_nvenc(const char* codec) {
             strcmp(codec, "av1_nvenc_10bit") == 0);
 }
 
+static int codec_is_amf(const char* codec) {
+    return codec &&
+           (strcmp(codec, "h264_amf") == 0 ||
+            strcmp(codec, "hevc_amf") == 0 ||
+            strcmp(codec, "av1_amf") == 0);
+}
+
 static int codec_is_10bit(const char* codec) {
     return codec && strstr(codec, "_10bit") != NULL;
 }
@@ -847,7 +854,8 @@ static void build_ffmpeg_cmd(
     int have_input_info = input_video_info_probe(input, &input_info);
     int selected_10bit = codec_is_10bit(opts->codec);
     int output_hw = codec_is_vaapi(opts->codec) || codec_is_qsv(opts->codec) ||
-                    codec_is_nvenc(opts->codec) || codec_is_vulkan(opts->codec);
+                    codec_is_nvenc(opts->codec) || codec_is_amf(opts->codec) ||
+                    codec_is_vulkan(opts->codec);
 
     if (have_input_info && output_hw && input_info.bit_depth > 0) {
         if (selected_10bit && input_info.bit_depth < 10 && c->cb.on_message)
@@ -987,6 +995,11 @@ static void build_ffmpeg_cmd(
                 if (cmd_cat(cmd, sizeof(cmd), &pos, "-profile:v main10 ") < 0) goto overflow;
             }
     }
+    else if (output_hw) {
+        if (c->cb.on_message)
+            c->cb.on_message("ffmpeg command build failed: preset ffmpeg_args not found");
+        goto command_invalid;
+    }
     else if (strcmp(opts->codec, "prores") == 0 ||
              strcmp(opts->codec, "prores_ks") == 0)
     {
@@ -1057,6 +1070,13 @@ static void build_ffmpeg_cmd(
                 c->cb.on_error("fdk_aac mode requires libfdk_aac but encoder is not available",
                                ERR_INVALID_OPTIONS);
             free(esc_ffmpeg); free(esc_input); free(esc_output);
+            cmd_out[0] = '\0';
+            return;
+
+        command_invalid:
+            free(esc_ffmpeg);
+            free(esc_input);
+            free(esc_output);
             cmd_out[0] = '\0';
             return;
         }

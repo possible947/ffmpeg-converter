@@ -5,6 +5,7 @@
 
 #include "../converter_platform.h"
 #include "../converter.h"
+#include "preset_loader.h"
 /* runtime_probe.h is found via CMake target_include_directories */
 #include "linux/runtime_probe.h"
 #include <unistd.h>
@@ -14,6 +15,34 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
+
+static PresetDb* g_linux_preset_db = NULL;
+
+static PresetDb* linux_get_preset_db(void) {
+    if (!g_linux_preset_db)
+        g_linux_preset_db = preset_db_load(NULL);
+    return g_linux_preset_db;
+}
+
+static int linux_codec_uses_preset_args(const char* codec) {
+    return codec &&
+           (strcmp(codec, "h264_vaapi") == 0 ||
+            strcmp(codec, "hevc_vaapi") == 0 ||
+            strcmp(codec, "av1_vaapi") == 0 ||
+            strcmp(codec, "h264_nvenc") == 0 ||
+            strcmp(codec, "hevc_nvenc") == 0 ||
+            strcmp(codec, "av1_nvenc") == 0 ||
+            strcmp(codec, "h264_amf") == 0 ||
+            strcmp(codec, "hevc_amf") == 0 ||
+            strcmp(codec, "av1_amf") == 0 ||
+            strcmp(codec, "h264_qsv") == 0 ||
+            strcmp(codec, "hevc_qsv") == 0 ||
+            strcmp(codec, "av1_qsv") == 0 ||
+            strcmp(codec, "prores_ks_vulkan") == 0 ||
+            strcmp(codec, "h264_vulkan") == 0 ||
+            strcmp(codec, "hevc_vulkan") == 0 ||
+            strcmp(codec, "av1_vulkan") == 0);
+}
 
 /* ---------------------------------------------------------------
  *  Lifecycle
@@ -26,7 +55,10 @@ int platform_init(void) {
 }
 
 void platform_cleanup(void) {
-    /* Nothing to release on Linux. */
+    if (g_linux_preset_db) {
+        preset_db_free(g_linux_preset_db);
+        g_linux_preset_db = NULL;
+    }
 }
 
 /* ---------------------------------------------------------------
@@ -271,7 +303,7 @@ const char* platform_get_video_codec_flags(const char* codec,
 
     const ConvertOptions* copt = (const ConvertOptions*)opts;
     char normalized_codec[64];
-    static char prores_flags[256];
+    static char preset_flags[1024];
 
     if (!codec) return NULL;
     strncpy(normalized_codec, codec, sizeof(normalized_codec) - 1);
@@ -282,132 +314,29 @@ const char* platform_get_video_codec_flags(const char* codec,
         codec = normalized_codec;
     }
 
-    /* Speed/balance/quality preset tiers for GPU codecs (Phase 2).
-     * `default` strings are byte-for-byte identical to pre-Phase-2 behavior —
-     * zero regression for existing users/scripts. Values mirror presets.json
-     * Section 5 (v3.0-Phase2.md) and must be kept in sync with it. */
-    {
-        typedef struct {
-            const char* codec;
-            const char* def;
-            const char* speed;
-            const char* balance;
-            const char* quality;
-        } HwPreset;
+    if (linux_codec_uses_preset_args(codec)) {
+        PresetDb* db = linux_get_preset_db();
+        const char* preset_name = (copt && copt->preset[0] != '\0') ?
+            (const char*)copt->preset : "default";
+        const PresetInfo* preset = db ? preset_db_get(db, "linux", codec, preset_name) : NULL;
 
-        static const HwPreset hw_presets[] = {
-            { "h264_vaapi",
-              "-c:v h264_vaapi -rc_mode auto ",
-              "-c:v h264_vaapi -rc_mode CQP -qp 28 ",
-              "-c:v h264_vaapi -rc_mode CQP -qp 24 ",
-              "-c:v h264_vaapi -rc_mode CQP -qp 20 " },
-            { "hevc_vaapi",
-              "-c:v hevc_vaapi -rc_mode auto ",
-              "-c:v hevc_vaapi -rc_mode CQP -qp 28 ",
-              "-c:v hevc_vaapi -rc_mode CQP -qp 24 ",
-              "-c:v hevc_vaapi -rc_mode CQP -qp 20 " },
-                        { "av1_vaapi",
-                            /* av1_vaapi has no private "-qp" AVOption (unlike
-                             * h264_vaapi/hevc_vaapi); passing "-qp" is silently
-                             * ignored by the driver ("No quality level set;
-                             * using default (25)"), so all non-default presets
-                             * collapsed to the same output. Use "-global_quality"
-                             * instead, which av1_vaapi does support. */
-                            "-c:v av1_vaapi -rc_mode auto ",
-                            "-c:v av1_vaapi -rc_mode CQP -global_quality 28 ",
-                            "-c:v av1_vaapi -rc_mode CQP -global_quality 24 ",
-                            "-c:v av1_vaapi -rc_mode CQP -global_quality 20 " },
-            { "h264_nvenc",
-              "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1 ",
-              "-c:v h264_nvenc -preset p1 -qp 22 -spatial-aq 1 -temporal-aq 1 ",
-              "-c:v h264_nvenc -preset p4 -qp 22 -spatial-aq 1 -temporal-aq 1 ",
-              "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1 " },
-            { "hevc_nvenc",
-              "-c:v hevc_nvenc -preset medium -cq 25 -lookahead_level auto ",
-              "-c:v hevc_nvenc -preset p1 -cq 25 -lookahead_level 0 ",
-              "-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto ",
-              "-c:v hevc_nvenc -preset p7 -cq 25 -lookahead_level auto " },
-            { "h264_amf",
-              "-c:v h264_amf ",
-              "-c:v h264_amf -quality speed ",
-              "-c:v h264_amf -quality balanced ",
-              "-c:v h264_amf -quality quality " },
-            { "hevc_amf",
-              "-c:v hevc_amf ",
-              "-c:v hevc_amf -quality speed ",
-              "-c:v hevc_amf -quality balanced ",
-              "-c:v hevc_amf -quality quality " },
-            { "av1_amf",
-              "-c:v av1_amf ",
-              "-c:v av1_amf -quality speed ",
-              "-c:v av1_amf -quality balanced ",
-              "-c:v av1_amf -quality quality " },
-            { "h264_qsv",
-              "-c:v h264_qsv -global_quality 22 -preset slower "
-              "-look_ahead 1 -look_ahead_depth 40 -extbrc 1 ",
-              "-c:v h264_qsv -global_quality 22 -preset veryfast -extbrc 1 ",
-              "-c:v h264_qsv -global_quality 22 -preset medium "
-              "-look_ahead 1 -look_ahead_depth 40 -extbrc 1 ",
-              "-c:v h264_qsv -global_quality 22 -preset slower "
-              "-look_ahead 1 -look_ahead_depth 40 -extbrc 1 " },
-            { "hevc_qsv",
-              "-c:v hevc_qsv -global_quality 25 -preset slow "
-              "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
-              "-c:v hevc_qsv -global_quality 25 -preset fast -g 240 -bf 4 ",
-              "-c:v hevc_qsv -global_quality 25 -preset medium "
-              "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
-              "-c:v hevc_qsv -global_quality 25 -preset slow "
-              "-g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 " },
-                        { "av1_qsv",
-                            "-c:v av1_qsv -global_quality 28 -preset slow ",
-                            "-c:v av1_qsv -global_quality 28 -preset veryfast ",
-                            "-c:v av1_qsv -global_quality 28 -preset medium ",
-                            "-c:v av1_qsv -global_quality 28 -preset slow " },
-            { "h264_vulkan",
-              "-c:v h264_vulkan -qp 18 ",
-              "-c:v h264_vulkan -qp 28 ",
-              "-c:v h264_vulkan -qp 23 ",
-              "-c:v h264_vulkan -qp 18 " },
-            { "hevc_vulkan",
-              "-c:v hevc_vulkan -qp 18 ",
-              "-c:v hevc_vulkan -qp 28 ",
-              "-c:v hevc_vulkan -qp 23 ",
-              "-c:v hevc_vulkan -qp 18 " },
-            { "av1_vulkan",
-              "-c:v av1_vulkan -qp 60 ",
-              "-c:v av1_vulkan -qp 120 ",
-              "-c:v av1_vulkan -qp 90 ",
-              "-c:v av1_vulkan -qp 60 " },
-        };
-        size_t i;
+        if (preset && preset->ffmpeg_args && preset->ffmpeg_args[0] != '\0') {
+            const char* vaapi_device = (copt && copt->hw_device[0] != '\0') ?
+                (const char*)copt->hw_device : NULL;
+            int vk_device = copt ? copt->vulkan_device : -1;
 
-        for (i = 0; i < sizeof(hw_presets) / sizeof(hw_presets[0]); i++) {
-            if (strcmp(codec, hw_presets[i].codec) != 0)
-                continue;
-            if (copt && copt->preset[0] != '\0') {
-                if (strcmp((const char*)copt->preset, "speed") == 0)
-                    return hw_presets[i].speed;
-                if (strcmp((const char*)copt->preset, "balance") == 0)
-                    return hw_presets[i].balance;
-                if (strcmp((const char*)copt->preset, "quality") == 0)
-                    return hw_presets[i].quality;
+            if (preset_substitute_placeholders(preset_flags, sizeof(preset_flags),
+                                               preset->ffmpeg_args,
+                                               vaapi_device, vk_device, 0) == 0) {
+                size_t len = strlen(preset_flags);
+                if (len + 2 < sizeof(preset_flags) &&
+                    len > 0 && preset_flags[len - 1] != ' ') {
+                    preset_flags[len] = ' ';
+                    preset_flags[len + 1] = '\0';
+                }
+                return preset_flags;
             }
-            return hw_presets[i].def;
         }
-    }
-
-    if (strcmp(codec, "prores_ks_vulkan") == 0) {
-        const char* profile_name = "hq"; /* default: HQ (preserves pre-refactor behavior) */
-        if (copt && copt->preset[0] != '\0') {
-            if      (strcmp((const char*)copt->preset, "lt") == 0)     profile_name = "lt";
-            else if (strcmp((const char*)copt->preset, "standard") == 0) profile_name = "standard";
-            else if (strcmp((const char*)copt->preset, "hq") == 0)     profile_name = "hq";
-            else if (strcmp((const char*)copt->preset, "4444") == 0)   profile_name = "4444";
-            else profile_name = "hq";  /* unknown, use HQ */
-        }
-        snprintf(prores_flags, sizeof(prores_flags),
-                 "-c:v prores_ks_vulkan -profile:v %s ", profile_name);
-        return prores_flags;
     }
 
     /* Not a Linux platform-specific codec */
