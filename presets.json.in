@@ -69,7 +69,7 @@
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v h264_vaapi -rc_mode CQP -qp 24",
+        "ffmpeg_args": "-c:v h264_vaapi -rc_mode CQP -qp 25",
         "pre_input_args": "-vaapi_device {vaapi_device}",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -78,7 +78,7 @@
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v h264_vaapi -rc_mode CQP -qp 20",
+        "ffmpeg_args": "-c:v h264_vaapi -rc_mode CQP -qp 22",
         "pre_input_args": "-vaapi_device {vaapi_device}",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -107,7 +107,7 @@
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v hevc_vaapi -rc_mode CQP -qp 24",
+        "ffmpeg_args": "-c:v hevc_vaapi -rc_mode CQP -qp 25",
         "pre_input_args": "-vaapi_device {vaapi_device}",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -116,7 +116,7 @@
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v hevc_vaapi -rc_mode CQP -qp 20",
+        "ffmpeg_args": "-c:v hevc_vaapi -rc_mode CQP -qp 22",
         "pre_input_args": "-vaapi_device {vaapi_device}",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -172,21 +172,21 @@
         ]
       },
       "speed": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
@@ -195,28 +195,28 @@
     },
     "hevc_nvenc": {
       "default": {
-        "ffmpeg_args": "-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto",
+        "ffmpeg_args": "-c:v hevc_nvenc -preset p7 -cq 25 -lookahead_level auto",
         "container": "mkv",
         "requires": [
           "hevc_nvenc"
         ]
       },
       "speed": {
-        "ffmpeg_args": "-c:v hevc_nvenc -preset p1 -cq 25 -lookahead_level 0",
+        "ffmpeg_args": "-c:v hevc_nvenc -preset p1 -cq 25",
         "container": "mkv",
         "requires": [
           "hevc_nvenc"
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto",
+        "ffmpeg_args": "-c:v hevc_nvenc -preset p4 -cq 25",
         "container": "mkv",
         "requires": [
           "hevc_nvenc"
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v hevc_nvenc -preset p7 -cq 25 -lookahead_level auto",
+        "ffmpeg_args": "-c:v hevc_nvenc -preset p7 -cq 25",
         "container": "mkv",
         "requires": [
           "hevc_nvenc"
@@ -292,21 +292,21 @@
         ]
       },
       "speed": {
-        "ffmpeg_args": "-c:v h264_qsv -global_quality 22 -preset veryfast -extbrc 1",
+        "ffmpeg_args": "-c:v h264_qsv -global_quality 22 -preset fast",
         "container": "mkv",
         "requires": [
           "h264_qsv"
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v h264_qsv -global_quality 22 -preset medium -look_ahead 1 -look_ahead_depth 40 -extbrc 1",
+        "ffmpeg_args": "-c:v h264_qsv -global_quality 22 -preset medium",
         "container": "mkv",
         "requires": [
           "h264_qsv"
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v h264_qsv -global_quality 22 -preset slower -look_ahead 1 -look_ahead_depth 40 -extbrc 1",
+        "ffmpeg_args": "-c:v h264_qsv -global_quality 22 -preset slow",
         "container": "mkv",
         "requires": [
           "h264_qsv"
@@ -315,28 +315,28 @@
     },
     "hevc_qsv": {
       "default": {
-        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset slower -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
         "container": "mkv",
         "requires": [
           "hevc_qsv"
         ]
       },
       "speed": {
-        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset fast -g 240 -bf 4",
+        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset fast",
         "container": "mkv",
         "requires": [
           "hevc_qsv"
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset medium -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset medium",
         "container": "mkv",
         "requires": [
           "hevc_qsv"
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "ffmpeg_args": "-c:v hevc_qsv -global_quality 25 -preset slow",
         "container": "mkv",
         "requires": [
           "hevc_qsv"
@@ -408,7 +408,7 @@
     },
     "h264_vulkan": {
       "default": {
-        "ffmpeg_args": "-c:v h264_vulkan -qp 18",
+        "ffmpeg_args": "-c:v h264_vulkan -qp 22",
         "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -426,7 +426,7 @@
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v h264_vulkan -qp 23",
+        "ffmpeg_args": "-c:v h264_vulkan -qp 25",
         "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -435,7 +435,7 @@
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v h264_vulkan -qp 18",
+        "ffmpeg_args": "-c:v h264_vulkan -qp 22",
         "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -446,7 +446,7 @@
     },
     "hevc_vulkan": {
       "default": {
-        "ffmpeg_args": "-c:v hevc_vulkan -qp 18",
+        "ffmpeg_args": "-c:v hevc_vulkan -qp 25",
         "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -464,7 +464,7 @@
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v hevc_vulkan -qp 23",
+        "ffmpeg_args": "-c:v hevc_vulkan -qp 25",
         "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -473,7 +473,7 @@
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v hevc_vulkan -qp 18",
+        "ffmpeg_args": "-c:v hevc_vulkan -qp 23",
         "pre_input_args": "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk",
         "video_filter": "format=nv12,hwupload",
         "container": "mkv",
@@ -559,21 +559,21 @@
         ]
       },
       "speed": {
-        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset veryfast -extbrc 1",
+        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset fast",
         "container": "mkv",
         "requires": [
           "av1_qsv"
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset medium -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset medium",
         "container": "mkv",
         "requires": [
           "av1_qsv"
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
+        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset slow",
         "container": "mkv",
         "requires": [
           "av1_qsv"
