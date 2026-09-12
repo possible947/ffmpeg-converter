@@ -5,16 +5,20 @@ running optimized `ffmpeg` workflows. Version 3.0b is an active beta release:
 the CLI migration to the unified codec-group/encoder/preset catalog is usable on
 Linux, while GUI migration and cross-platform validation are still in progress.
 
-Version 3 development is not complete. macOS and Windows builds require native
-compile, runtime, and hardware validation before the 3.0 release can be
-considered stable.
+The V3 preparation work for Phase 3 and Phase 4 is complete. Linux C has been
+functionally tested and accepted for use. Linux Pascal is a fully working
+development/debug implementation for the available components and is used as a
+parallel baseline before Windows validation. macOS and Windows source paths are
+prepared but still require native compile, runtime, and hardware validation.
 
 Two independent implementations share the same conversion logic and CLI behavior:
 
 - **C/CMake** (`src/`) — primary engine; macOS native Cocoa GUI, Linux GTK4 GUI,
   Windows CLI (MSVC build).
-- **Free Pascal** (`fpc/`) — complete port with CLI and GUI; available for Linux
-  and Windows (macOS version discontinued).
+- **Free Pascal** (`fpc/`) — complete port with CLI and GUI; Windows is the
+  native release target, while Linux is a functional development/debug target
+  used for parallel work and preliminary Windows validation (macOS version
+  discontinued).
 
 ## Version 3.0b Status
 
@@ -22,13 +26,27 @@ Two independent implementations share the same conversion logic and CLI behavior
   hardware detection, structured codec selection, AV1/10-bit capability probes,
   input bit-depth detection, color metadata propagation, and tested mux/M4V
   workflows.
-- **Linux GUI:** still uses the previous flat selection controls; GUI migration
-  is not complete.
-- **macOS and Windows:** source paths are being kept synchronized, but native
-  builds, runtime behavior, and hardware encoder combinations still require
-  dedicated platform debugging.
+- **Linux GUI:** C and Pascal implementations are functionally tested with the
+  available runtime components. C AppImage packaging remains to be configured
+  and tested; Pascal AppImage packaging is not required.
+- **macOS and Windows:** source paths, GUI prototypes, catalog population, and
+  option-resolution paths are prepared; native builds, runtime behavior, and
+  hardware encoder combinations still require dedicated platform debugging.
 - **HQ_converter:** external Linux/macOS integration remains a later Phase 3
   feature and is not exposed by the current CLI implementation.
+
+## V3 Preparation Status
+
+- The codec-group -> encoder -> preset architecture is implemented in C and
+  Pascal GUI paths.
+- Linux C GUI and Linux Pascal GUI have been tested with the available runtime
+  components, including mux and standalone Apple M4V workflows.
+- The three-column Video/Audio/Filters GUI layout is fixed by
+  `docs/maket_example.png` and documented in `docs/update-GUI-descriptions.md`.
+- C AppImage packaging is configured and built. Pascal AppImage packaging is
+  not required.
+- Remaining work is native macOS/Windows validation and debugging, plus later
+  Phase 4 filter-engine implementation.
 
 ## Version 3.0 Phase 1 Updates
 
@@ -146,17 +164,20 @@ Two independent implementations share the same conversion logic and CLI behavior
 - Stable platform (no new functions added in v2.4; focus on reliability).
 
 ### Linux (C implementation)
-- C CLI and GTK4 GUI are the supported Linux implementation.
+- C CLI and GTK4 GUI are the supported Linux release implementation.
 - Runtime tool discovery (ffmpeg, ffprobe, mkvmerge, MP4Box) is unified across
   the supported C applications.
 - VAAPI codec runtime probing and AppImage packaging are available in the C path.
+- The Pascal CLI/Lazarus GUI also remains functional on Linux as a parallel
+  development/debug implementation. It has known interface issues and is not
+  the primary Linux release package.
 
 ### Windows (C CLI and Pascal CLI/GUI)
 - **C CLI is the most complete version** — full functionality, MSVC build, bundled
   binaries, new PowerShell/CMD build scripts.
 - **Windows Pascal CLI and GUI** — feature-matched implementation with native
-  Vulkan ProRes support in GUI. Windows build and runtime validation remain
-  required before release; see the verification checklist below.
+  Vulkan ProRes support in GUI. The source path is prepared; Windows build and
+  runtime validation remain required before release.
 - New build system: unified CMake integration with FPC targets.
 - Codec support: CPU ProRes, GPU accelerators (NVIDIA/AMD/Intel/Vulkan), AV1
   input decoding, mux mode, Apple M4V creator.
@@ -179,13 +200,13 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **AV1 input decoding**: runtime-detected; uses `av1_qsv` (Intel QSV/Arc) when available,
   falls back to `libdav1d` (pure software). Requires ffmpeg built with `--enable-libdav1d`.
 - Audio normalization: `none`, `peak`, `peak 2-pass`, `loudness`, `loudness 2-pass`.
-- Audio output modes: PCM, FDK AAC q5, FDK AAC q5 + AC3 640.
+- Audio output modes: PCM, fixed CBR FDK AAC 320k, and fixed CBR FDK AAC 320k + AC3.
 - Linux MKV mux mode: one source file + external replacement video track, final output via `mkvmerge`.
 - **Windows MKV mux mode**: same workflow available on Windows when `mkvmerge` is found on PATH or next to the executable (installed via MKVToolNix, Chocolatey, or MSYS2).
 - **Audio filter multithreading**: 2-pass analysis uses `-filter_threads N` (N = CPU/2) for parallel audio processing.
 - Encode progress: percent, FPS, ETA.
 - CLI with argument parsing and interactive menu.
-- **Linux GUI** — GTK4 (C implementation, v2.6: drag-and-drop, keyboard shortcuts, resizable paned
+- **Linux GUI** — GTK4 C implementation with drag-and-drop, keyboard shortcuts, resizable paned
   layout, hardware codec detection in background, application icon, tooltips on all controls, no
   startup freeze). Build produces `linux_gui` binary; optional AppImage packaging available via
   `ENABLE_APPIMAGE=ON` and `package_appimage` target (produces single-file portable AppImage).
@@ -230,8 +251,10 @@ Two independent implementations share the same conversion logic and CLI behavior
 - macOS GUI only: Xcode command-line tools (includes clang, libtool).
 - Optional AppImage packaging (Linux): `appimagetool` (https://github.com/AppImage/AppImageKit).
 
-### Free Pascal path (Linux and Windows)
-- **Linux & Windows**: Lazarus IDE + FPC (for GUI), or plain `fpc` compiler (for CLI/library).
+### Free Pascal path (Linux development and Windows release)
+- **Linux**: Lazarus IDE + FPC for development/debug GUI builds. Direct builds use
+  `lazbuild --ws=gtk3 fpc/gui/form.lpi` or `lazbuild --ws=qt6 fpc/gui/form.lpi`.
+- **Windows**: Lazarus IDE + FPC for the native release GUI/CLI build.
 - **macOS**: Pascal support discontinued in v2.4.
 - `ffmpeg` + `ffprobe` for Linux bundling in `src/platform/linux/bin/` (not required for CLI,
   but used for GUI packaging).
@@ -316,7 +339,7 @@ Output folder:
 - `build-msvc/src/cli/Release/`
 - Contains `ffmpeg_converter.exe` plus copied bundled `ffmpeg.exe`, `ffprobe.exe`, and DLL dependencies.
 
-### Free Pascal (Windows only)
+### Free Pascal (Windows release, Linux development/debug)
 
 ```bash
 # Windows CLI (via FPC compiler)
@@ -330,6 +353,8 @@ lazbuild fpc/gui/form.lpi
 ```
 
 **Note**: Pascal macOS implementation discontinued; use C/CMake native GUI instead.
+Linux Pascal is maintained for parallel development and preliminary Windows
+debugging, but final validation and release approval remain Windows-only.
 
 ---
 
@@ -355,17 +380,18 @@ CLI notes:
 
 GUI:
 - **Linux (C)**: `./build/bin/ffmpeg_converter_gui` or AppImage: `./build/bin/FFMpeg-Converter-x86_64.AppImage`
-- **Linux (Pascal)**: `./fpc/bin/ffmpeg_converter_gui` or AppImage: `./fpc/bin/ffmpeg_converter_gui_fpc-x86_64.AppImage`
+- **Linux (Pascal development)**: `./fpc/bin/ffmpeg_converter_gui` after a direct
+  GTK3 or Qt6 Lazarus build; no Linux Pascal AppImage is currently a release artifact.
 - **macOS (C)**: `open build/install/ffmpeg_converter_gui_macos.app`
 - **Windows (C CLI)**: `build-msvc/src/cli/Release/ffmpeg_converter.exe` (CLI only, most complete)
 - **Windows (Pascal)**: GUI: `fpc/gui/ffmpeg_converter_gui.exe` or CLI: `fpc/cli/ffmpeg_converter_windows.exe`
 
 ## Release Verification Status
 
-**Linux complete (2026-08-21):** C CLI/GTK4 GUI and Pascal CLI/Lazarus GUI
-build checks passed. C and Pascal AppImages were built with `appimagetool`,
-then extracted to verify `presets.json`, `PRESETS_PATH`, executable names, and
-desktop/icon assets.
+**Linux C release path:** C CLI/GTK4 GUI and its packaging remain the supported
+Linux release path. The Pascal CLI/Lazarus GUI is separately maintained as a
+functional development/debug target and is not covered by Linux release-package
+verification.
 
 **Windows required before release:** build the C MSVC CLI and Pascal CLI/GUI on
 Windows; verify `presets.json` beside staged Pascal executables; run `--help`,

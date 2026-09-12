@@ -9,7 +9,11 @@ The preset data is consolidated into a single unified catalog:
 
 - `presets.json` (generated from `presets.json.in`) is the unified catalog. It contains both selection hierarchy (`selection`) describing groups, encoders, availability gates, runtime requirements, and execution parameters (`linux`, `macos`, `windows` FFmpeg arguments).
 
-GUI and CLI code select a group, encoder, and preset, resolving parameters directly from `presets.json`.
+GUI and CLI code select a group, encoder, and preset, resolving parameters
+directly from `presets.json`. The shared C mapping API is implemented in
+`src/platform/selection_catalog.{h,c}` and the Pascal mirror is
+`fpc/converter/selection_catalog.pas`; widgets must consume those APIs rather
+than parse the catalog themselves.
 
 ## Schema rules
 
@@ -134,9 +138,11 @@ for Linux, macOS, and Windows together. Linux is the current validation host;
 macOS and Windows build/debug verification may be performed separately later,
 but their source implementations must remain synchronized.
 
-Runtime hardware probing reads `presets_v2.json` as its only component catalog.
-It must not fall back to the legacy `presets.json` file. A missing or invalid
-selection catalog disables the corresponding probe components.
+Runtime hardware probing reads the `selection` section of the unified
+`presets.json` catalog as its component catalog. A missing or invalid selection
+catalog disables the corresponding probe components. The model accepts probe
+results through its capability-filtering boundary; it does not perform GPU
+probing or duplicate probe tables.
 
 ## Execution parameters
 

@@ -1,15 +1,16 @@
 # Free Pascal Port — ffmpeg_converter (Version 2.6)
 
 This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-converter` project,
-available for **Windows only**.
+available for Windows release builds and Linux development/debug builds.
 
 ## Platform Status (strategy)
 
 - **Windows**: CLI + Lazarus/LCL GUI (native win32/win64 widgetset) with Vulkan GPU support.
-  This is the only supported Pascal platform and requires Windows build and runtime
-  verification before release.
-- **Linux/macOS**: use the C/CMake implementation. Pascal builds and packages for these
-  platforms have been removed.
+  This is the native release and final-validation target.
+- **Linux**: CLI/GUI development and debug target. The Pascal implementation is
+  functionally usable and is used to debug shared behavior before Windows testing,
+  but the Linux GUI still has known interface issues and is not a release package.
+- **macOS**: Pascal support is discontinued; use the C/CMake implementation.
 
 ## Features
 
@@ -38,8 +39,22 @@ available for **Windows only**.
 
 ## Build
 
-Build with the Makefile from a Windows environment (`make -C fpc/build ...`). Non-Windows
-hosts are rejected because Pascal is no longer a supported build target.
+The supported Windows release build uses the Makefile from a Windows environment
+(`make -C fpc/build ...`). Linux development GUI builds can be performed directly
+with Lazarus, for example:
+
+```bash
+lazbuild --ws=gtk3 fpc/gui/form.lpi
+lazbuild --ws=qt6 fpc/gui/form.lpi
+```
+
+These Linux builds are development/debug builds and do not replace native Windows
+release validation.
+
+LCL availability is distribution-dependent. The tested Ubuntu Linux 24.04.4
+environment, using Lazarus from external sources, did not provide the required
+LCL units. Fedora Linux 44 provides the LCL packages and supports the GTK3 and
+Qt6 builds shown above.
 
 ### CLI binary
 
@@ -131,8 +146,9 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
 
 ## Notes
 
-- Pascal GUI/CLI supports Windows only. Linux and macOS users should use the C/CMake
-  implementation (`src/gui/` and `src/gui_macos_native`).
+- Pascal GUI/CLI is release-supported on Windows. Linux Pascal remains a functional
+  development/debug implementation; production Linux users should use the C/CMake
+  implementation (`src/gui/`). macOS users should use `src/gui_macos_native`.
 - Pascal runtime resolves tools for GUI/CLI launches using a unified resolver
   (`ffmpeg`, `ffprobe`, `MP4Box`, `mkvmerge`): executable-adjacent dir → env vars → PATH.
 - `converter_set_options` validates Windows hardware codec capabilities at runtime.

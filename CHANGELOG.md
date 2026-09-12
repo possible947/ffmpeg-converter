@@ -30,6 +30,145 @@ considered complete.
 ### Removed
 - Removed obsolete `presets_v2.json` and `encoder_presets_v2.json` from repository root to eliminate file duplication and keep the root clean.
 
+## [Unreleased] — Final GUI migration plan (2026-09-12)
+
+### Changed
+- Completed Stage 1's shared catalog-to-GUI model API.
+- Added the C `selection_catalog` model under `src/platform/`, linked into the
+  shared converter library, with group/encoder/preset enumeration, special-mode
+  resolution, 10-bit resolution, and capability-callback filtering.
+- Added the matching Pascal model at
+  `fpc/converter/selection_catalog.pas`; GUI widget migration remains planned
+  for Stages 2 and 3.
+- Added `SelectionCatalogTests`, covering copy, software, 10-bit hardware,
+  mux, M4V, execution presets, and disabled hardware entries. Linux validation
+  passed with `cmake -B build && cmake --build build --target
+  test_selection_catalog -j2 && ./build/src/converter/test_selection_catalog`.
+- Updated `docs/preset-file-rules.md` to document the shared model API and the
+  unified catalog as the runtime selection source.
+- Started Stage 2 GUI control/layout migration across Linux GTK4, macOS Cocoa,
+  and Windows Lazarus. Added Encoder, Filter, and Filter Preset controls while
+  preserving the existing codec/deblock option paths. Linux validation passed
+  with `cmake --build build --target linux_gui test_selection_catalog -j2` and
+  `ctest --test-dir build -R SelectionCatalogTests --output-on-failure`.
+- Native macOS and Windows GUI builds remain pending on their supported hosts;
+  model-driven population and structured option collection remain Stage 3 work.
+- Corrected the Stage 2 upper layout after review: Video, Audio, and Filters
+  are now three vertical columns on Linux GTK4, macOS Cocoa, and Windows
+  Lazarus. Each column keeps its controls stacked in the shared semantic order.
+- Started Stage 3 structured GUI population and option collection. Linux GTK,
+  macOS Cocoa, and Windows Lazarus now use the shared selection model for
+  group/encoder/preset dependencies and resolve selections to the existing
+  converter codec at the options boundary. Linux validation passed with
+  `cmake --build build --target linux_gui test_selection_catalog -j2` and
+  `ctest --test-dir build -R SelectionCatalogTests --output-on-failure`.
+- Native macOS/Windows builds and the full hardware matrix remain pending on
+  their supported hosts; the Linux host does not provide Lazarus LCL.
+- Fixed Linux GUI Stage 3 interaction regressions found during manual testing:
+  Encoder and Vulkan/VAAPI device selections are no longer rebuilt during
+  their own or unrelated dependency updates, and selected Encoder values are
+  preserved when still valid after a parent change.
+- Fixed incrementing VAAPI fallback GPU labels by deriving the displayed number
+  from the stable `renderD<N>` device node. Linux validation passed again with
+  the `linux_gui` build and `SelectionCatalogTests`.
+- Added a Linux GTK selection reentrancy guard after repeated video-selection
+  testing exposed a crash, especially while changing entries inside `mux`.
+  Nested `notify::selected` callbacks can no longer recursively rebuild the
+  Encoder and device models. The rebuilt `linux_gui` and
+  `SelectionCatalogTests` pass; manual stress retesting remains required.
+- Corrected the selection model so `copy` and `m4v` are Encoder modes inside
+  the single `mux` group, not standalone Groups. Added matrix coverage for
+  `mux/copy`, `mux/mkv`, and `mux/m4v` resolution.
+- Fixed a double-free in Linux GTK Encoder population that could crash after
+  repeated group changes, especially across mux modes.
+- Recorded the Pascal support decision: Windows remains the native release and
+  final-validation target; Linux Pascal is restored and supported as a parallel
+  development/debug target for preliminary Windows validation. The Linux
+  Pascal GUI is functionally usable but retains known interface issues, while
+  macOS Pascal remains unsupported.
+- Restored `fpc/platform/linux_probe.pas` from Git history. Direct Lazarus GUI
+  builds now pass on Linux with both GTK3 and Qt6 widgetsets. This does not
+  re-enable Linux Pascal packaging or change the Windows-only release Makefile
+  policy.
+- Clarified that Linux Pascal LCL availability depends on the distribution and
+  Lazarus installation source: Ubuntu Linux 24.04.4 with externally installed
+  Lazarus lacked the required LCL units in the tested environment, while Fedora
+  Linux 44 provides LCL packages and successfully builds the GTK3 and Qt6 GUI.
+- Fixed the Pascal Linux GUI's remaining flat video selection path. Group,
+  Encoder, and Preset now populate from `selection_catalog` with dependent
+  updates; the old hardcoded `cmbCodec` entries were removed. GTK3 and Qt6
+  builds plus a startup smoke run passed on Fedora Linux 44.
+- Fixed Pascal Encoder selection being immediately reset: `cmbEncoder` now has
+  a dedicated change handler that updates Preset/dependencies without
+  rebuilding the Encoder list. Valid Encoder selections are preserved when the
+  parent Group is rebuilt.
+- Fixed the final C/Pascal mux mode contract after complete Linux testing:
+  `mux/copy` is stream-copy without a replacement track, `mux/mkv` and
+  `mux/mov` require a replacement track, and `mux/m4v` enables the replacement
+  track and Apple M4V post-mux pipeline. The third Preset control is disabled
+  for mux and reduced to a `default` placeholder.
+- Fixed standalone Apple M4V to normalize its edit-before-mux intermediate to
+  `copy/default`, preventing `mux` or `m4v` from being passed as a normal
+  converter codec. Applied in both C and Pascal GUI workflows.
+- Fixed the standalone C Apple M4V temporary storage path. M4V work directories
+  are now created beside the selected output file instead of unconditionally
+  under `/tmp`, preventing cross-filesystem finalization failures during
+  `rename()`. Applied to POSIX and Windows M4V platform helpers.
+- Fixed the corresponding Pascal Apple M4V failure: `CreateAppleM4V` no longer
+  creates work files under `GetTempDir(False)` before `RenameFile` into the
+  output directory. Its work directory is now created beside the final output,
+  keeping M4V finalization on one filesystem. GTK3 and Qt6 Pascal GUI builds
+  pass after the change.
+- Fixed the C standalone Apple M4V crash after successful output creation. The
+  shared worker cleanup now safely handles the dedicated M4V path, which does
+  not create a normal `Converter`; `converter_destroy()` is called only for a
+  non-NULL converter handle.
+- Completed the C Linux AppImage packaging path. The staging list now requires
+  `ffmpeg`, `ffprobe`, `mkvmerge`, and `MP4Box`, bundles generated
+  `presets.json`, copies the complete enabled HQ_converter runtime tree, and
+  includes project Vulkan runtime files when present. Built and checked
+  `build/bin/FFMpeg-Converter-x86_64.AppImage` successfully; Pascal AppImage
+  packaging remains unnecessary.
+- Recorded the current Linux validation result: the C and Linux Pascal GUI
+  implementations are fully functional for the available runtime components,
+  including video selection, mux modes, standalone Apple M4V, audio controls,
+  devices, and repeated interaction scenarios. Pascal Linux is ready as the
+  Windows development/debug baseline; native Windows validation remains the
+  final release gate.
+- Marked Linux GUI validation complete in the migration plan. The only open
+  packaging task is configuring and testing the C AppImage build. Pascal
+  AppImage packaging is explicitly out of scope and not required.
+- Completed Stage 0, the GUI catalog contract freeze, in
+  `docs/update-GUI-descriptions.md`.
+- Confirmed the current unified catalog fields: `selection.common`,
+  `selection.platforms.<platform>.hwaccel.groups`, `enabled`, `kind`,
+  `final_codec`/`execution_codec`, `requires`, optional bit-depth metadata,
+  `presets_source`, and execution preset sections.
+- Defined the cross-platform `(group, encoder, preset)` mapping to the existing
+  internal codec values, including the `copy`, replacement-track `mux`, and
+  Apple `m4v` special modes. Defined fallback ordering and the temporary
+  `Filter`/`Filter Preset` to `deblock` mapping (`1`/`2`/`3`).
+
+### Planned
+- Added `docs/update-GUI-descriptions.md` as the staged implementation plan for
+  the final V3 GUI migration before Phase 4.
+- The planned GUI layout has three upper zones: `codec -> encoder -> preset`
+  on the left, `audio norm -> genre -> audio output` in the center, and a
+  temporary `filter -> preset` compatibility zone on the right. The latter
+  displays the existing `deblock` values and does not implement the Phase 4
+  filter engine.
+- The plan requires one catalog-to-GUI mapping model shared by the Linux GTK4,
+  macOS Cocoa, and Windows Lazarus GUIs, followed by native validation on each
+  target platform. Linux CLI/core behavior is the reference contract.
+
+### Status
+- `verified`: Stage 0 contract freeze and catalog field review.
+- `verified`: Stage 1 shared C/Pascal GUI model API and focused catalog matrix.
+- `planned`: synchronized GUI layout/control migration and options collection.
+- `verified`: none yet for GUI implementation. Linux GUI validation remains to be performed after the
+  migration; macOS and Windows source paths exist but require native builds and
+  runtime/hardware testing.
+
 ## [Unreleased] — Preset-driven hardware command path (2026-09-12)
 
 ### Added
