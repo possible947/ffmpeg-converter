@@ -96,32 +96,32 @@ int m4v_platform_unlink(const char *path)
  *  Temp directory management
  * --------------------------------------------------------------- */
 
-int m4v_platform_make_temp_dir(char *path, size_t path_sz)
+int m4v_platform_make_temp_dir(const char *base_dir, char *path, size_t path_sz)
 {
-    wchar_t tmp_base[4096];
     wchar_t dir_path[4096];
-    DWORD rv;
     DWORD pid;
     static volatile LONG s_counter = 0;
     LONG count;
 
-    if (!path || path_sz == 0)
+    wchar_t *wbase = NULL;
+    if (!base_dir || base_dir[0] == '\0' || !path || path_sz == 0)
         return 0;
-
-    rv = GetTempPathW(4096, tmp_base);
-    if (rv == 0 || rv >= 4096)
+    if (!m4v_utf8_to_wide(base_dir, &wbase))
         return 0;
 
     pid   = GetCurrentProcessId();
     count = InterlockedIncrement(&s_counter);
 
-    /* Build a unique directory name: <TempPath>m4v_mux_<PID>_<counter> */
-    _snwprintf(dir_path, 4096, L"%sm4v_mux_%lu_%lu",
-               tmp_base, (unsigned long)pid, (unsigned long)count);
+    /* Build a unique directory name beside the final output. */
+    _snwprintf(dir_path, 4096, L"%s\\m4v_mux_%lu_%lu",
+               wbase, (unsigned long)pid, (unsigned long)count);
     dir_path[4095] = L'\0';
 
-    if (!CreateDirectoryW(dir_path, NULL))
+    if (!CreateDirectoryW(dir_path, NULL)) {
+        free(wbase);
         return 0;
+    }
+    free(wbase);
 
     /* Convert wide path back to UTF-8 for the caller */
     if (WideCharToMultiByte(CP_UTF8, 0, dir_path, -1,

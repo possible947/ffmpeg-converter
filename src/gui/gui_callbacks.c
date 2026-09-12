@@ -522,6 +522,7 @@ static gpointer run_converter(gpointer user_data)
     AppWidgets *w = (AppWidgets *)user_data;
     ConverterError err = ERR_UNKNOWN;
     GuiJobKind job_kind;
+    Converter *c = NULL;
 
     /* Gather options and files from GUI */
     ConvertOptions opts;
@@ -529,6 +530,17 @@ static gpointer run_converter(gpointer user_data)
     int   file_count = 0;
     collect_options_from_gui(w, &opts, &file_list, &file_count);
     job_kind = w->active_job_kind;
+
+    if (job_kind == GUI_JOB_M4V) {
+        /* The dedicated Apple M4V workflow owns its final pipeline. When its
+         * edit-before-mux option is enabled, the main worker must only create
+         * a stream-copy intermediate, never receive mux/m4v as a normal video
+         * codec. */
+        strcpy(opts.codec, "copy");
+        strcpy(opts.preset, "default");
+        opts.deblock = 0;
+        opts.video_track_path[0] = '\0';
+    }
 
     /* Publish the widget context for the ConverterCallbacks (which have no
      * user_data parameter).  Cleared again at the end of cleanup. */
@@ -561,7 +573,7 @@ static gpointer run_converter(gpointer user_data)
     }
 
     /* Create converter instance */
-    Converter *c = converter_create();
+    c = converter_create();
     if (!c) {
         LogUpdateData *data = g_new0(LogUpdateData, 1);
         data->w = w;
@@ -651,7 +663,8 @@ cleanup:
     w->active_job_kind = GUI_JOB_NONE;
     g_mutex_unlock(&w->thread_lock);
 
-    converter_destroy(c);
+    if (c)
+        converter_destroy(c);
     for (int i = 0; i < file_count; ++i)
         g_free(file_list[i]);
     g_free(file_list);

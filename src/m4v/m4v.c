@@ -379,6 +379,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     char cmd[20480];
     char detail[256];
     char video_codec[64];
+    char output_dir[1024];
     int rc;
     double fps;
     const char *lang;
@@ -412,7 +413,20 @@ ConverterError m4v_create_from_input(const char *input_file,
         return ERR_INVALID_OPTIONS;
     }
 
-    if (!m4v_platform_make_temp_dir(work_dir, sizeof(work_dir))) {
+    copy_string(output_dir, sizeof(output_dir), output_file);
+    {
+        char *last_slash = strrchr(output_dir, '/');
+#ifdef _WIN32
+        char *last_backslash = strrchr(output_dir, '\\');
+        if (last_backslash && (!last_slash || last_backslash > last_slash))
+            last_slash = last_backslash;
+#endif
+        if (last_slash)
+            *last_slash = '\0';
+        else
+            copy_string(output_dir, sizeof(output_dir), ".");
+    }
+    if (!m4v_platform_make_temp_dir(output_dir, work_dir, sizeof(work_dir))) {
         copy_string(error_text, error_text_sz, "Failed to create temp dir");
         emit_error(callbacks, "Failed to create temp dir", ERR_UNKNOWN);
         return ERR_UNKNOWN;

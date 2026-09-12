@@ -53,15 +53,15 @@ int m4v_platform_unlink(const char *path)
  *  Temp directory management
  * --------------------------------------------------------------- */
 
-int m4v_platform_make_temp_dir(char *path, size_t path_sz)
+int m4v_platform_make_temp_dir(const char *base_dir, char *path, size_t path_sz)
 {
     char templ[1024];
     char *made;
 
-    if (!path || path_sz == 0)
+    if (!base_dir || base_dir[0] == '\0' || !path || path_sz == 0)
         return 0;
 
-    snprintf(templ, sizeof(templ), "/tmp/m4v_mux_XXXXXX");
+    snprintf(templ, sizeof(templ), "%s/m4v_mux_XXXXXX", base_dir);
     made = mkdtemp(templ);
     if (!made)
         return 0;

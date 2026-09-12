@@ -180,7 +180,7 @@ begin
   Result := ParseRateToFps(Rate);
 end;
 
-function CreateWorkDir(out WorkDir: string): Boolean;
+function CreateWorkDir(const BaseDir: string; out WorkDir: string): Boolean;
 var
   I: Integer;
   Candidate: string;
@@ -189,7 +189,7 @@ begin
   Randomize;
   for I := 1 to 20 do
   begin
-    Candidate := IncludeTrailingPathDelimiter(GetTempDir(False)) +
+    Candidate := IncludeTrailingPathDelimiter(BaseDir) +
       Format('m4v_mux_%d_%d', [GetProcessID, Random(1000000)]);
     if CreateDir(Candidate) then
     begin
@@ -326,7 +326,7 @@ begin
   Fmt.DecimalSeparator := '.';
   FpsStr := Format('%.6f', [Fps], Fmt);
 
-  if not CreateWorkDir(WorkDir) then
+  if not CreateWorkDir(EffectiveOutputDir, WorkDir) then
   begin
     ErrorText := 'Failed to create temporary work directory.';
     Exit(False);

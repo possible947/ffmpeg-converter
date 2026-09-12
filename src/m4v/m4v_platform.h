@@ -67,13 +67,12 @@ int m4v_platform_unlink(const char *path);
  * --------------------------------------------------------------- */
 
 /**
- * m4v_platform_make_temp_dir() — Create a unique temporary directory and
- * store its path in the caller-supplied buffer.
- * POSIX: mkdtemp() with /tmp/m4v_mux_XXXXXX template
- * Windows: GetTempPathA() + CreateDirectoryA()
+ * m4v_platform_make_temp_dir() — Create a unique temporary directory below
+ * base_dir and store its path in the caller-supplied buffer. Keeping the
+ * work directory beside the final output avoids cross-filesystem renames.
  * Returns 1 on success, 0 on failure.
  */
-int m4v_platform_make_temp_dir(char *path, size_t path_sz);
+int m4v_platform_make_temp_dir(const char *base_dir, char *path, size_t path_sz);
 
 /**
  * m4v_platform_remove_temp_dir() — Recursively remove a temporary directory

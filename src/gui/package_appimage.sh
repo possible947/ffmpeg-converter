@@ -30,6 +30,7 @@ echo "Script dir: ${SCRIPT_DIR}"
 BIN_DIR="${ABS_BUILD_DIR}/bin"
 GUI_BIN="${BIN_DIR}/ffmpeg_converter_gui"
 PROJECT_TOOLS_DIR="${SCRIPT_DIR}/../platform/linux/bin"
+HQ_RELEASE_DIR="${SCRIPT_DIR}/../../third_party/hq_converter"
 
 if [ -n "${OUTPUT_DIR_ARG}" ]; then
     OUTPUT_DIR="${OUTPUT_DIR_ARG}"
@@ -95,7 +96,8 @@ cp "${PROJECT_TOOLS_DIR}/ffmpeg" "${APPDIR}/usr/bin/ffmpeg"
 cp "${PROJECT_TOOLS_DIR}/ffprobe" "${APPDIR}/usr/bin/ffprobe"
 chmod +x "${APPDIR}/usr/bin/ffmpeg" "${APPDIR}/usr/bin/ffprobe"
 
-# Copy optional tools (mkvmerge, MP4Box)
+# Copy required mux/M4V tools. A packaged Linux GUI must be self-contained for
+# the tested mux and Apple M4V workflows; do not silently omit these tools.
 echo "Copying bundled tools..."
 for tool in mkvmerge MP4Box; do
     if [ -x "${PROJECT_TOOLS_DIR}/${tool}" ]; then
@@ -111,7 +113,36 @@ for tool in mkvmerge MP4Box; do
         chmod +x "${APPDIR}/usr/bin/${tool}"
         echo "  ${tool} → bundled from system PATH"
     else
-        echo "  ${tool} — not found, skipping"
+        echo "ERROR: required ${tool} was not found in project tools, build/bin, or PATH"
+        exit 1
+    fi
+done
+
+# HQ_converter is an opaque external runtime tree. When enabled by the
+# generated catalog, preserve the complete release beside the application
+# binaries rather than selecting individual files.
+HQ_ENABLED="false"
+if [ -f "${BIN_DIR}/presets.json" ] && command -v jq >/dev/null 2>&1; then
+    HQ_ENABLED="$(jq -r '.features.hq_converter // false' "${BIN_DIR}/presets.json")"
+fi
+if [ "${HQ_ENABLED}" = "true" ]; then
+    if [ ! -d "${HQ_RELEASE_DIR}" ]; then
+        echo "ERROR: presets.json enables HQ_converter but release tree is missing: ${HQ_RELEASE_DIR}"
+        exit 1
+    fi
+    echo "Copying complete HQ_converter runtime tree..."
+    cp -a "${HQ_RELEASE_DIR}" "${APPDIR}/usr/bin/hq_converter"
+else
+    echo "HQ_converter runtime disabled; no HQ tree staged"
+fi
+
+# Preserve project-supplied Vulkan loader metadata/runtime files when present.
+# The loader may still use the host driver stack, but these files are part of
+# the prepared Linux tool bundle and must travel with the AppImage.
+for runtime_file in libvulkan.so.1.4.357 manifest.json; do
+    if [ -f "${PROJECT_TOOLS_DIR}/${runtime_file}" ]; then
+        cp -a "${PROJECT_TOOLS_DIR}/${runtime_file}" "${APPDIR}/usr/lib/${runtime_file}"
+        echo "  ${runtime_file} -> bundled project runtime"
     fi
 done
 
@@ -205,6 +236,9 @@ fi
 if [ -x "${APPDIR}/usr/bin/MP4Box" ]; then
     export MP4BOX="${APPDIR}/usr/bin/MP4Box"
     export MP4BOX_BIN="${APPDIR}/usr/bin/MP4Box"
+fi
+if [ -d "${APPDIR}/usr/bin/hq_converter" ]; then
+    export HQ_CONVERTER_DIR="${APPDIR}/usr/bin/hq_converter"
 fi
 
 # Set preset search path to bundled presets
