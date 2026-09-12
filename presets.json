@@ -125,44 +125,6 @@
         ]
       }
     },
-    "av1_vaapi": {
-      "default": {
-        "ffmpeg_args": "-c:v av1_vaapi -rc_mode auto",
-        "pre_input_args": "-vaapi_device {vaapi_device}",
-        "video_filter": "format=nv12,hwupload",
-        "container": "mkv",
-        "requires": [
-          "av1_vaapi"
-        ]
-      },
-      "speed": {
-        "ffmpeg_args": "-c:v av1_vaapi -rc_mode CQP -global_quality 28",
-        "pre_input_args": "-vaapi_device {vaapi_device}",
-        "video_filter": "format=nv12,hwupload",
-        "container": "mkv",
-        "requires": [
-          "av1_vaapi"
-        ]
-      },
-      "balance": {
-        "ffmpeg_args": "-c:v av1_vaapi -rc_mode CQP -global_quality 25",
-        "pre_input_args": "-vaapi_device {vaapi_device}",
-        "video_filter": "format=nv12,hwupload",
-        "container": "mkv",
-        "requires": [
-          "av1_vaapi"
-        ]
-      },
-      "quality": {
-        "ffmpeg_args": "-c:v av1_vaapi -rc_mode CQP -global_quality 22",
-        "pre_input_args": "-vaapi_device {vaapi_device}",
-        "video_filter": "format=nv12,hwupload",
-        "container": "mkv",
-        "requires": [
-          "av1_vaapi"
-        ]
-      }
-    },
     "prores_ks_vulkan": {
       "lt": {
         "ffmpeg_args": "-c:v prores_ks_vulkan -profile:v lt",
@@ -203,28 +165,28 @@
     },
     "h264_nvenc": {
       "default": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "speed": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22 -spatial_aq 1 -temporal_aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22 -spatial_aq 1 -temporal_aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
@@ -233,7 +195,7 @@
     },
     "hevc_nvenc": {
       "default": {
-        "ffmpeg_args": "-c:v hevc_nvenc -preset medium -cq 25 -lookahead_level auto",
+        "ffmpeg_args": "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto",
         "container": "mkv",
         "requires": [
           "hevc_nvenc"
@@ -378,36 +340,6 @@
         "container": "mkv",
         "requires": [
           "hevc_qsv"
-        ]
-      }
-    },
-    "av1_qsv": {
-      "default": {
-        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
-        "container": "mkv",
-        "requires": [
-          "av1_qsv"
-        ]
-      },
-      "speed": {
-        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset veryfast -extbrc 1",
-        "container": "mkv",
-        "requires": [
-          "av1_qsv"
-        ]
-      },
-      "balance": {
-        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset medium -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
-        "container": "mkv",
-        "requires": [
-          "av1_qsv"
-        ]
-      },
-      "quality": {
-        "ffmpeg_args": "-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1",
-        "container": "mkv",
-        "requires": [
-          "av1_qsv"
         ]
       }
     },
@@ -852,28 +784,28 @@
     },
     "h264_nvenc": {
       "default": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "speed": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p1 -qp 22 -spatial_aq 1 -temporal_aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "balance": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p4 -qp 22 -spatial_aq 1 -temporal_aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
         ]
       },
       "quality": {
-        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial-aq 1 -temporal-aq 1",
+        "ffmpeg_args": "-c:v h264_nvenc -preset p7 -qp 22 -spatial_aq 1 -temporal_aq 1",
         "container": "mkv",
         "requires": [
           "h264_nvenc"
@@ -882,7 +814,7 @@
     },
     "hevc_nvenc": {
       "default": {
-        "ffmpeg_args": "-c:v hevc_nvenc -preset medium -cq 25 -lookahead_level auto",
+        "ffmpeg_args": "-c:v hevc_nvenc -preset hq -cq 25 -lookahead_level auto",
         "container": "mkv",
         "requires": [
           "hevc_nvenc"
@@ -1265,6 +1197,612 @@
         "requires": [
           "av1_vulkan"
         ]
+      }
+    }
+  },
+  "selection": {
+    "common": {
+      "software": {
+        "enabled": true,
+        "kind": "software_encoder_group",
+        "encoders": {
+          "prores": {
+            "enabled": true,
+            "final_codec": "prores",
+            "presets_source": {
+              "type": "builtin_execution",
+              "codec": "prores"
+            }
+          },
+          "prores_ks": {
+            "enabled": true,
+            "final_codec": "prores_ks",
+            "presets_source": {
+              "type": "builtin_execution",
+              "codec": "prores_ks"
+            }
+          }
+        }
+      },
+      "mux": {
+        "enabled": true,
+        "kind": "video_pipeline_group",
+        "modes": {
+          "copy": {
+            "enabled": true,
+            "kind": "stream_copy",
+            "execution_codec": "copy",
+            "presets_source": {
+              "type": "builtin_execution",
+              "codec": "copy"
+            }
+          },
+          "mux": {
+            "enabled": true,
+            "kind": "replacement_track",
+            "execution_codec": "mux",
+            "containers": [
+              "mkv",
+              "mov",
+              "m4v"
+            ],
+            "presets_source": {
+              "type": "builtin_execution",
+              "codec": "mux"
+            }
+          },
+          "m4v": {
+            "enabled": true,
+            "kind": "apple_m4v_pipeline",
+            "execution_codec": "m4v",
+            "presets_source": {
+              "type": "builtin_execution",
+              "codec": "m4v"
+            }
+          }
+        }
+      },
+      "hq_converter": {
+        "enabled": false,
+        "kind": "external_encoder_group",
+        "feature_gate": "hq_converter",
+        "encoders_source": {
+          "type": "hq_runtime",
+          "path": "modules/encoder_orchestrator_v2/config/presets/encoder_presets_v2.json",
+          "key": "encoders"
+        },
+        "presets_source": {
+          "type": "hq_runtime",
+          "default_preset_key": "default_preset",
+          "presets_key": "presets"
+        }
+      }
+    },
+    "platforms": {
+      "linux": {
+        "hwaccel": {
+          "enabled": true,
+          "groups": {
+            "vaapi": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_vaapi",
+                  "requires": [
+                    "h264_vaapi"
+                  ],
+                  "bit_depths": [
+                    8
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_vaapi",
+                  "requires": [
+                    "hevc_vaapi"
+                  ],
+                  "bit_depths": [
+                    8
+                  ]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_vaapi",
+                  "requires": [
+                    "hevc_vaapi_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_vaapi",
+                  "requires": [
+                    "av1_vaapi"
+                  ],
+                  "bit_depths": [
+                    8
+                  ],
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_vaapi",
+                  "requires": [
+                    "av1_vaapi_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                }
+              }
+            },
+            "nvenc": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_nvenc",
+                  "requires": [
+                    "h264_nvenc"
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_nvenc",
+                  "requires": [
+                    "hevc_nvenc"
+                  ]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_nvenc",
+                  "requires": [
+                    "av1_nvenc"
+                  ],
+                  "bit_depths": [
+                    8
+                  ],
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_nvenc",
+                  "requires": [
+                    "hevc_nvenc_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_nvenc",
+                  "requires": [
+                    "av1_nvenc_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                }
+              }
+            },
+            "amf": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_amf",
+                  "requires": [
+                    "h264_amf"
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_amf",
+                  "requires": [
+                    "hevc_amf"
+                  ]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_amf",
+                  "requires": [
+                    "av1_amf"
+                  ]
+                }
+              }
+            },
+            "qsv": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_qsv",
+                  "requires": [
+                    "h264_qsv"
+                  ],
+                  "bit_depths": [
+                    8
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_qsv",
+                  "requires": [
+                    "hevc_qsv"
+                  ],
+                  "bit_depths": [
+                    8
+                  ]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_qsv",
+                  "requires": [
+                    "hevc_qsv_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_qsv",
+                  "requires": [
+                    "av1_qsv"
+                  ],
+                  "bit_depths": [
+                    8
+                  ],
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_qsv",
+                  "requires": [
+                    "av1_qsv_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                }
+              }
+            },
+            "vulkan": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "prores_ks": {
+                  "enabled": true,
+                  "final_codec": "prores_ks_vulkan",
+                  "requires": [
+                    "prores_ks_vulkan"
+                  ]
+                },
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_vulkan",
+                  "requires": [
+                    "h264_vulkan"
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_vulkan",
+                  "requires": [
+                    "hevc_vulkan"
+                  ]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_vulkan",
+                  "requires": [
+                    "av1_vulkan"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "macos": {
+        "hwaccel": {
+          "enabled": true,
+          "groups": {
+            "videotoolbox": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "prores": {
+                  "enabled": true,
+                  "final_codec": "prores_videotoolbox",
+                  "requires": [
+                    "prores_videotoolbox"
+                  ]
+                },
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_videotoolbox",
+                  "requires": [
+                    "h264_videotoolbox"
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_videotoolbox",
+                  "requires": [
+                    "hevc_videotoolbox"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "windows": {
+        "hwaccel": {
+          "enabled": true,
+          "groups": {
+            "nvenc": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_nvenc",
+                  "requires": [
+                    "h264_nvenc"
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_nvenc",
+                  "requires": [
+                    "hevc_nvenc"
+                  ]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_nvenc",
+                  "requires": [
+                    "av1_nvenc"
+                  ]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_nvenc",
+                  "requires": [
+                    "hevc_nvenc_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_nvenc",
+                  "requires": [
+                    "av1_nvenc_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                }
+              }
+            },
+            "amf": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_amf",
+                  "requires": [
+                    "h264_amf"
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_amf",
+                  "requires": [
+                    "hevc_amf"
+                  ]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_amf",
+                  "requires": [
+                    "av1_amf"
+                  ]
+                }
+              }
+            },
+            "qsv": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_qsv",
+                  "requires": [
+                    "h264_qsv"
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_qsv",
+                  "requires": [
+                    "hevc_qsv"
+                  ],
+                  "bit_depths": [
+                    8
+                  ]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_qsv",
+                  "requires": [
+                    "av1_qsv"
+                  ],
+                  "bit_depths": [
+                    8
+                  ]
+                },
+                "hevc_10bit": {
+                  "enabled": true,
+                  "final_codec": "hevc_qsv",
+                  "requires": [
+                    "hevc_qsv_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "profile_args": "-profile:v main10",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                },
+                "av1_10bit": {
+                  "enabled": true,
+                  "final_codec": "av1_qsv",
+                  "requires": [
+                    "av1_qsv_10bit"
+                  ],
+                  "bit_depths": [
+                    10
+                  ],
+                  "pixel_format": "p010le",
+                  "presets": [
+                    "default",
+                    "speed",
+                    "balance",
+                    "quality"
+                  ]
+                }
+              }
+            },
+            "vulkan": {
+              "enabled": true,
+              "kind": "hwaccel_encoder_group",
+              "encoders": {
+                "prores_ks": {
+                  "enabled": true,
+                  "final_codec": "prores_ks_vulkan",
+                  "requires": [
+                    "prores_ks_vulkan"
+                  ]
+                },
+                "h264": {
+                  "enabled": true,
+                  "final_codec": "h264_vulkan",
+                  "requires": [
+                    "h264_vulkan"
+                  ]
+                },
+                "hevc": {
+                  "enabled": true,
+                  "final_codec": "hevc_vulkan",
+                  "requires": [
+                    "hevc_vulkan"
+                  ]
+                },
+                "av1": {
+                  "enabled": true,
+                  "final_codec": "av1_vulkan",
+                  "requires": [
+                    "av1_vulkan"
+                  ]
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

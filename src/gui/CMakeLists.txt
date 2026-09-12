@@ -114,14 +114,10 @@ else()
 endif()
 
 # Copy the build-generated preset catalog next to the GUI binary.
-if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
-    add_custom_command(TARGET linux_gui POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_gui>/presets.json"
-        COMMENT "Copying presets.json next to linux_gui"
-    )
-else()
-    message(WARNING "presets.json not found at ${CMAKE_SOURCE_DIR}/presets.json; linux_gui will use config directory or built-in fallback.")
-endif()
+add_custom_command(TARGET linux_gui POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_gui>/presets.json"
+    COMMENT "Copying presets.json next to linux_gui"
+)
 
  install(TARGETS linux_gui RUNTIME DESTINATION bin)
 

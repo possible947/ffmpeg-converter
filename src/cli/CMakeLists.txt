@@ -103,12 +103,10 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     endif()
 
     # Copy the build-generated preset catalog next to the CLI binary.
-    if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
-        add_custom_command(TARGET linux_cli POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_cli>/presets.json"
-            COMMENT "Copying presets.json next to linux_cli"
-        )
-    endif()
+    add_custom_command(TARGET linux_cli POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_cli>/presets.json"
+        COMMENT "Copying presets.json next to linux_cli"
+    )
 endif()
 
 # --- MACOS CLI ---
@@ -150,12 +148,10 @@ if (APPLE)
     )
 
     # Copy the build-generated preset catalog next to the CLI binary.
-    if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
-        add_custom_command(TARGET macos_cli POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:macos_cli>/presets.json"
-            COMMENT "Copying presets.json next to macos_cli"
-        )
-    endif()
+    add_custom_command(TARGET macos_cli POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:macos_cli>/presets.json"
+        COMMENT "Copying presets.json next to macos_cli"
+    )
 endif()
 
 # --- WINDOWS CLI ---
@@ -196,11 +192,9 @@ if (WIN32)
     )
 
     # Copy the build-generated preset catalog next to the CLI binary.
-    if (EXISTS "${GENERATED_PRESETS_DIR}/presets.json")
-        add_custom_command(TARGET windows_cli POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:windows_cli>/presets.json"
-            COMMENT "Copying presets.json next to windows_cli"
-        )
-    endif()
+    add_custom_command(TARGET windows_cli POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:windows_cli>/presets.json"
+        COMMENT "Copying presets.json next to windows_cli"
+    )
 endif()
 
