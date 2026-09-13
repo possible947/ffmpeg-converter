@@ -106,6 +106,7 @@ static SelectionCatalog *gSelectionCatalog = NULL;
  - (void)populateEncoderPopup;
  - (void)populatePresetPopup;
  - (NSString *)resolvedCodecForCurrentSelection;
+ - (void)resolveCodec:(NSString **)outCodec preset:(NSString **)outPreset;
 @end
 
 @implementation AppDelegate
@@ -559,8 +560,9 @@ static int macSelectionCapability(void *context,
         return;
     }
 
-    NSString *codec = [self resolvedCodecForCurrentSelection];
-    NSString *preset = self.profilePopup.titleOfSelectedItem ?: @"default";
+    NSString *codec = nil;
+    NSString *preset = nil;
+    [self resolveCodec:&codec preset:&preset];
     NSInteger deblock = self.deblockPopup.isEnabled ? (NSInteger)self.deblockPopup.indexOfSelectedItem + 1 : 0;
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     NSString *audioOutputMode = self.audioOutputPopup.titleOfSelectedItem ?: @"pcm";
@@ -702,8 +704,9 @@ static int macSelectionCapability(void *context,
         return;
     }
 
-    NSString *codec = [self resolvedCodecForCurrentSelection];
-    NSString *preset = self.profilePopup.titleOfSelectedItem ?: @"default";
+    NSString *codec = nil;
+    NSString *preset = nil;
+    [self resolveCodec:&codec preset:&preset];
     NSInteger deblock = self.deblockPopup.isEnabled ? (NSInteger)self.deblockPopup.indexOfSelectedItem + 1 : 0;
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     NSString *audioOutputMode = self.audioOutputPopup.titleOfSelectedItem ?: @"pcm";
@@ -1016,6 +1019,16 @@ static int macSelectionCapability(void *context,
 - (void)populatePresetPopup {
     NSString *group = self.codecPopup.titleOfSelectedItem ?: @"";
     NSString *encoder = self.encoderPopup.titleOfSelectedItem ?: @"";
+
+    /* The mux group's third level (container/preset) is fully determined by
+     * the chosen encoder (copy/mkv/mov/m4v); there is nothing left to pick. */
+    if ([group isEqualToString:@"mux"]) {
+        [self.profilePopup removeAllItems];
+        [self.profilePopup addItemWithTitle:@"default"];
+        [self.profilePopup selectItemAtIndex:0];
+        return;
+    }
+
     NSString *selectedPreset = self.profilePopup.titleOfSelectedItem;
     const char **presets = NULL;
     int count = gSelectionCatalog ? selection_catalog_list_presets(
@@ -1038,17 +1051,21 @@ static int macSelectionCapability(void *context,
 
 - (void)updateDependentControls {
     NSString *codec = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *encoder = self.encoderPopup.titleOfSelectedItem ?: @"";
     NSString *resolvedCodec = [self resolvedCodecForCurrentSelection];
-    BOOL isMux = [resolvedCodec isEqualToString:@"mux"];
+    /* The mux group is identified by the top-level selection itself, not by
+     * the resolved execution codec (which differs per encoder: copy/mux/m4v). */
+    BOOL isMux = [codec isEqualToString:@"mux"];
+    BOOL muxNeedsTrack = isMux && ![encoder isEqualToString:@"copy"];
     [self populatePresetPopup];
-    BOOL profileEnabled = self.profilePopup.numberOfItems > 1;
+    BOOL profileEnabled = !isMux && self.profilePopup.numberOfItems > 1;
     // Deblock: software prores encoders only; hardware encoders skip
     BOOL deblockEnabled = ([resolvedCodec isEqualToString:@"prores"] ||
                            [resolvedCodec isEqualToString:@"prores_ks"]);
     [self.profilePopup setEnabled:profileEnabled];
     [self.deblockPopup setEnabled:deblockEnabled];
     [self.addFilesButton setEnabled:!isMux];
-    [self.addTrackButton setEnabled:isMux && self.filePaths.count == 1];
+    [self.addTrackButton setEnabled:muxNeedsTrack && self.filePaths.count == 1];
 
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     BOOL genreEnabled = [audioNorm isEqualToString:@"loudness_norm_2pass"];
@@ -1064,6 +1081,28 @@ static int macSelectionCapability(void *context,
             resolved, sizeof(resolved)))
         return [NSString stringWithUTF8String:resolved];
     return group;
+}
+
+/* Codec/preset to submit for conversion. For the mux group the encoder
+ * IS the container choice (copy/mkv/mov/m4v); mirrors the Linux GUI's
+ * build_opts() override so both platforms submit identical options. */
+- (void)resolveCodec:(NSString **)outCodec preset:(NSString **)outPreset {
+    NSString *group = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *encoder = self.encoderPopup.titleOfSelectedItem ?: @"";
+
+    if ([group isEqualToString:@"mux"]) {
+        if ([encoder isEqualToString:@"copy"]) {
+            *outCodec = @"copy";
+            *outPreset = @"default";
+        } else {
+            *outCodec = @"mux";
+            *outPreset = encoder.length > 0 ? encoder : @"mkv";
+        }
+        return;
+    }
+
+    *outCodec = [self resolvedCodecForCurrentSelection];
+    *outPreset = self.profilePopup.titleOfSelectedItem ?: @"default";
 }
 
 - (void)appendLogLine:(NSString *)line {

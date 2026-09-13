@@ -30,6 +30,21 @@ considered complete.
 ### Removed
 - Removed obsolete `presets_v2.json` and `encoder_presets_v2.json` from repository root to eliminate file duplication and keep the root clean.
 
+## [Unreleased] — macOS mux group parity with Linux GUI (2026-09-13)
+
+### Fixed
+- Synchronized the macOS native GUI's "mux" codec group with the Linux GTK GUI's
+  correct behavior in `src/gui_macos_native/main.m`:
+  - The third-level preset popup is now forced to a single, disabled `default`
+    entry for the mux group instead of showing a redundant container list.
+  - Mux/video-track detection now keys off the raw group selection (`mux`)
+    rather than the resolved execution codec, so the `m4v` mux encoder now
+    correctly requires a video track like `mkv`/`mov` do.
+  - `ConvertOptions` submission now uses a group-aware `resolveCodec:preset:`
+    helper (mirroring the Linux GUI's `build_opts` override) so the encoder
+    choice (`copy`/`mkv`/`mov`/`m4v`) is submitted correctly instead of relying
+    on a disconnected preset popup value.
+
 ## [Unreleased] — Final GUI migration plan (2026-09-12)
 
 ### Changed
