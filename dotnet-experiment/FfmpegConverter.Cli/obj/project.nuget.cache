@@ -1,12 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "NyhP2Kxc4zk=",
+  "dgSpecHash": "YNVZFtLkBgM=",
   "success": true,
   "projectFilePath": "/home/runner/work/ffmpeg-converter/ffmpeg-converter/dotnet-experiment/FfmpegConverter.Cli/FfmpegConverter.Cli.csproj",
-  "expectedPackageFiles": [
-    "/tmp/codeql-scratch-5890f7034da1bdb6/dbs/csharp/working/packages/microsoft.netcore.app.ref/10.0.12/microsoft.netcore.app.ref.10.0.12.nupkg.sha512",
-    "/tmp/codeql-scratch-5890f7034da1bdb6/dbs/csharp/working/packages/microsoft.aspnetcore.app.ref/10.0.12/microsoft.aspnetcore.app.ref.10.0.12.nupkg.sha512",
-    "/tmp/codeql-scratch-5890f7034da1bdb6/dbs/csharp/working/packages/microsoft.netcore.app.host.linux-x64/10.0.12/microsoft.netcore.app.host.linux-x64.10.0.12.nupkg.sha512"
-  ],
+  "expectedPackageFiles": [],
   "logs": []
 }
