@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("FfmpegConverter.Core")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6e94fa79ad89bfdeb84d23b311242a4e189afbf7")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+44f56c8fd8e73ba570bd2f74a3f016e667e30395")]
 [assembly: System.Reflection.AssemblyProductAttribute("FfmpegConverter.Core")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FfmpegConverter.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

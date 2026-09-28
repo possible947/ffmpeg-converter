@@ -1,0 +1,148 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="950" d:DesignHeight="650"
+        Width="950" Height="650"
+        MinWidth="850" MinHeight="550"
+        x:Class="FfmpegConverter.Gui.MainWindow"
+        Title="FFmpeg Converter (.NET Experimental GUI)"
+        Background="#1e1e1e"
+        Foreground="#e0e0e0">
+
+    <Grid RowDefinitions="Auto, *, Auto, 180" Margin="15">
+        <!-- HEADER -->
+        <Border Grid.Row="0" Background="#2d2d2d" CornerRadius="5" Padding="15,10" Margin="0,0,0,15">
+            <Grid ColumnDefinitions="*, Auto">
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="FFmpeg Converter" FontSize="20" FontWeight="Bold" Foreground="#3897f0" />
+                    <TextBlock x:Name="PlatformLabel" Text="Platform: Unknown" FontSize="11" Foreground="#888888" Margin="0,2,0,0" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
+                    <TextBlock x:Name="PresetDbLabel" Text="Preset DB: Loading..." FontSize="12" Foreground="#aaaaaa" />
+                    <TextBlock x:Name="FfmpegLabel" Text="FFmpeg: Resolving..." FontSize="11" Foreground="#888888" HorizontalAlignment="Right" Margin="0,2,0,0" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- MAIN CONTENT (Split into Columns) -->
+        <Grid Grid.Row="1" ColumnDefinitions="*, 350" Margin="0,0,0,15">
+            <!-- LEFT COLUMN: Files and Folders Selection -->
+            <Border Grid.Column="0" Background="#252526" CornerRadius="5" Padding="15" Margin="0,0,10,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Source Files &amp; Destination" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" Foreground="#3897f0" />
+                    
+                    <!-- Output Directory Panel -->
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                        <TextBlock Text="Output Directory" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
+                        <Grid ColumnDefinitions="*, 80">
+                            <TextBox x:Name="OutputDirTextBox" Grid.Column="0" PlaceholderText="Default: $HOME/ffmpeg_converter" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46" Margin="0,0,5,0" />
+                            <Button x:Name="BrowseOutputDirButton" Grid.Column="1" Content="Browse" Click="OnBrowseOutputDirClick" Background="#3f3f46" Foreground="#ffffff" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Files List Controls -->
+                    <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*, *, *" Margin="0,10,0,0">
+                        <Button x:Name="AddFilesButton" Grid.Column="0" Content="Add Files" Click="OnAddFilesClick" Background="#2d2d2d" Foreground="#3897f0" BorderBrush="#3897f0" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,5,0" />
+                        <Button x:Name="RemoveFilesButton" Grid.Column="1" Content="Remove Selected" Click="OnRemoveFilesClick" Background="#2d2d2d" Foreground="#f04f38" BorderBrush="#f04f38" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,5,0" />
+                        <Button x:Name="ClearFilesButton" Grid.Column="2" Content="Clear All" Click="OnClearFilesClick" Background="#2d2d2d" Foreground="#cccccc" BorderBrush="#3f3f46" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                    </Grid>
+
+                    <!-- ListBox of Files -->
+                    <ListBox x:Name="InputFilesListBox" Background="#1e1e1e" BorderBrush="#3f3f46" BorderThickness="1" SelectionMode="Multiple" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                        <ListBox.Styles>
+                            <Style Selector="ListBoxItem">
+                                <Setter Property="Padding" Value="6,4" />
+                            </Style>
+                        </ListBox.Styles>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- RIGHT COLUMN: Conversion Options -->
+            <Border Grid.Column="1" Background="#252526" CornerRadius="5" Padding="15" Margin="10,0,0,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="15">
+                        <TextBlock Text="Encoding Options" FontSize="16" FontWeight="SemiBold" Foreground="#3897f0" />
+
+                        <!-- Codec Selection -->
+                        <StackPanel>
+                            <TextBlock Text="Target Video Codec" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
+                            <ComboBox x:Name="CodecComboBox" HorizontalAlignment="Stretch" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46" />
+                        </StackPanel>
+
+                        <!-- Preset Selection -->
+                        <StackPanel>
+                            <TextBlock Text="Preset / Profile" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
+                            <ComboBox x:Name="PresetComboBox" HorizontalAlignment="Stretch" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46" />
+                        </StackPanel>
+
+                        <!-- Audio Normalization Selection -->
+                        <StackPanel>
+                            <TextBlock Text="Audio Normalization" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
+                            <ComboBox x:Name="AudioNormComboBox" HorizontalAlignment="Stretch" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46">
+                                <ComboBoxItem Content="none" Tag="none" IsSelected="True" />
+                                <ComboBoxItem Content="peak_norm" Tag="peak_norm" />
+                                <ComboBoxItem Content="peak_norm_2pass" Tag="peak_norm_2pass" />
+                                <ComboBoxItem Content="loudness_norm_2pass" Tag="loudness_norm_2pass" />
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Audio Mode Selection -->
+                        <StackPanel>
+                            <TextBlock Text="Audio Mode" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
+                            <ComboBox x:Name="AudioModeComboBox" HorizontalAlignment="Stretch" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46">
+                                <ComboBoxItem Content="copy" Tag="copy" IsSelected="True" />
+                                <ComboBoxItem Content="pcm" Tag="pcm" />
+                                <ComboBoxItem Content="fdk_aac_320" Tag="fdk_aac_320" />
+                                <ComboBoxItem Content="fdk_aac_320_ac3_640" Tag="fdk_aac_320_ac3_640" />
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Hardware / Probed Encoders Info -->
+                        <Border Background="#1e1e1e" CornerRadius="3" Padding="10" BorderBrush="#3f3f46" BorderThickness="1">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="Hardware Acceleration Support:" FontSize="11" FontWeight="Bold" Foreground="#888888" />
+                                <TextBlock x:Name="HwSupportText" Text="Loading hardware info..." FontSize="10" TextWrapping="Wrap" Foreground="#cccccc" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Boolean Options -->
+                        <StackPanel Spacing="8">
+                            <CheckBox x:Name="OverwriteCheckBox" Content="Overwrite existing files" FontSize="12" Foreground="#e0e0e0" />
+                            <CheckBox x:Name="DryRunCheckBox" Content="Dry Run (log commands only)" FontSize="12" Foreground="#e0e0e0" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- PROGRESS BAR & ACTION BUTTONS -->
+        <Border Grid.Row="2" Background="#2d2d2d" CornerRadius="5" Padding="15" Margin="0,0,0,15">
+            <Grid ColumnDefinitions="*, 350">
+                <!-- Progress display -->
+                <Grid Grid.Column="0" RowDefinitions="Auto, Auto" Margin="0,0,20,0">
+                    <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="0,0,0,5">
+                        <TextBlock x:Name="StatusLabel" Grid.Column="0" Text="Idle. Ready to convert." FontSize="13" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+                        <TextBlock x:Name="DetailsLabel" Grid.Column="1" Text="" FontSize="11" Foreground="#aaaaaa" VerticalAlignment="Bottom" />
+                    </Grid>
+                    <ProgressBar x:Name="FileProgressBar" Grid.Row="1" Minimum="0" Maximum="100" Value="0" Height="15" HorizontalAlignment="Stretch" Foreground="#3897f0" Background="#1e1e1e" />
+                </Grid>
+
+                <!-- Actions -->
+                <Grid Grid.Column="1" ColumnDefinitions="*, *">
+                    <Button x:Name="StartButton" Grid.Column="0" Content="Start Conversion" Click="OnStartConversionClick" Background="#3897f0" Foreground="#ffffff" FontWeight="Bold" Height="40" HorizontalAlignment="Stretch" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,10,0" />
+                    <Button x:Name="CancelButton" Grid.Column="1" Content="Cancel" Click="OnCancelClick" Background="#f04f38" Foreground="#ffffff" FontWeight="Bold" Height="40" HorizontalAlignment="Stretch" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- LOG CONSOLE -->
+        <Border Grid.Row="3" Background="#1e1e1e" BorderBrush="#3f3f46" BorderThickness="1" CornerRadius="5" Padding="10">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Console Output Logs" FontSize="12" FontWeight="Bold" Foreground="#888888" Margin="0,0,0,5" />
+                <TextBox x:Name="LogTextBox" FontFamily="Consolas,Courier New,Courier,monospace" FontSize="11" Background="Transparent" Foreground="#00ff00" BorderThickness="0" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>
