@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="FfmpegConverter.Cli/FfmpegConverter.Cli.csproj" />
   <Project Path="FfmpegConverter.Core/FfmpegConverter.Core.csproj" />
+  <Project Path="FfmpegConverter.Gui/FfmpegConverter.Gui.csproj" />
 </Solution>
