@@ -1,0 +1,58 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="420" d:DesignHeight="360"
+        Width="420" Height="370"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        x:Class="FfmpegConverter.Gui.AppleM4vDialog"
+        Title="Apple m4v creator options"
+        Background="{DynamicResource WindowBgBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+
+    <Grid RowDefinitions="Auto, *, Auto" Margin="20">
+        <!-- HEADER -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,15">
+            <TextBlock Text="Apple M4V Creator Options" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource TextAccentBrush}" />
+            <TextBlock Text="Set track and audio parameters for Apple M4V mux." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0" />
+        </StackPanel>
+
+        <!-- FORM CONTROLS -->
+        <Border Grid.Row="1" Background="{DynamicResource CardBgBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="15">
+            <Grid ColumnDefinitions="160, *" RowDefinitions="Auto, Auto, Auto, Auto, Auto, Auto">
+                <!-- Video track index -->
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Video track index:" VerticalAlignment="Center" Margin="0,0,10,10" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                <NumericUpDown x:Name="VideoTrackSpin" Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="16" Increment="1" Value="0" FormatString="0" Margin="0,0,0,10" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" />
+
+                <!-- Audio track index -->
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Audio track index:" VerticalAlignment="Center" Margin="0,0,10,10" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                <NumericUpDown x:Name="AudioTrackSpin" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="16" Increment="1" Value="0" FormatString="0" Margin="0,0,0,10" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" />
+
+                <!-- AC3 bitrate kbps -->
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="AC3 bitrate (kbps):" VerticalAlignment="Center" Margin="0,0,10,10" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                <ComboBox x:Name="Ac3BitrateCombo" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="2" Margin="0,0,0,10" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}">
+                    <ComboBoxItem Content="384 kbps" Tag="384" />
+                    <ComboBoxItem Content="448 kbps" Tag="448" />
+                    <ComboBoxItem Content="640 kbps" Tag="640" />
+                </ComboBox>
+
+                <!-- Audio language -->
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Audio language:" VerticalAlignment="Center" Margin="0,0,10,10" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                <TextBox x:Name="AudioLangTextBox" Grid.Row="3" Grid.Column="1" Text="rus" Margin="0,0,0,10" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" />
+
+                <!-- Add chapters -->
+                <CheckBox x:Name="AddChaptersCheckBox" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Content="Import chapters" IsChecked="True" FontSize="12" Margin="0,0,0,8" Foreground="{DynamicResource TextPrimaryBrush}" />
+
+                <!-- Edit main files before mux -->
+                <CheckBox x:Name="EditBeforeMuxCheckBox" Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2" Content="Edit main files before mux (main -> m4v -> cleanup)" IsChecked="False" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
+            </Grid>
+        </Border>
+
+        <!-- BUTTONS -->
+        <Grid Grid.Row="2" ColumnDefinitions="*, *" Margin="0,15,0,0">
+            <Button x:Name="CancelBtn" Grid.Column="0" Content="Cancel" Click="OnCancelClick" Background="{DynamicResource ButtonSecondaryBgBrush}" Foreground="{DynamicResource ButtonSecondaryFgBrush}" BorderBrush="{DynamicResource ButtonSecondaryBorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="36" Margin="0,0,8,0" />
+            <Button x:Name="StartBtn" Grid.Column="1" Content="Start M4V" Click="OnStartClick" Background="{DynamicResource TextAccentBrush}" Foreground="#ffffff" FontWeight="Bold" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="36" Margin="8,0,0,0" />
+        </Grid>
+    </Grid>
+</Window>

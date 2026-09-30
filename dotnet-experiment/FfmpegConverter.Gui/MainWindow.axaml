@@ -2,146 +2,240 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="950" d:DesignHeight="650"
-        Width="950" Height="650"
-        MinWidth="850" MinHeight="550"
+        mc:Ignorable="d" d:DesignWidth="1050" d:DesignHeight="800"
+        Width="1050" Height="800"
+        MinWidth="920" MinHeight="660"
         x:Class="FfmpegConverter.Gui.MainWindow"
-        Title="FFmpeg Converter (.NET Experimental GUI)"
-        Background="#1e1e1e"
-        Foreground="#e0e0e0">
+        Title="FFmpeg Converter"
+        Background="{DynamicResource WindowBgBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}"
+        DragDrop.AllowDrop="True">
 
-    <Grid RowDefinitions="Auto, *, Auto, 180" Margin="15">
+    <Window.Styles>
+        <Style Selector="TextBox#LogTextBox">
+            <Setter Property="Background" Value="{DynamicResource ConsoleBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource ConsoleFgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}" />
+        </Style>
+        <Style Selector="TextBox#LogTextBox:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="{DynamicResource ConsoleBgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}" />
+        </Style>
+        <Style Selector="TextBox#LogTextBox:focus /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="{DynamicResource ConsoleBgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource TextAccentBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto, *, Auto, 160" Margin="14">
         <!-- HEADER -->
-        <Border Grid.Row="0" Background="#2d2d2d" CornerRadius="5" Padding="15,10" Margin="0,0,0,15">
+        <Border Grid.Row="0" Background="{DynamicResource HeaderBgBrush}" CornerRadius="5" Padding="14,10" Margin="0,0,0,12">
             <Grid ColumnDefinitions="*, Auto">
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                    <TextBlock Text="FFmpeg Converter" FontSize="20" FontWeight="Bold" Foreground="#3897f0" />
-                    <TextBlock x:Name="PlatformLabel" Text="Platform: Unknown" FontSize="11" Foreground="#888888" Margin="0,2,0,0" />
+                    <TextBlock Text="FFmpeg Converter" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource TextAccentBrush}" />
+                    <TextBlock x:Name="PlatformLabel" Text="Platform: Unknown" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
-                    <TextBlock x:Name="PresetDbLabel" Text="Preset DB: Loading..." FontSize="12" Foreground="#aaaaaa" />
-                    <TextBlock x:Name="FfmpegLabel" Text="FFmpeg: Resolving..." FontSize="11" Foreground="#888888" HorizontalAlignment="Right" Margin="0,2,0,0" />
+                    <TextBlock x:Name="PresetDbLabel" Text="Preset DB: Loading..." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Right" />
+                    <TextBlock x:Name="ToolsStatusLabel" Text="Tools: Resolving..." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Right" Margin="0,2,0,0" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- MAIN CONTENT (Split into Columns) -->
-        <Grid Grid.Row="1" ColumnDefinitions="*, 350" Margin="0,0,0,15">
-            <!-- LEFT COLUMN: Files and Folders Selection -->
-            <Border Grid.Column="0" Background="#252526" CornerRadius="5" Padding="15" Margin="0,0,10,0">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Source Files &amp; Destination" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10" Foreground="#3897f0" />
-                    
-                    <!-- Output Directory Panel -->
-                    <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
-                        <TextBlock Text="Output Directory" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
-                        <Grid ColumnDefinitions="*, 80">
-                            <TextBox x:Name="OutputDirTextBox" Grid.Column="0" PlaceholderText="Default: $HOME/ffmpeg_converter" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46" Margin="0,0,5,0" />
-                            <Button x:Name="BrowseOutputDirButton" Grid.Column="1" Content="Browse" Click="OnBrowseOutputDirClick" Background="#3f3f46" Foreground="#ffffff" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+        <!-- MAIN WORKSPACE CONTENT -->
+        <Grid Grid.Row="1" RowDefinitions="Auto, Auto, *">
+            <!-- 1. THREE UPPER COLUMNS: VIDEO | AUDIO | FILTERS -->
+            <Grid Grid.Row="0" ColumnDefinitions="*, *, *" Margin="0,0,0,10">
+                <!-- VIDEO COLUMN -->
+                <Border Grid.Column="0" Background="{DynamicResource CardBgBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="12" Margin="0,0,6,0">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Video" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextAccentBrush}" Margin="0,0,0,4" />
+                        
+                        <!-- Codec / Group -->
+                        <Grid ColumnDefinitions="70, *">
+                            <TextBlock Grid.Column="0" Text="Codec:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <ComboBox x:Name="CodecComboBox" Grid.Column="1" HorizontalAlignment="Stretch" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" />
+                        </Grid>
+
+                        <!-- Encoder -->
+                        <Grid ColumnDefinitions="70, *">
+                            <TextBlock Grid.Column="0" Text="Encoder:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <ComboBox x:Name="EncoderComboBox" Grid.Column="1" HorizontalAlignment="Stretch" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" />
+                        </Grid>
+
+                        <!-- Preset -->
+                        <Grid ColumnDefinitions="70, *">
+                            <TextBlock Grid.Column="0" Text="Preset:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <ComboBox x:Name="PresetComboBox" Grid.Column="1" HorizontalAlignment="Stretch" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" />
+                        </Grid>
+
+                        <!-- Vulkan Device (conditional) -->
+                        <Grid x:Name="VulkanDevRow" ColumnDefinitions="70, *" IsVisible="False">
+                            <TextBlock Grid.Column="0" Text="Vulkan dev:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="11" Foreground="{DynamicResource TextAccentBrush}" />
+                            <ComboBox x:Name="VulkanDevComboBox" Grid.Column="1" HorizontalAlignment="Stretch" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" />
+                        </Grid>
+
+                        <!-- VAAPI Device (conditional) -->
+                        <Grid x:Name="VaapiDevRow" ColumnDefinitions="70, *" IsVisible="False">
+                            <TextBlock Grid.Column="0" Text="VAAPI dev:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="11" Foreground="{DynamicResource TextAccentBrush}" />
+                            <TextBox x:Name="VaapiDevTextBox" Grid.Column="1" PlaceholderText="Auto or /dev/dri/renderD128" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" VerticalContentAlignment="Center" />
                         </Grid>
                     </StackPanel>
+                </Border>
 
-                    <!-- Files List Controls -->
-                    <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*, *, *" Margin="0,10,0,0">
-                        <Button x:Name="AddFilesButton" Grid.Column="0" Content="Add Files" Click="OnAddFilesClick" Background="#2d2d2d" Foreground="#3897f0" BorderBrush="#3897f0" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,5,0" />
-                        <Button x:Name="RemoveFilesButton" Grid.Column="1" Content="Remove Selected" Click="OnRemoveFilesClick" Background="#2d2d2d" Foreground="#f04f38" BorderBrush="#f04f38" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,5,0" />
-                        <Button x:Name="ClearFilesButton" Grid.Column="2" Content="Clear All" Click="OnClearFilesClick" Background="#2d2d2d" Foreground="#cccccc" BorderBrush="#3f3f46" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                <!-- AUDIO COLUMN -->
+                <Border Grid.Column="1" Background="{DynamicResource CardBgBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="12" Margin="3,0,3,0">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Audio" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextAccentBrush}" Margin="0,0,0,4" />
+
+                        <!-- Audio Norm -->
+                        <Grid ColumnDefinitions="80, *">
+                            <TextBlock Grid.Column="0" Text="Audio norm:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <ComboBox x:Name="AudioNormComboBox" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="0" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30">
+                                <ComboBoxItem Content="none" Tag="none" />
+                                <ComboBoxItem Content="peak_norm" Tag="peak_norm" />
+                                <ComboBoxItem Content="peak_norm_2pass" Tag="peak_norm_2pass" />
+                                <ComboBoxItem Content="loudness_norm_2pass" Tag="loudness_norm_2pass" />
+                            </ComboBox>
+                        </Grid>
+
+                        <!-- Genre (Gated: only loudness_norm_2pass) -->
+                        <Grid ColumnDefinitions="80, *">
+                            <TextBlock Grid.Column="0" Text="Genre:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <ComboBox x:Name="GenreComboBox" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="0" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" IsEnabled="False">
+                                <ComboBoxItem Content="none" Tag="0" />
+                                <ComboBoxItem Content="edm" Tag="1" />
+                                <ComboBoxItem Content="rock" Tag="2" />
+                                <ComboBoxItem Content="hiphop" Tag="3" />
+                                <ComboBoxItem Content="classical" Tag="4" />
+                                <ComboBoxItem Content="podcast" Tag="5" />
+                            </ComboBox>
+                        </Grid>
+
+                        <!-- Audio Output -->
+                        <Grid ColumnDefinitions="80, *">
+                            <TextBlock Grid.Column="0" Text="Audio out:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <ComboBox x:Name="AudioModeComboBox" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="0" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30">
+                                <ComboBoxItem Content="pcm" Tag="pcm" />
+                                <ComboBoxItem Content="copy" Tag="copy" />
+                                <ComboBoxItem Content="fdk_aac_320" Tag="fdk_aac_320" />
+                                <ComboBoxItem Content="fdk_aac_320_ac3_640" Tag="fdk_aac_320_ac3_640" />
+                            </ComboBox>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- FILTERS COLUMN -->
+                <Border Grid.Column="2" Background="{DynamicResource CardBgBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="12" Margin="6,0,0,0">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Filters" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextAccentBrush}" Margin="0,0,0,4" />
+
+                        <!-- Filter -->
+                        <Grid ColumnDefinitions="85, *">
+                            <TextBlock Grid.Column="0" Text="Filter:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <ComboBox x:Name="FilterComboBox" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="0" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30">
+                                <ComboBoxItem Content="none" Tag="none" />
+                                <ComboBoxItem Content="weak" Tag="weak" />
+                                <ComboBoxItem Content="strong" Tag="strong" />
+                            </ComboBox>
+                        </Grid>
+
+                        <!-- Filter Preset -->
+                        <Grid ColumnDefinitions="85, *">
+                            <TextBlock Grid.Column="0" Text="Filter preset:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <ComboBox x:Name="FilterPresetComboBox" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="0" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30">
+                                <ComboBoxItem Content="none" Tag="none" />
+                                <ComboBoxItem Content="weak" Tag="weak" />
+                                <ComboBoxItem Content="strong" Tag="strong" />
+                            </ComboBox>
+                        </Grid>
+
+                        <TextBlock x:Name="FilterStatusLabel" Text="Deblock filter: active for ProRes software" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- 2. CONFIGURATION ROW: OUTPUT DIRECTORY, GENERAL FLAGS & VIDEO TRACK -->
+            <Border Grid.Row="1" Background="{DynamicResource CardBgBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="12" Margin="0,0,0,10">
+                <StackPanel Spacing="8">
+                    <!-- Overwrite & Dry Run -->
+                    <Grid ColumnDefinitions="*, Auto, Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="20" VerticalAlignment="Center">
+                            <CheckBox x:Name="OverwriteCheckBox" Content="Overwrite existing files" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <CheckBox x:Name="DryRunCheckBox" Content="Dry Run (log commands only)" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        </StackPanel>
+                        <TextBlock x:Name="HwEncodersSummary" Grid.Column="1" Grid.ColumnSpan="2" Text="Probing hardware encoders..." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
                     </Grid>
 
-                    <!-- ListBox of Files -->
-                    <ListBox x:Name="InputFilesListBox" Background="#1e1e1e" BorderBrush="#3f3f46" BorderThickness="1" SelectionMode="Multiple" ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <!-- Output Directory -->
+                    <Grid ColumnDefinitions="80, *, 90">
+                        <TextBlock Grid.Column="0" Text="Output dir:" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBox x:Name="OutputDirTextBox" Grid.Column="1" PlaceholderText="Default: $HOME/ffmpeg_converter" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" VerticalContentAlignment="Center" Margin="0,0,8,0" />
+                        <Button x:Name="BrowseOutputDirButton" Grid.Column="2" Content="Choose..." Click="OnBrowseOutputDirClick" Background="{DynamicResource ButtonSecondaryBgBrush}" Foreground="{DynamicResource ButtonSecondaryFgBrush}" BorderBrush="{DynamicResource ButtonSecondaryBorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="30" />
+                    </Grid>
+
+                    <!-- Replacement Video Track (Mux mode only) -->
+                    <Grid x:Name="VideoTrackRow" ColumnDefinitions="80, *, 100, 70" IsVisible="False">
+                        <TextBlock Grid.Column="0" Text="Video track:" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource TextAccentBrush}" FontWeight="SemiBold" />
+                        <TextBox x:Name="VideoTrackTextBox" Grid.Column="1" PlaceholderText="Select replacement video track file..." Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" VerticalContentAlignment="Center" IsReadOnly="True" Margin="0,0,8,0" />
+                        <Button x:Name="BrowseVideoTrackButton" Grid.Column="2" Content="Add track..." Click="OnBrowseVideoTrackClick" Background="{DynamicResource ButtonSecondaryBgBrush}" Foreground="{DynamicResource TextAccentBrush}" BorderBrush="{DynamicResource ButtonSecondaryBorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="30" Margin="0,0,6,0" />
+                        <Button x:Name="ClearVideoTrackButton" Grid.Column="3" Content="Clear" Click="OnClearVideoTrackClick" Background="{DynamicResource ButtonSecondaryBgBrush}" Foreground="{DynamicResource ButtonSecondaryFgBrush}" BorderBrush="{DynamicResource ButtonSecondaryBorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="30" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- 3. FILE QUEUE & ACTION BUTTONS -->
+            <Border Grid.Row="2" Background="{DynamicResource CardBgBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="12">
+                <DockPanel>
+                    <!-- Queue Action Buttons (Top of queue) -->
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*, *, *, *, *" Margin="0,0,0,8">
+                        <Button x:Name="AddFilesButton" Grid.Column="0" Content="Add Files..." Click="OnAddFilesClick" Background="{DynamicResource CardBgBrush}" Foreground="{DynamicResource TextAccentBrush}" BorderBrush="{DynamicResource TextAccentBrush}" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="32" Margin="0,0,4,0" />
+                        <Button x:Name="AddTrackButton" Grid.Column="1" Content="Add Track..." Click="OnBrowseVideoTrackClick" Background="{DynamicResource CardBgBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource ButtonSecondaryBorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="32" Margin="4,0,4,0" />
+                        <Button x:Name="AppleM4vButton" Grid.Column="2" Content="Apple m4v..." Click="OnAppleM4vClick" Background="{DynamicResource CardBgBrush}" Foreground="#e67e22" BorderBrush="#e67e22" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="32" Margin="4,0,4,0" />
+                        <Button x:Name="RemoveFilesButton" Grid.Column="3" Content="Remove Selected" Click="OnRemoveFilesClick" Background="{DynamicResource CardBgBrush}" Foreground="#e74c3c" BorderBrush="#e74c3c" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="32" Margin="4,0,4,0" />
+                        <Button x:Name="ClearFilesButton" Grid.Column="4" Content="Clear List" Click="OnClearFilesClick" Background="{DynamicResource CardBgBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource ButtonSecondaryBorderBrush}" BorderThickness="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="32" Margin="4,0,0,0" />
+                    </Grid>
+
+                    <!-- ListBox of Queued Files -->
+                    <ListBox x:Name="InputFilesListBox" Background="{DynamicResource ListBgBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" SelectionMode="Multiple" ScrollViewer.HorizontalScrollBarVisibility="Auto">
                         <ListBox.Styles>
                             <Style Selector="ListBoxItem">
-                                <Setter Property="Padding" Value="6,4" />
+                                <Setter Property="Padding" Value="8,4" />
                             </Style>
                         </ListBox.Styles>
                     </ListBox>
                 </DockPanel>
             </Border>
-
-            <!-- RIGHT COLUMN: Conversion Options -->
-            <Border Grid.Column="1" Background="#252526" CornerRadius="5" Padding="15" Margin="10,0,0,0">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="15">
-                        <TextBlock Text="Encoding Options" FontSize="16" FontWeight="SemiBold" Foreground="#3897f0" />
-
-                        <!-- Codec Selection -->
-                        <StackPanel>
-                            <TextBlock Text="Target Video Codec" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
-                            <ComboBox x:Name="CodecComboBox" HorizontalAlignment="Stretch" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46" />
-                        </StackPanel>
-
-                        <!-- Preset Selection -->
-                        <StackPanel>
-                            <TextBlock Text="Preset / Profile" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
-                            <ComboBox x:Name="PresetComboBox" HorizontalAlignment="Stretch" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46" />
-                        </StackPanel>
-
-                        <!-- Audio Normalization Selection -->
-                        <StackPanel>
-                            <TextBlock Text="Audio Normalization" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
-                            <ComboBox x:Name="AudioNormComboBox" HorizontalAlignment="Stretch" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46">
-                                <ComboBoxItem Content="none" Tag="none" IsSelected="True" />
-                                <ComboBoxItem Content="peak_norm" Tag="peak_norm" />
-                                <ComboBoxItem Content="peak_norm_2pass" Tag="peak_norm_2pass" />
-                                <ComboBoxItem Content="loudness_norm_2pass" Tag="loudness_norm_2pass" />
-                            </ComboBox>
-                        </StackPanel>
-
-                        <!-- Audio Mode Selection -->
-                        <StackPanel>
-                            <TextBlock Text="Audio Mode" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,5" />
-                            <ComboBox x:Name="AudioModeComboBox" HorizontalAlignment="Stretch" Background="#1e1e1e" Foreground="#ffffff" BorderBrush="#3f3f46">
-                                <ComboBoxItem Content="copy" Tag="copy" IsSelected="True" />
-                                <ComboBoxItem Content="pcm" Tag="pcm" />
-                                <ComboBoxItem Content="fdk_aac_320" Tag="fdk_aac_320" />
-                                <ComboBoxItem Content="fdk_aac_320_ac3_640" Tag="fdk_aac_320_ac3_640" />
-                            </ComboBox>
-                        </StackPanel>
-
-                        <!-- Hardware / Probed Encoders Info -->
-                        <Border Background="#1e1e1e" CornerRadius="3" Padding="10" BorderBrush="#3f3f46" BorderThickness="1">
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="Hardware Acceleration Support:" FontSize="11" FontWeight="Bold" Foreground="#888888" />
-                                <TextBlock x:Name="HwSupportText" Text="Loading hardware info..." FontSize="10" TextWrapping="Wrap" Foreground="#cccccc" />
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Boolean Options -->
-                        <StackPanel Spacing="8">
-                            <CheckBox x:Name="OverwriteCheckBox" Content="Overwrite existing files" FontSize="12" Foreground="#e0e0e0" />
-                            <CheckBox x:Name="DryRunCheckBox" Content="Dry Run (log commands only)" FontSize="12" Foreground="#e0e0e0" />
-                        </StackPanel>
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
         </Grid>
 
-        <!-- PROGRESS BAR & ACTION BUTTONS -->
-        <Border Grid.Row="2" Background="#2d2d2d" CornerRadius="5" Padding="15" Margin="0,0,0,15">
-            <Grid ColumnDefinitions="*, 350">
-                <!-- Progress display -->
-                <Grid Grid.Column="0" RowDefinitions="Auto, Auto" Margin="0,0,20,0">
-                    <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="0,0,0,5">
-                        <TextBlock x:Name="StatusLabel" Grid.Column="0" Text="Idle. Ready to convert." FontSize="13" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
-                        <TextBlock x:Name="DetailsLabel" Grid.Column="1" Text="" FontSize="11" Foreground="#aaaaaa" VerticalAlignment="Bottom" />
+        <!-- PROGRESS & ACTIONS BAR -->
+        <Border Grid.Row="2" Background="{DynamicResource HeaderBgBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="12" Margin="0,10,0,10">
+            <Grid ColumnDefinitions="*, 280">
+                <!-- Progress details -->
+                <Grid Grid.Column="0" RowDefinitions="Auto, Auto" Margin="0,0,16,0">
+                    <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="0,0,0,4">
+                        <TextBlock x:Name="StatusLabel" Grid.Column="0" Text="Ready." FontSize="13" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock x:Name="DetailsLabel" Grid.Column="1" Text="" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Bottom" />
                     </Grid>
-                    <ProgressBar x:Name="FileProgressBar" Grid.Row="1" Minimum="0" Maximum="100" Value="0" Height="15" HorizontalAlignment="Stretch" Foreground="#3897f0" Background="#1e1e1e" />
+                    <ProgressBar x:Name="FileProgressBar" Grid.Row="1" Minimum="0" Maximum="100" Value="0" Height="16" HorizontalAlignment="Stretch" Foreground="{DynamicResource TextAccentBrush}" Background="{DynamicResource ProgressBgBrush}" />
                 </Grid>
 
                 <!-- Actions -->
                 <Grid Grid.Column="1" ColumnDefinitions="*, *">
-                    <Button x:Name="StartButton" Grid.Column="0" Content="Start Conversion" Click="OnStartConversionClick" Background="#3897f0" Foreground="#ffffff" FontWeight="Bold" Height="40" HorizontalAlignment="Stretch" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,10,0" />
-                    <Button x:Name="CancelButton" Grid.Column="1" Content="Cancel" Click="OnCancelClick" Background="#f04f38" Foreground="#ffffff" FontWeight="Bold" Height="40" HorizontalAlignment="Stretch" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" />
+                    <Button x:Name="StartButton" Grid.Column="0" Content="Start" Click="OnStartConversionClick" Background="{DynamicResource TextAccentBrush}" Foreground="#ffffff" FontWeight="Bold" Height="38" HorizontalAlignment="Stretch" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,6,0" />
+                    <Button x:Name="CancelButton" Grid.Column="1" Content="Stop" Click="OnCancelClick" Background="#e74c3c" Foreground="#ffffff" FontWeight="Bold" Height="38" HorizontalAlignment="Stretch" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsEnabled="False" />
                 </Grid>
             </Grid>
         </Border>
 
-        <!-- LOG CONSOLE -->
-        <Border Grid.Row="3" Background="#1e1e1e" BorderBrush="#3f3f46" BorderThickness="1" CornerRadius="5" Padding="10">
+        <!-- CONSOLE LOG OUTPUT -->
+        <Border Grid.Row="3" Background="{DynamicResource CardBgBrush}" BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1" CornerRadius="5" Padding="10">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="Console Output Logs" FontSize="12" FontWeight="Bold" Foreground="#888888" Margin="0,0,0,5" />
-                <TextBox x:Name="LogTextBox" FontFamily="Consolas,Courier New,Courier,monospace" FontSize="11" Background="Transparent" Foreground="#00ff00" BorderThickness="0" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*, Auto" Margin="0,0,0,6">
+                    <TextBlock Grid.Column="0" Text="Console Output Logs" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="Clear Log" Click="OnClearLogClick" FontSize="10" Background="{DynamicResource ButtonSecondaryBgBrush}" Foreground="{DynamicResource ButtonSecondaryFgBrush}" BorderBrush="{DynamicResource ButtonSecondaryBorderBrush}" BorderThickness="1" Padding="8,2" Height="22" />
+                </Grid>
+                <TextBox x:Name="LogTextBox" FontFamily="Consolas,Menlo,Monaco,Courier New,Courier,monospace" FontSize="11" Background="{DynamicResource ConsoleBgBrush}" Foreground="{DynamicResource ConsoleFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" BorderThickness="1" CornerRadius="3" Padding="6,4" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" ScrollViewer.VerticalScrollBarVisibility="Auto" />
             </DockPanel>
         </Border>
     </Grid>

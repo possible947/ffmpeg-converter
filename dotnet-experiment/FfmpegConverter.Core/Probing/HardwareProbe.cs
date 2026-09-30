@@ -12,8 +12,13 @@ namespace FfmpegConverter.Core.Probing;
 public class HardwareProbeResult
 {
     public HashSet<string> SupportedEncoders { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> SupportedDecoders { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> VulkanDevices { get; } = new();
     public int SelectedVulkanDeviceIndex { get; set; } = -1;
+    public bool HasLibdav1dDec => SupportedDecoders.Contains("libdav1d");
+    public bool HasAacAt => SupportedEncoders.Contains("aac_at");
+    public bool HasLibfdkAac => SupportedEncoders.Contains("libfdk_aac");
+    public bool HasAac => SupportedEncoders.Contains("aac");
 }
 
 public static class HardwareProbe
@@ -57,6 +62,72 @@ public static class HardwareProbe
         }
     }
 
+    public static async Task<bool> ProbeAudioEncoderAsync(string ffmpegPath, string encoderName)
+    {
+        if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath)) return false;
+
+        string args = $"-v error -hide_banner -f lavfi -i anullsrc=r=48000:cl=stereo -t 0.1 -c:a {encoderName} -f null -";
+
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                }
+            };
+
+            process.Start();
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static async Task<bool> ProbeDecoderAsync(string ffmpegPath, string decoderName)
+    {
+        if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath)) return false;
+
+        string args = "-hide_banner -v error -decoders";
+
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                }
+            };
+
+            process.Start();
+            string output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+            return output.Contains($" {decoderName} ", StringComparison.OrdinalIgnoreCase) ||
+                   output.Contains($" {decoderName}\n", StringComparison.OrdinalIgnoreCase) ||
+                   output.Contains($" {decoderName}\r", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static async Task<HardwareProbeResult> ProbeCapabilitiesAsync(string ffmpegPath, PresetDb presetDb)
     {
         var result = new HardwareProbeResult();
@@ -77,11 +148,25 @@ public static class HardwareProbe
             encodersToProbe.Add(codec);
         }
 
+        // Also check common audio encoders
+        string[] audioEncoders = { "aac_at", "libfdk_aac", "aac" };
+        foreach (var aEnc in audioEncoders)
+        {
+            encodersToProbe.Add(aEnc);
+        }
+
         // Run probes in parallel for insane performance compared to C/Pascal sequential probing!
         var tasks = new List<(string Name, Task<bool> Task)>();
         foreach (var encoder in encodersToProbe)
         {
-            tasks.Add((encoder, ProbeEncoderAsync(ffmpegPath, encoder)));
+            if (encoder == "aac_at" || encoder == "libfdk_aac" || encoder == "aac")
+            {
+                tasks.Add((encoder, ProbeAudioEncoderAsync(ffmpegPath, encoder)));
+            }
+            else
+            {
+                tasks.Add((encoder, ProbeEncoderAsync(ffmpegPath, encoder)));
+            }
         }
 
         await Task.WhenAll(tasks.Select(t => t.Task));
@@ -92,6 +177,12 @@ public static class HardwareProbe
             {
                 result.SupportedEncoders.Add(item.Name);
             }
+        }
+
+        // Probe decoders (especially libdav1d)
+        if (await ProbeDecoderAsync(ffmpegPath, "libdav1d"))
+        {
+            result.SupportedDecoders.Add("libdav1d");
         }
 
         // Software Vulkan device filtering via vulkaninfo

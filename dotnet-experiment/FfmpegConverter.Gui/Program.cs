@@ -1,5 +1,6 @@
 ﻿using Avalonia;
 using System;
+using System.Linq;
 
 namespace FfmpegConverter.Gui;
 

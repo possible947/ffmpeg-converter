@@ -63,13 +63,14 @@ public class Converter
     public event EventHandler<FileEndEventArgs>? FileEnd;
     public event EventHandler<string>? StageChanged;
     public event EventHandler<ProgressEncodeEventArgs>? ProgressEncode;
-    // public event EventHandler<ProgressAnalysisEventArgs>? ProgressAnalysis;
+    public event EventHandler<ProgressAnalysisEventArgs>? ProgressAnalysis;
     public event EventHandler<MessageEventArgs>? MessageLogged;
     public event EventHandler<ErrorEventArgs>? ErrorOccurred;
     public event EventHandler? Completed;
 
     private readonly ToolPaths _tools;
     private readonly PresetDb _presetDb;
+    private HardwareProbeResult? _probeResult;
 
     public Converter()
     {
@@ -99,6 +100,32 @@ public class Converter
             return ConverterError.HomeDirNotFound;
         }
 
+        // Lazy probe hardware capabilities once per converter run if not yet probed
+        if (_probeResult == null)
+        {
+            try
+            {
+                _probeResult = await HardwareProbe.ProbeCapabilitiesAsync(_tools.Ffmpeg, _presetDb);
+            }
+            catch
+            {
+                _probeResult = new HardwareProbeResult();
+            }
+        }
+
+        string platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows" :
+                         RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos" : "linux";
+
+        // Resolve selection if group and encoder specified (and not default while Codec was explicitly set)
+        if (!string.IsNullOrEmpty(opts.SelectionGroup) && !string.IsNullOrEmpty(opts.SelectionEncoder) &&
+            (opts.SelectionGroup != "software" || opts.SelectionEncoder != "prores_ks" || opts.Codec == "prores_ks"))
+        {
+            if (_presetDb.ResolveSelection(platform, opts.SelectionGroup, opts.SelectionEncoder, out string resolvedCodec))
+            {
+                opts.Codec = resolvedCodec;
+            }
+        }
+
         int index = 0;
         var fileList = new List<string>(files);
         int total = fileList.Count;
@@ -122,18 +149,7 @@ public class Converter
             }
 
             // Determine output file path
-            string platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows" :
-                             RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos" : "linux";
-
-            var presetInfo = _presetDb.GetPresetInfo(platform, opts.Codec, opts.Preset);
-            string extension = presetInfo?.Container ?? "mkv";
-            
-            // Handle specific pipelines (Apple M4V / Mux)
-            if (opts.Codec.Equals("m4v", StringComparison.OrdinalIgnoreCase)) extension = "m4v";
-            else if (opts.Codec.Equals("mux", StringComparison.OrdinalIgnoreCase)) extension = "mkv";
-
-            string baseName = Path.GetFileNameWithoutExtension(input);
-            string output = Path.Combine(effectiveOutputDir, $"{baseName}_converted.{extension}");
+            string output = CommandBuilder.BuildOutputFilePath(input, opts, platform, _presetDb);
 
             if (File.Exists(output) && !opts.Overwrite)
             {
@@ -142,41 +158,185 @@ public class Converter
                 continue;
             }
 
-            // Step 1. Get Duration and bit depth info for logs/estimation
+            // ====================================================
+            // Apple M4V Pipeline
+            // ====================================================
+            if (opts.Codec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
+            {
+                if (opts.DryRun)
+                {
+                    RaiseMessage($"[DRY RUN] [m4v] {input} -> {output}");
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.Ok));
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(_tools.Mp4Box) || !File.Exists(_tools.Mp4Box))
+                {
+                    RaiseError("Apple M4V mode is not supported on this platform (MP4Box not found).", ConverterError.InvalidOptions);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
+                    continue;
+                }
+
+                var m4vPipe = new AppleM4vPipeline();
+                m4vPipe.StageChanged += (s, ev) => StageChanged?.Invoke(this, ev);
+                m4vPipe.MessageLogged += (s, ev) => RaiseMessage(ev);
+                m4vPipe.ErrorOccurred += (s, ev) => RaiseError(ev.Text, ev.Code);
+
+                var m4vErr = await m4vPipe.CreateM4vAsync(input, output, opts, _tools, _probeResult, cancellationToken);
+                FileEnd?.Invoke(this, new FileEndEventArgs(input, m4vErr));
+                continue;
+            }
+
+            // ====================================================
+            // Mux Mode (Replacement Video Track via mkvmerge)
+            // ====================================================
+            if (opts.Codec.Equals("mux", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrEmpty(_tools.Mkvmerge) || !File.Exists(_tools.Mkvmerge))
+                {
+                    RaiseError("Mux mode is not supported on this platform (mkvmerge not found).", ConverterError.InvalidOptions);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(opts.VideoTrackPath) || !File.Exists(opts.VideoTrackPath))
+                {
+                    RaiseError("Mux mode requires a readable --video-track file.", ConverterError.InputNotFound);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InputNotFound));
+                    continue;
+                }
+
+                if (opts.DryRun)
+                {
+                    RaiseMessage($"[DRY RUN] [mux] {input} + {opts.VideoTrackPath} -> {output}");
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.Ok));
+                    continue;
+                }
+
+                // Intermediate conversion with video codec = copy
+                var intermediateOpts = new ConvertOptions
+                {
+                    Codec = "copy",
+                    Preset = "default",
+                    Deblock = 1,
+                    AudioNorm = opts.AudioNorm,
+                    AudioOutputMode = opts.AudioOutputMode,
+                    Genre = opts.Genre,
+                    Gain = opts.Gain,
+                    ITarget = opts.ITarget,
+                    TpTarget = opts.TpTarget,
+                    LraTarget = opts.LraTarget,
+                    OutputDir = effectiveOutputDir,
+                    Overwrite = true
+                };
+
+                string intermediateFile = Path.Combine(effectiveOutputDir, $"{Path.GetFileNameWithoutExtension(input)}_intermediate_{Guid.NewGuid():N}.mkv");
+
+                // Step 1. Two-Pass Audio Analysis if needed for intermediate
+                string aNorm = intermediateOpts.AudioNorm.ToLowerInvariant();
+                double inDuration = await GetDurationAsync(input);
+                if (aNorm == "peak2" || aNorm == "peak_norm_2pass")
+                {
+                    StageChanged?.Invoke(this, "peak_analysis");
+                    double? gain = await RunPeakAnalysisAsync(input, inDuration, cancellationToken);
+                    if (gain != null) intermediateOpts.Gain = gain.Value;
+                }
+                else if (aNorm == "loudnorm2" || aNorm == "loudness_norm_2pass")
+                {
+                    StageChanged?.Invoke(this, "loudness_analysis_pass1");
+                    intermediateOpts.ApplyGenreTargets();
+                    var aRes = await RunLoudnormAnalysisAsync(input, intermediateOpts.ITarget, intermediateOpts.TpTarget, intermediateOpts.LraTarget, inDuration, cancellationToken);
+                    if (aRes != null)
+                    {
+                        intermediateOpts.MeasuredI = aRes.InputI;
+                        intermediateOpts.MeasuredTp = aRes.InputTp;
+                        intermediateOpts.MeasuredLra = aRes.InputLra;
+                        intermediateOpts.MeasuredThresh = aRes.InputThresh;
+                        intermediateOpts.MeasuredOffset = aRes.TargetOffset;
+                    }
+                }
+
+                // Encode intermediate file
+                StageChanged?.Invoke(this, "encoding intermediate");
+                string intermediateArgs = CommandBuilder.BuildFfmpegArgs(input, intermediateFile, intermediateOpts, platform, _presetDb, null, _probeResult);
+                var interErr = await RunFfmpegEncodeAsync(intermediateArgs, inDuration, cancellationToken);
+                if (interErr != ConverterError.Ok)
+                {
+                    try { if (File.Exists(intermediateFile)) File.Delete(intermediateFile); } catch { }
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, interErr));
+                    continue;
+                }
+
+                // Step 2. Mux post-process
+                var muxPipe = new MuxPipeline();
+                muxPipe.StageChanged += (s, ev) => StageChanged?.Invoke(this, ev);
+                muxPipe.MessageLogged += (s, ev) => RaiseMessage(ev);
+                muxPipe.ErrorOccurred += (s, ev) => RaiseError(ev.Text, ev.Code);
+
+                var muxErr = await muxPipe.RunMuxPostprocessAsync(intermediateFile, opts.VideoTrackPath, output, opts, _tools, _probeResult, cancellationToken);
+
+                try { if (File.Exists(intermediateFile)) File.Delete(intermediateFile); } catch { }
+
+                FileEnd?.Invoke(this, new FileEndEventArgs(input, muxErr));
+                continue;
+            }
+
+            // ====================================================
+            // Standard Conversion Pipeline (copy, prores, hwaccel)
+            // ====================================================
+            // Step 1. Probe input video properties
+            var videoInfo = await InputVideoInfo.ProbeAsync(_tools.Ffprobe, input, cancellationToken);
             double duration = await GetDurationAsync(input);
             RaiseMessage($"Input duration: {duration:F2} seconds");
 
-            // Step 2. Two-Pass loudness normalization analysis if requested
-            if (opts.AudioNorm.Equals("loudness_norm_2pass", StringComparison.OrdinalIgnoreCase))
+            // Step 2. Two-Pass Audio Analysis (Peak norm or Loudness norm)
+            string audioNorm = opts.AudioNorm.ToLowerInvariant();
+            if (audioNorm == "peak2" || audioNorm == "peak_norm_2pass")
+            {
+                StageChanged?.Invoke(this, "peak_analysis");
+                double? gain = await RunPeakAnalysisAsync(input, duration, cancellationToken);
+                if (gain == null)
+                {
+                    RaiseError("Peak normalization analysis failed.", ConverterError.PeakAnalysisFailed);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.PeakAnalysisFailed));
+                    continue;
+                }
+
+                opts.Gain = gain.Value;
+                RaiseMessage($"Peak analysis complete. Target gain: {opts.Gain:F2} dB");
+            }
+            else if (audioNorm == "loudnorm2" || audioNorm == "loudness_norm_2pass")
             {
                 StageChanged?.Invoke(this, "loudness_analysis_pass1");
-                var analysisResult = await RunLoudnormAnalysisAsync(input, opts.ITarget, opts.TpTarget, opts.LraTarget, cancellationToken);
+                opts.ApplyGenreTargets();
+
+                var analysisResult = await RunLoudnormAnalysisAsync(input, opts.ITarget, opts.TpTarget, opts.LraTarget, duration, cancellationToken);
                 if (analysisResult == null)
                 {
                     RaiseError("Loudness normalization analysis failed.", ConverterError.LoudnormAnalysisFailed);
                     FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.LoudnormAnalysisFailed));
                     continue;
                 }
-                
+
                 opts.MeasuredI = analysisResult.InputI;
                 opts.MeasuredTp = analysisResult.InputTp;
                 opts.MeasuredLra = analysisResult.InputLra;
                 opts.MeasuredThresh = analysisResult.InputThresh;
                 opts.MeasuredOffset = analysisResult.TargetOffset;
-                RaiseMessage($"Analysis: I={opts.MeasuredI}, TP={opts.MeasuredTp}, LRA={opts.MeasuredLra}");
+                RaiseMessage($"Analysis: I={opts.MeasuredI:F2}, TP={opts.MeasuredTp:F2}, LRA={opts.MeasuredLra:F2}, Thresh={opts.MeasuredThresh:F2}, Offset={opts.MeasuredOffset:F2}");
             }
 
             // Step 3. Build command line
+            string cmdArgs = CommandBuilder.BuildFfmpegArgs(input, output, opts, platform, _presetDb, videoInfo, _probeResult);
+
             if (opts.DryRun)
             {
-                string dryCmd = BuildFfmpegCommand(input, output, opts, presetInfo);
+                string dryCmd = $"\"{_tools.Ffmpeg}\" {cmdArgs}";
                 RaiseMessage($"[DRY RUN] Command: {dryCmd}");
                 FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.Ok));
                 continue;
             }
 
-            string cmdArgs = BuildFfmpegCommandArgs(input, output, opts, presetInfo);
-            
             // Step 4. Encoding
             StageChanged?.Invoke(this, "encoding");
             var encodeError = await RunFfmpegEncodeAsync(cmdArgs, duration, cancellationToken);
@@ -188,100 +348,82 @@ public class Converter
         return ConverterError.Ok;
     }
 
-    private string BuildFfmpegCommand(string input, string output, ConvertOptions opts, PresetInfo? presetInfo)
+    public async Task<double?> RunPeakAnalysisAsync(string inputPath, double duration, CancellationToken cancellationToken = default)
     {
-        return $"\"{_tools.Ffmpeg}\" {BuildFfmpegCommandArgs(input, output, opts, presetInfo)}";
-    }
-
-    private string BuildFfmpegCommandArgs(string input, string output, ConvertOptions opts, PresetInfo? presetInfo)
-    {
-        var sb = new StringBuilder();
-        sb.Append("-hide_banner ");
-
-        if (opts.Overwrite) sb.Append("-y ");
-        else sb.Append("-n ");
-
-        // Hardware device setups
-        if (!string.IsNullOrEmpty(opts.HwDevice))
+        string args = $"-hwaccel none -vn -i \"{inputPath}\" -af volumedetect -f null -";
+        try
         {
-            if (opts.Codec.Contains("vaapi", StringComparison.OrdinalIgnoreCase))
+            using var process = new Process
             {
-                sb.Append($"-vaapi_device \"{opts.HwDevice}\" ");
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = _tools.Ffmpeg,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                }
+            };
+
+            double maxVolume = 0.0;
+            bool foundMaxVolume = false;
+            var startTimestamp = DateTime.UtcNow;
+
+            process.Start();
+
+            using var reader = process.StandardError;
+            while (await reader.ReadLineAsync(cancellationToken) is { } line)
+            {
+                if (line.Contains("max_volume:"))
+                {
+                    int idx = line.IndexOf("max_volume:");
+                    string valStr = line[(idx + "max_volume:".Length)..].Trim();
+                    int spaceIdx = valStr.IndexOf(' ');
+                    if (spaceIdx > 0) valStr = valStr[..spaceIdx];
+
+                    if (double.TryParse(valStr, System.Globalization.CultureInfo.InvariantCulture, out double parsedVal))
+                    {
+                        maxVolume = parsedVal;
+                        foundMaxVolume = true;
+                    }
+                }
+
+                if (duration > 0 && line.Contains("time="))
+                {
+                    int tIdx = line.IndexOf("time=");
+                    string timeStr = line[(tIdx + 5)..].Trim();
+                    int spaceIdx = timeStr.IndexOf(' ');
+                    if (spaceIdx > 0) timeStr = timeStr[..spaceIdx];
+
+                    if (TimeSpan.TryParse(timeStr, out var ts))
+                    {
+                        double cur = ts.TotalSeconds;
+                        double percent = (cur / duration) * 100.0;
+                        if (percent > 100) percent = 100;
+
+                        double elapsed = (DateTime.UtcNow - startTimestamp).TotalSeconds;
+                        double eta = percent > 0 ? elapsed * (100.0 - percent) / percent : 0;
+                        ProgressAnalysis?.Invoke(this, new ProgressAnalysisEventArgs((float)percent, (float)eta));
+                    }
+                }
+            }
+
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode == 0 && foundMaxVolume)
+            {
+                // Target is -3.0 dB
+                double target = -3.0;
+                return target - maxVolume;
             }
         }
-
-        // Input file
-        sb.Append($"-i \"{input}\" ");
-
-        // Video codec & preset arguments from DB or options
-        if (presetInfo != null && !string.IsNullOrEmpty(presetInfo.FfmpegArgs))
+        catch (Exception ex)
         {
-            sb.Append($"{presetInfo.FfmpegArgs} ");
-        }
-        else if (opts.Codec.Equals("copy", StringComparison.OrdinalIgnoreCase))
-        {
-            sb.Append("-c:v copy ");
-        }
-        else
-        {
-            sb.Append($"-c:v {opts.Codec} ");
-            if (!string.IsNullOrEmpty(opts.Preset) && !opts.Preset.Equals("default", StringComparison.OrdinalIgnoreCase))
-            {
-                sb.Append($"-preset {opts.Preset} ");
-            }
+            RaiseError($"Peak analysis failed: {ex.Message}", ConverterError.PeakAnalysisFailed);
         }
 
-        // Deblock filter
-        if (opts.Deblock == 2) sb.Append("-vf deblock=filter=weak ");
-        else if (opts.Deblock == 3) sb.Append("-vf deblock=filter=strong ");
-
-        // Audio normalization & encoding
-        BuildAudioArgs(sb, opts);
-
-        // Progress & output
-        sb.Append("-progress - -nostats ");
-        sb.Append($"\"{output}\"");
-
-        return sb.ToString();
-    }
-
-    private void BuildAudioArgs(StringBuilder sb, ConvertOptions opts)
-    {
-        // Output mode
-        if (opts.AudioOutputMode.Equals("pcm", StringComparison.OrdinalIgnoreCase))
-        {
-            sb.Append("-c:a pcm_s16le ");
-        }
-        else if (opts.AudioOutputMode.Equals("fdk_aac_320", StringComparison.OrdinalIgnoreCase))
-        {
-            sb.Append("-c:a libfdk_aac -b:a 320k ");
-        }
-        else if (opts.AudioOutputMode.Equals("fdk_aac_320_ac3_640", StringComparison.OrdinalIgnoreCase))
-        {
-            sb.Append("-map 0:v -map 0:a -map 0:a -c:a:0 libfdk_aac -b:a:0 320k -c:a:1 ac3 -b:a:1 640k ");
-        }
-        else
-        {
-            sb.Append("-c:a copy ");
-        }
-
-        // Audio Filter
-        if (opts.AudioNorm.Equals("peak_norm", StringComparison.OrdinalIgnoreCase))
-        {
-            sb.Append("-af volume=0dB "); // simple peak normalisation placeholder
-        }
-        else if (opts.AudioNorm.Equals("peak_norm_2pass", StringComparison.OrdinalIgnoreCase) && opts.Gain != 0)
-        {
-            sb.Append($"-af volume={opts.Gain:F2}dB ");
-        }
-        else if (opts.AudioNorm.Equals("loudness_norm", StringComparison.OrdinalIgnoreCase))
-        {
-            sb.Append($"-af loudnorm=I={opts.ITarget:F1}:TP={opts.TpTarget:F1}:LRA={opts.LraTarget:F1} ");
-        }
-        else if (opts.AudioNorm.Equals("loudness_norm_2pass", StringComparison.OrdinalIgnoreCase))
-        {
-            sb.Append($"-af loudnorm=I={opts.ITarget:F1}:TP={opts.TpTarget:F1}:LRA={opts.LraTarget:F1}:measured_I={opts.MeasuredI:F1}:measured_TP={opts.MeasuredTp:F1}:measured_LRA={opts.MeasuredLra:F1}:measured_thresh={opts.MeasuredThresh:F1}:linear=true:offset={opts.MeasuredOffset:F1} ");
-        }
+        return null;
     }
 
     public async Task<double> GetDurationAsync(string inputPath)
@@ -328,7 +470,7 @@ public class Converter
         public double TargetOffset { get; set; }
     }
 
-    public async Task<LoudnormResult?> RunLoudnormAnalysisAsync(string inputPath, double iTarget, double tpTarget, double lraTarget, CancellationToken cancellationToken = default)
+    public async Task<LoudnormResult?> RunLoudnormAnalysisAsync(string inputPath, double iTarget, double tpTarget, double lraTarget, double duration = 0.0, CancellationToken cancellationToken = default)
     {
         string args = $"-i \"{inputPath}\" -af loudnorm=I={iTarget:F1}:TP={tpTarget:F1}:LRA={lraTarget:F1}:print_format=json -f null -";
         try
@@ -347,15 +489,39 @@ public class Converter
             };
 
             var stdErrBuffer = new StringBuilder();
-            process.ErrorDataReceived += (s, e) => { if (e.Data != null) stdErrBuffer.AppendLine(e.Data); };
+            var startTimestamp = DateTime.UtcNow;
 
             process.Start();
-            process.BeginErrorReadLine();
-            
+
+            using var reader = process.StandardError;
+            while (await reader.ReadLineAsync(cancellationToken) is { } line)
+            {
+                stdErrBuffer.AppendLine(line);
+
+                if (duration > 0 && line.Contains("time="))
+                {
+                    int tIdx = line.IndexOf("time=");
+                    string timeStr = line[(tIdx + 5)..].Trim();
+                    int spaceIdx = timeStr.IndexOf(' ');
+                    if (spaceIdx > 0) timeStr = timeStr[..spaceIdx];
+
+                    if (TimeSpan.TryParse(timeStr, out var ts))
+                    {
+                        double cur = ts.TotalSeconds;
+                        double percent = (cur / duration) * 100.0;
+                        if (percent > 100) percent = 100;
+
+                        double elapsed = (DateTime.UtcNow - startTimestamp).TotalSeconds;
+                        double eta = percent > 0 ? elapsed * (100.0 - percent) / percent : 0;
+                        ProgressAnalysis?.Invoke(this, new ProgressAnalysisEventArgs((float)percent, (float)eta));
+                    }
+                }
+            }
+
             await process.WaitForExitAsync(cancellationToken);
 
             string errors = stdErrBuffer.ToString();
-            
+
             // Find JSON block in stderr output
             int jsonStart = errors.IndexOf('{');
             int jsonEnd = errors.LastIndexOf('}');

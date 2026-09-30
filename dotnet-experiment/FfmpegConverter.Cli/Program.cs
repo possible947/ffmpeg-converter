@@ -17,88 +17,167 @@ class Program
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-        if (args.Length == 0)
+        string platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows" :
+                         RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos" : "linux";
+
+        var presetDb = PresetDb.Load();
+        var tools = ToolDiscovery.ResolveAll();
+
+        // 1. Check quick-exit options without heavy probing
+        if (args.Length == 1)
         {
-            ShowHelp();
-            return 0;
+            string first = args[0];
+            if (first is "-h" or "--help" or "/?" or "-?")
+            {
+                ShowUsage(tools, platform);
+                return 0;
+            }
+            if (first is "-v" or "--version")
+            {
+                ShowVersion();
+                return 0;
+            }
+            if (first == "--codecs-list")
+            {
+                await ShowCodecsListAsync(presetDb, tools, platform);
+                return 0;
+            }
         }
 
-        var opts = new ConvertOptions();
-        var files = new List<string>();
-
-        // Custom, simple, high-signal command-line parser
-        for (int i = 0; i < args.Length; i++)
+        // 2. Hardware components detection
+        Console.WriteLine("Hardware components detection in progress...");
+        HardwareProbeResult? probe = null;
+        if (!string.IsNullOrEmpty(tools.Ffmpeg))
         {
-            string arg = args[i];
+            probe = await HardwareProbe.ProbeCapabilitiesAsync(tools.Ffmpeg, presetDb);
+        }
+        Console.WriteLine("Hardware components detection completed.");
 
-            if (arg == "-h" || arg == "--help" || arg == "/?")
+        ConvertOptions opts;
+        List<string> files;
+
+        // 3. Interactive Menu vs Command-Line Arguments
+        if (args.Length == 0)
+        {
+            var menuResult = await InteractiveMenu.RunMenuAsync(presetDb, platform, tools, probe);
+            if (menuResult == null)
             {
-                ShowHelp();
-                return 0;
-            }
-            else if (arg == "--codecs-list")
-            {
-                await ShowCodecsListAsync();
-                return 0;
-            }
-            else if (arg == "-c" || arg == "--codec")
-            {
-                if (i + 1 < args.Length) opts.Codec = args[++i];
-            }
-            else if (arg == "-p" || arg == "--preset" || arg == "--profile") // profile is legacy alias
-            {
-                if (i + 1 < args.Length) opts.Preset = args[++i];
-            }
-            else if (arg == "-o" || arg == "--output")
-            {
-                if (i + 1 < args.Length) opts.OutputDir = args[++i];
-            }
-            else if (arg == "--audio-norm")
-            {
-                if (i + 1 < args.Length) opts.AudioNorm = args[++i];
-            }
-            else if (arg == "--audio-mode")
-            {
-                if (i + 1 < args.Length) opts.AudioOutputMode = args[++i];
-            }
-            else if (arg == "--overwrite")
-            {
-                opts.Overwrite = true;
-            }
-            else if (arg == "--dry-run")
-            {
-                opts.DryRun = true;
-            }
-            else if (arg.StartsWith("-"))
-            {
-                Console.Error.WriteLine($"Unknown option: {arg}");
+                Console.WriteLine("Menu cancelled by user.");
                 return 1;
             }
-            else
+            if (menuResult.Files.Count == 0)
             {
-                files.Add(arg);
+                Console.WriteLine("No files selected.");
+                return 1;
             }
+            opts = menuResult.Options;
+            files = menuResult.Files;
+        }
+        else
+        {
+            var parseResult = CommandLineParser.Parse(args, presetDb, platform, tools);
+            if (!parseResult.Success)
+            {
+                Console.Error.WriteLine(parseResult.ErrorMessage);
+                Console.WriteLine("Invalid options. Use -h for help.");
+                return 1;
+            }
+
+            if (parseResult.ShowHelp)
+            {
+                ShowUsage(tools, platform);
+                return 0;
+            }
+            if (parseResult.ShowVersion)
+            {
+                ShowVersion();
+                return 0;
+            }
+            if (parseResult.ShowCodecsList)
+            {
+                await ShowCodecsListAsync(presetDb, tools, platform);
+                return 0;
+            }
+
+            opts = parseResult.Options;
+            files = parseResult.Files;
         }
 
         if (files.Count == 0)
         {
-            Console.Error.WriteLine("Error: No input files specified.");
+            ShowUsage(tools, platform);
             return 1;
         }
 
-        var tools = ToolDiscovery.ResolveAll();
+        // Apply hardware defaults if not specified
+        ApplyHardwareDefaults(opts, probe, platform);
+
+        // Print Summary (matching C implementation)
+        CliSummary.PrintSummary(opts, files, presetDb, platform);
+
+        // Verify readable files
+        var validFiles = new List<string>();
+        foreach (var file in files)
+        {
+            if (File.Exists(file))
+            {
+                validFiles.Add(file);
+            }
+            else
+            {
+                Console.Error.WriteLine($"File not found or unreadable: {file}");
+            }
+        }
+
+        if (validFiles.Count == 0)
+        {
+            Console.Error.WriteLine("Error: None of the specified files could be found.");
+            return 1;
+        }
+        if (validFiles.Count < files.Count)
+        {
+            Console.WriteLine($"Will process {validFiles.Count} valid file(s)");
+        }
+
+        // Validate pipeline-specific constraints
+        if (opts.Codec.Equals("mux", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrEmpty(tools.Mkvmerge))
+            {
+                Console.Error.WriteLine("Mux mode is not supported on this platform (mkvmerge not found).");
+                return 1;
+            }
+            if (validFiles.Count != 1)
+            {
+                Console.Error.WriteLine("Mux mode requires exactly one source file.");
+                return 1;
+            }
+            if (string.IsNullOrEmpty(opts.VideoTrackPath) || !File.Exists(opts.VideoTrackPath))
+            {
+                Console.Error.WriteLine("Mux mode requires a readable --video-track file.");
+                return 1;
+            }
+        }
+
+        if (opts.Codec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrEmpty(tools.Mp4Box))
+            {
+                Console.Error.WriteLine("Apple M4V mode is not supported on this platform (MP4Box not found).");
+                return 1;
+            }
+        }
+
         if (string.IsNullOrEmpty(tools.Ffmpeg))
         {
             Console.Error.WriteLine("Error: ffmpeg could not be resolved! Place it in the path or set FFMPEG_BIN.");
             return 1;
         }
 
-        Console.WriteLine($"[C# Converter] Starting conversion session using ffmpeg at: {tools.Ffmpeg}");
-
+        // 4. Execution
         var converter = new Core.Engine.Converter();
         var cts = new CancellationTokenSource();
 
-        // Handle Ctrl+C gracefully
         Console.CancelKeyPress += (s, e) =>
         {
             Console.WriteLine("\n[C# Converter] Cancellation requested. Shutting down...");
@@ -106,7 +185,6 @@ class Program
             cts.Cancel();
         };
 
-        // Hook up progress events for live feedback
         converter.FileBegin += (s, e) =>
         {
             Console.WriteLine($"\nFile [{e.Index}/{e.Total}]: {Path.GetFileName(e.FileName)}");
@@ -144,7 +222,13 @@ class Program
             Console.Write($"\r  Progress: [{bar}] {e.Percent:F1}% | fps={e.Fps:F0} | {etaStr}");
         };
 
-        var result = await converter.ProcessFilesAsync(files, opts, cts.Token);
+        converter.ProgressAnalysis += (s, e) =>
+        {
+            string etaStr = e.EtaSeconds > 0 ? $"ETA: {TimeSpan.FromSeconds(e.EtaSeconds):hh\\:mm\\:ss}" : "ETA: --:--:--";
+            Console.Write($"\r  Analysis: {e.Percent:F1}% | {etaStr}");
+        };
+
+        var result = await converter.ProcessFilesAsync(validFiles, opts, cts.Token);
 
         if (result == ConverterError.Ok)
         {
@@ -158,79 +242,155 @@ class Program
         }
     }
 
-    static void ShowHelp()
+    static void ApplyHardwareDefaults(ConvertOptions opts, HardwareProbeResult? probe, string platform)
     {
-        Console.WriteLine("=========================================================================");
-        Console.WriteLine(" FFMpeg Converter Port (.NET Experiment CLI)");
-        Console.WriteLine("=========================================================================");
-        Console.WriteLine("Usage: dotnet run --project FfmpegConverter.Cli.csproj [options] [files...]");
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  -h, --help           Show this help information");
-        Console.WriteLine("  --codecs-list        List detected and available hardware encoders & presets");
-        Console.WriteLine("  -c, --codec <codec>  Target video codec/encoder (e.g., copy, prores, h264_vaapi)");
-        Console.WriteLine("  -p, --preset <pres>  Target encoder preset (e.g., lt, standard, fast, quality)");
-        Console.WriteLine("  -o, --output <dir>   Custom output directory");
-        Console.WriteLine("  --audio-norm <mode>  Audio normalisation: none, peak_norm, peak_norm_2pass, loudness_norm_2pass");
-        Console.WriteLine("  --audio-mode <mode>  Audio output: pcm, fdk_aac_320, fdk_aac_320_ac3_640");
-        Console.WriteLine("  --overwrite          Overwrite existing destination files");
-        Console.WriteLine("  --dry-run            Construct command lines and print without running ffmpeg");
-    }
-
-    static async Task ShowCodecsListAsync()
-    {
-        var tools = ToolDiscovery.ResolveAll();
-        var presetDb = PresetDb.Load();
-        
-        string platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows" :
-                         RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos" : "linux";
-
-        Console.WriteLine($"Platform detected: {platform}");
-        Console.WriteLine($"Presets database path: {presetDb.LoadedPath} (v{presetDb.Version})");
-        Console.WriteLine();
-        Console.WriteLine("Dynamic Codecs Catalog:");
-        Console.WriteLine("-----------------------------------------------------------------");
-        
-        foreach (var codec in presetDb.GetCodecs(platform))
+        if (opts.VulkanDevice < 0)
         {
-            Console.WriteLine($"Codec: {codec}");
-            Console.Write("  Presets: ");
-            Console.WriteLine(string.Join(", ", presetDb.GetPresets(platform, codec)));
-        }
-
-        if (!string.IsNullOrEmpty(tools.Ffmpeg))
-        {
-            Console.WriteLine();
-            Console.WriteLine("Running hardware capabilities probe...");
-            var probe = await HardwareProbe.ProbeCapabilitiesAsync(tools.Ffmpeg, presetDb);
-            
-            Console.WriteLine("\nProbed Hardware Encoders Support Status:");
-            Console.WriteLine("-----------------------------------------------------------------");
-            foreach (var codec in presetDb.GetCodecs(platform))
+            if (probe != null && probe.SelectedVulkanDeviceIndex >= 0)
             {
-                if (codec == "copy" || codec == "mux" || codec == "m4v") continue;
-                bool isSupported = probe.SupportedEncoders.Contains(codec);
-                string status = isSupported ? "AVAILABLE" : "NOT_SUPPORTED";
-                Console.WriteLine($"  {codec,-25} : {status}");
-            }
-
-            Console.WriteLine("\nDetected Vulkan GPUs / Adapters (Excluding Soft-Vulkan):");
-            Console.WriteLine("-----------------------------------------------------------------");
-            if (probe.VulkanDevices.Count > 0)
-            {
-                foreach (var d in probe.VulkanDevices)
-                {
-                    Console.WriteLine($"  * {d}");
-                }
+                opts.VulkanDevice = probe.SelectedVulkanDeviceIndex;
             }
             else
             {
-                Console.WriteLine("  No Vulkan GPUs found.");
+                opts.VulkanDevice = 0;
             }
         }
-        else
+
+        if (platform == "linux" && string.IsNullOrEmpty(opts.HwDevice) &&
+            opts.Codec.Contains("_vaapi", StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine("\n[Warning] ffmpeg not found. Hardware probing skipped.");
+            // Auto-detect VAAPI render node
+            string[] candidateNodes = { "/dev/dri/renderD128", "/dev/dri/renderD129" };
+            foreach (var node in candidateNodes)
+            {
+                if (File.Exists(node))
+                {
+                    opts.HwDevice = node;
+                    break;
+                }
+            }
+        }
+    }
+
+    static void ShowVersion()
+    {
+        Console.WriteLine($"ffmpeg_converter {CommandLineParser.VersionString}");
+    }
+
+    static void ShowUsage(ToolPaths tools, string platform)
+    {
+        bool hasMkvmerge = !string.IsNullOrEmpty(tools.Mkvmerge);
+        bool hasMp4box = !string.IsNullOrEmpty(tools.Mp4Box);
+
+        Console.WriteLine("Usage: ffmpeg_converter [options] file1 file2 ...\n");
+        Console.WriteLine("Options:");
+        Console.WriteLine("  -h, --help                Show this help message");
+        Console.WriteLine("      --codecs-list         List all available codecs and presets");
+        Console.WriteLine("  -v, --version             Show version information\n");
+
+        Console.WriteLine("  -c, --codec <group>       Codec group (software, mux, or hardware group)");
+        Console.WriteLine("      --encoder <name>      Encoder inside the selected group");
+        Console.WriteLine("  -p, --preset <name>       Preset for the selected encoder");
+        Console.WriteLine("  Available groups are filtered from presets.json after hardware detection.");
+        Console.WriteLine("  -d, --deblock <none|weak|strong>");
+        Console.WriteLine("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>");
+        Console.WriteLine("      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>");
+        if (hasMkvmerge)
+        {
+            Console.WriteLine("      --video-track <file>  replacement video track for mux mode");
+        }
+        Console.WriteLine("  -g, --genre <edm|rock|hiphop|classical|podcast>");
+        Console.WriteLine("      (genre is used only with loudnorm2)");
+        Console.WriteLine("  --overwrite        overwrite output files");
+        Console.WriteLine("  --dry-run          print the conversion plan without running ffmpeg");
+        Console.WriteLine("      --vk_device <N>    Vulkan adapter index (default: auto)");
+        if (platform == "linux")
+        {
+            Console.WriteLine("      --hw_device <path> VAAPI render node for h264_vaapi/hevc_vaapi (default: auto-detected)");
+        }
+        Console.WriteLine("  -o, --output <directory> set output directory\n");
+
+        if (hasMkvmerge)
+        {
+            Console.WriteLine("Mux mode:");
+            Console.WriteLine("  - requires exactly one source file");
+            Console.WriteLine("  - requires --video-track <file>");
+            Console.WriteLine("  - runs normal audio processing, then writes final .mkv\n");
+        }
+
+        if (hasMp4box)
+        {
+            Console.WriteLine("Apple M4V options (only used with -c mux --encoder m4v or -c m4v):");
+            Console.WriteLine("      --m4v-video-track <N>   video stream index (default: 0)");
+            Console.WriteLine("      --m4v-audio-track <N>   audio stream index (default: 0)");
+            Console.WriteLine("      --m4v-ac3-bitrate <kbps> AC3 bitrate in kbps (default: 640)");
+            Console.WriteLine("      --m4v-lang <tag>        audio language tag (default: rus)");
+            Console.WriteLine("      --m4v-chapters          embed chapter markers (default: on)");
+            Console.WriteLine("      --no-m4v-chapters       disable chapter markers\n");
+            Console.WriteLine("Apple M4V mode:");
+            Console.WriteLine("  - requires MP4Box (GPAC) on PATH");
+            Console.WriteLine("  - uses libfdk_aac CBR 320k for AAC encoding (fixed)");
+            Console.WriteLine("  - accepts input with h264, hevc, or prores video");
+            Console.WriteLine("  - produces dual-audio .m4v (AAC + AC3) compatible with Apple TV\n");
+        }
+
+        Console.WriteLine("Examples:");
+        Console.WriteLine("  ffmpeg_converter input.mov");
+        Console.WriteLine("  ffmpeg_converter -c software --encoder prores_ks --preset hq input.mov");
+        Console.WriteLine("  ffmpeg_converter -a loudnorm2 -g rock input1.mov input2.mov");
+        if (hasMp4box)
+        {
+            Console.WriteLine("  ffmpeg_converter -c mux --encoder m4v --m4v-lang eng input.mov");
+        }
+        Console.WriteLine();
+    }
+
+    static async Task ShowCodecsListAsync(PresetDb presetDb, ToolPaths tools, string platform)
+    {
+        Console.WriteLine($"\nAvailable codec groups and encoders for {platform}:");
+        Console.WriteLine("==============================================");
+
+        HardwareProbeResult? probe = null;
+        if (!string.IsNullOrEmpty(tools.Ffmpeg))
+        {
+            probe = await HardwareProbe.ProbeCapabilitiesAsync(tools.Ffmpeg, presetDb);
+        }
+
+        // Print common groups
+        foreach (var (groupName, group) in presetDb.Selection.Common)
+        {
+            if (!group.Enabled) continue;
+            Console.WriteLine($"{groupName}:");
+            foreach (var (encName, enc) in group.Encoders)
+            {
+                if (!enc.Enabled) continue;
+                string? final = enc.FinalCodec ?? enc.ExecutionCodec;
+                bool isAvail = probe == null || final == "copy" || final == "mux" || final == "m4v" || probe.SupportedEncoders.Contains(final ?? "");
+                if (isAvail)
+                {
+                    Console.WriteLine($"  {encName} ({final})");
+                }
+            }
+        }
+
+        // Print platform groups
+        if (presetDb.Selection.Platforms.TryGetValue(platform, out var platSel) && platSel.HwaccelEnabled)
+        {
+            foreach (var (groupName, group) in platSel.Groups)
+            {
+                if (!group.Enabled) continue;
+                Console.WriteLine($"{groupName}:");
+                foreach (var (encName, enc) in group.Encoders)
+                {
+                    if (!enc.Enabled) continue;
+                    string? final = enc.FinalCodec ?? enc.ExecutionCodec;
+                    bool isAvail = probe == null || probe.SupportedEncoders.Contains(final ?? "");
+                    if (isAvail)
+                    {
+                        Console.WriteLine($"  {encName} ({final})");
+                    }
+                }
+            }
         }
     }
 }

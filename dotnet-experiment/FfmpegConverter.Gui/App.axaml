@@ -7,4 +7,49 @@
     <Application.Styles>
         <FluentTheme />
     </Application.Styles>
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="WindowBgBrush" Color="#f5f5f7" />
+                    <SolidColorBrush x:Key="HeaderBgBrush" Color="#e8e8ed" />
+                    <SolidColorBrush x:Key="CardBgBrush" Color="#ffffff" />
+                    <SolidColorBrush x:Key="CardBorderBrush" Color="#d2d2d7" />
+                    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1d1d1f" />
+                    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#6e6e73" />
+                    <SolidColorBrush x:Key="TextAccentBrush" Color="#0071e3" />
+                    <SolidColorBrush x:Key="InputBgBrush" Color="#ffffff" />
+                    <SolidColorBrush x:Key="InputBorderBrush" Color="#c6c6c8" />
+                    <SolidColorBrush x:Key="InputFgBrush" Color="#1d1d1f" />
+                    <SolidColorBrush x:Key="ListBgBrush" Color="#ffffff" />
+                    <SolidColorBrush x:Key="ProgressBgBrush" Color="#e5e5ea" />
+                    <SolidColorBrush x:Key="ConsoleBgBrush" Color="#ffffff" />
+                    <SolidColorBrush x:Key="ConsoleFgBrush" Color="#1d1d1f" />
+                    <SolidColorBrush x:Key="ButtonSecondaryBgBrush" Color="#e5e5ea" />
+                    <SolidColorBrush x:Key="ButtonSecondaryFgBrush" Color="#1d1d1f" />
+                    <SolidColorBrush x:Key="ButtonSecondaryBorderBrush" Color="#c6c6c8" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="WindowBgBrush" Color="#1e1e1e" />
+                    <SolidColorBrush x:Key="HeaderBgBrush" Color="#2d2d2d" />
+                    <SolidColorBrush x:Key="CardBgBrush" Color="#252526" />
+                    <SolidColorBrush x:Key="CardBorderBrush" Color="#3f3f46" />
+                    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#e0e0e0" />
+                    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#888888" />
+                    <SolidColorBrush x:Key="TextAccentBrush" Color="#3897f0" />
+                    <SolidColorBrush x:Key="InputBgBrush" Color="#1e1e1e" />
+                    <SolidColorBrush x:Key="InputBorderBrush" Color="#3f3f46" />
+                    <SolidColorBrush x:Key="InputFgBrush" Color="#ffffff" />
+                    <SolidColorBrush x:Key="ListBgBrush" Color="#1e1e1e" />
+                    <SolidColorBrush x:Key="ProgressBgBrush" Color="#1e1e1e" />
+                    <SolidColorBrush x:Key="ConsoleBgBrush" Color="#181818" />
+                    <SolidColorBrush x:Key="ConsoleFgBrush" Color="#00ff00" />
+                    <SolidColorBrush x:Key="ButtonSecondaryBgBrush" Color="#2d2d2d" />
+                    <SolidColorBrush x:Key="ButtonSecondaryFgBrush" Color="#ffffff" />
+                    <SolidColorBrush x:Key="ButtonSecondaryBorderBrush" Color="#3f3f46" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
 </Application>
