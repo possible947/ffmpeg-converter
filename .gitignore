@@ -14,8 +14,7 @@ src/platform/windows/bin/
 !fpc/build/package_macos_app.sh
 
 # Bundled ffmpeg/ffprobe source binaries (stored in src/platform/macos/bin/)
-src/platform/macos/bin/ffmpeg
-src/platform/macos/bin/ffprobe
+src/platform/macos/bin/
 src/platform/linux/bin/
 
 # External HQ_converter release; prepared separately and required locally at build time
@@ -87,3 +86,11 @@ src/platform/macos/bin/lib/
 
 # Linker response files (generated during FPC compilation)
 *.res
+
+# .NET / C# build outputs
+**/[Bb]in/
+**/[Oo]bj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
