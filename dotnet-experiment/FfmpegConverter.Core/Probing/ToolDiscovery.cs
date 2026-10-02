@@ -57,20 +57,37 @@ public static class ToolDiscovery
             // Also check special platform subdirectory in repo structure
             string platformFolder = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows" :
                                     RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos" : "linux";
-            
-            // Try to find in typical repo structures: bin/ or src/platform/{os}/bin/
-            string parent = exeDir;
-            for (int i = 0; i < 5; i++)
+
+            // Try to find in typical repo structures: bin/ or src/platform/{os}/bin/.
+            // Walk all the way up to the filesystem root (not a fixed depth) — build/publish
+            // output directories vary in nesting (Debug/Release, RID-specific publish dirs,
+            // self-contained single-file, etc.), and a fixed-count loop previously stopped
+            // one level short of the actual repo root in the standard `dotnet build` layout,
+            // silently falling through to system PATH instead of the bundled binary. This
+            // mirrors the unbounded ancestor walk already used by PresetDb.ResolvePresetsPath().
+            string? parent = exeDir;
+            while (!string.IsNullOrEmpty(parent))
             {
-                if (string.IsNullOrEmpty(parent)) break;
-                
                 string candidate = Path.Combine(parent, "src", "platform", platformFolder, "bin", exeName);
                 if (File.Exists(candidate)) return candidate;
 
-                candidate = Path.Combine(parent, "bin", exeName);
-                if (File.Exists(candidate)) return candidate;
+                // Only trust a generic "bin/<exe>" match once `parent` is recognizably the
+                // ffmpeg-converter repo root (marked by presets.json living there). Without
+                // this guard, walking unbounded can "find" unrelated system directories once
+                // it reaches the filesystem root (e.g. "/bin/ffmpeg" on distros where /bin
+                // exists as a real top-level dir), silently bypassing the intended PATH
+                // fallback for a plain system install outside the repo checkout.
+                if (File.Exists(Path.Combine(parent, "presets.json")))
+                {
+                    candidate = Path.Combine(parent, "bin", exeName);
+                    if (File.Exists(candidate)) return candidate;
 
-                parent = Path.GetDirectoryName(parent) ?? "";
+                    // Found the repo root but no bundled binary there — stop climbing;
+                    // anything further up is outside the project tree.
+                    break;
+                }
+
+                parent = Directory.GetParent(parent)?.FullName;
             }
         }
 

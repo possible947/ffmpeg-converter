@@ -87,7 +87,7 @@ public partial class MainWindow : Window
                         : "No hardware encoders detected.";
 
                     PopulateVulkanDevices(probe);
-                    PopulateVaapiDefault();
+                    PopulateVaapiDefault(probe);
                     PopulateCodecGroups();
                 });
             }
@@ -299,13 +299,20 @@ public partial class MainWindow : Window
         VulkanDevComboBox.SelectedIndex = 0;
     }
 
-    private void PopulateVaapiDefault()
+    private void PopulateVaapiDefault(HardwareProbeResult probe)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             try
             {
-                if (File.Exists("/dev/dri/renderD128"))
+                // Prefer the render node the probe actually confirmed VAAPI encode support
+                // on (via the vainfo-based safety check) over a blind renderD128 guess —
+                // a system may have multiple GPUs where only one supports the codec.
+                if (!string.IsNullOrEmpty(probe.SelectedVaapiRenderNode))
+                {
+                    VaapiDevTextBox.Text = probe.SelectedVaapiRenderNode;
+                }
+                else if (File.Exists("/dev/dri/renderD128"))
                 {
                     VaapiDevTextBox.Text = "/dev/dri/renderD128";
                 }

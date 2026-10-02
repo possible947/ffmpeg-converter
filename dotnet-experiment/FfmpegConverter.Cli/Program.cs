@@ -259,14 +259,25 @@ class Program
         if (platform == "linux" && string.IsNullOrEmpty(opts.HwDevice) &&
             opts.Codec.Contains("_vaapi", StringComparison.OrdinalIgnoreCase))
         {
-            // Auto-detect VAAPI render node
-            string[] candidateNodes = { "/dev/dri/renderD128", "/dev/dri/renderD129" };
-            foreach (var node in candidateNodes)
+            // Prefer the render node the hardware probe actually confirmed VAAPI encode
+            // support on (via the vainfo-based safety check), rather than blindly guessing
+            // the first existing node — a system may have multiple GPUs where only one
+            // actually supports the requested codec.
+            if (probe != null && !string.IsNullOrEmpty(probe.SelectedVaapiRenderNode))
             {
-                if (File.Exists(node))
+                opts.HwDevice = probe.SelectedVaapiRenderNode;
+            }
+            else
+            {
+                // Auto-detect VAAPI render node
+                string[] candidateNodes = { "/dev/dri/renderD128", "/dev/dri/renderD129" };
+                foreach (var node in candidateNodes)
                 {
-                    opts.HwDevice = node;
-                    break;
+                    if (File.Exists(node))
+                    {
+                        opts.HwDevice = node;
+                        break;
+                    }
                 }
             }
         }
@@ -384,7 +395,17 @@ class Program
                 {
                     if (!enc.Enabled) continue;
                     string? final = enc.FinalCodec ?? enc.ExecutionCodec;
-                    bool isAvail = probe == null || probe.SupportedEncoders.Contains(final ?? "");
+                    // Encoders named like "hevc_10bit" map to a distinct "<final>_10bit"
+                    // availability key (set by HardwareProbe), not the plain final codec —
+                    // otherwise a GPU that only supports 8-bit would be misreported as
+                    // supporting the 10-bit variant too.
+                    string? availKey = final;
+                    if (encName.Contains("_10bit", StringComparison.OrdinalIgnoreCase) &&
+                        final != null && !final.EndsWith("_10bit", StringComparison.OrdinalIgnoreCase))
+                    {
+                        availKey = final + "_10bit";
+                    }
+                    bool isAvail = probe == null || probe.SupportedEncoders.Contains(availKey ?? "");
                     if (isAvail)
                     {
                         Console.WriteLine($"  {encName} ({final})");
