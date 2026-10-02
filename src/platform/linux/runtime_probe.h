@@ -61,6 +61,12 @@ typedef struct {
 } LinuxCodecSupport;
 
 int linux_probe_codec_support(LinuxCodecSupport *out_support);
+/**
+ * Clears the in-process and on-disk hardware probe cache, forcing the
+ * next linux_probe_codec_support() call to re-run real GPU probes. Intended
+ * for a future "Rescan hardware" action; not wired into any UI yet.
+ */
+void linux_invalidate_codec_support_cache(void);
 int linux_probe_catalog_component_enabled(const char *catalog_path,
                                           const char *platform,
                                           const char *group,

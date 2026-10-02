@@ -149,6 +149,87 @@ begin
 {$ENDIF}
 end;
 
+{ --------------------------------------------------------------------------
+  VAAPI safety policy: real one-frame encode probes are OPT-IN ONLY.
+
+  Postmortem evidence (C/CMake sibling implementation, same repo): a real
+  VAAPI encode probe submits GPU-ring commands on the same physical adapter
+  the Wayland/X11 compositor is concurrently rendering on. On at least one
+  AMD (amdgpu) system this produced a genuine kernel-level
+  VM_L2_PROTECTION_FAULT / gfx-ring timeout, and the *compositor itself*
+  (not the ffmpeg probe process) crashed and dumped core. This is a GPU
+  hardware/ring-level race, not something a child-process boundary can
+  fence off — so by default we never run the real encode for capability
+  detection.
+
+  Default (safe): rely solely on the read-only `vainfo` profile listing
+  for the exact render node (no surface/frame allocation, cannot crash
+  anything) as the final authority.
+
+  Opt-in (stricter, riskier): set FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1 to
+  additionally confirm with the real one-frame encode for profiles vainfo
+  already reports as present. Never runs for profiles vainfo doesn't list.
+  -------------------------------------------------------------------------- }
+
+function VaapiRealEncodeProbeEnabled: Boolean;
+var
+  V: string;
+begin
+  V := GetEnvironmentVariable('FFMPEG_CONVERTER_VAAPI_REAL_PROBE');
+  Result := (V <> '') and (V <> '0');
+end;
+
+{ Read-only capability pre-filter: runs `vainfo --display drm --device
+  <RenderNode> -a` once per render node and returns its captured text, or
+  '' if vainfo is unavailable/produced no output. }
+function VaapiNodeProfileText(const RenderNode: string): string;
+var
+  R: TRunResult;
+begin
+  Result := '';
+{$IFDEF Linux}
+  if RenderNode = '' then
+    Exit;
+  R := RunCommandCapture('vainfo --display drm --device ' +
+                         QuoteForShell(RenderNode) + ' -a 2>/dev/null');
+  if R.ExitCode = 0 then
+    Result := R.OutputText;
+{$ENDIF}
+end;
+
+{ Returns 1 if ProfileEntrypoint (e.g. 'VAProfileHEVCMain10/VAEntrypointEncSlice')
+  appears in ProfileText, 0 if ProfileText exists but doesn't mention it, or
+  -1 if ProfileText is empty (vainfo unavailable/failed). }
+function VaapiProfileListed(const ProfileText, ProfileEntrypoint: string): Integer;
+begin
+  if ProfileText = '' then
+    Result := -1
+  else if Pos(ProfileEntrypoint, ProfileText) > 0 then
+    Result := 1
+  else
+    Result := 0;
+end;
+
+{ Resolves whether a VAAPI profile should be reported as supported, per the
+  safety policy above: the vainfo listing is authoritative by default; the
+  real encode only runs as an opt-in extra confirmation, and only when
+  vainfo already says the profile is present. A missing/unavailable vainfo
+  fails CLOSED (reports unsupported) rather than silently falling back to
+  the risky real-encode path. }
+function VaapiProfileSupported(const FfmpegBin, RenderNode, EncoderName,
+  ProfileText, ProfileEntrypoint: string): Boolean;
+begin
+  Result := False;
+  if VaapiProfileListed(ProfileText, ProfileEntrypoint) <= 0 then
+    Exit;  { not listed, or vainfo unavailable — fail closed }
+  if not VaapiRealEncodeProbeEnabled then
+  begin
+    Result := True;  { safe default: vainfo listing is authoritative }
+    Exit;
+  end;
+  Result := ProbeVaapiEncoder(FfmpegBin, RenderNode, EncoderName);
+end;
+
 { Probe Vulkan prores_ks_vulkan on devices vk:0..vk:7.
   Returns True if at least one device succeeds.
   BestDevice is the highest working index, DeviceCount is number of working devices. }
@@ -310,6 +391,7 @@ var
   Tools: TToolPaths;
   FfmpegBin: string;
   RenderNode: string;
+  ProfileText: string;
   I: Integer;
   VulkanBest: Integer;
   VulkanCount: Integer;
@@ -340,19 +422,27 @@ begin
   Result.HasMkvmerge := Tools.MkvmergeBin <> '';
   Result.HasMp4Box   := Tools.Mp4BoxBin <> '';
 
-  { VAAPI — probe each render node }
+  { VAAPI — probe each render node. See VaapiProfileSupported() above:
+    by default this uses the read-only vainfo profile listing only (no
+    real encode, cannot crash anything); real-encode confirmation is
+    opt-in via FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1. }
   for I := 128 to 135 do
   begin
     RenderNode := Format('/dev/dri/renderD%d', [I]);
     if not FileExists(RenderNode) then
       Continue;
-    if ProbeVaapiEncoder(FfmpegBin, RenderNode, 'h264_vaapi') then
+
+    ProfileText := VaapiNodeProfileText(RenderNode);
+
+    if VaapiProfileSupported(FfmpegBin, RenderNode, 'h264_vaapi',
+      ProfileText, 'VAProfileH264Main/VAEntrypointEncSlice') then
     begin
       Result.HasVaapiH264 := True;
       if Result.VaapiRenderNode = '' then
         Result.VaapiRenderNode := RenderNode;
     end;
-    if ProbeVaapiEncoder(FfmpegBin, RenderNode, 'hevc_vaapi') then
+    if VaapiProfileSupported(FfmpegBin, RenderNode, 'hevc_vaapi',
+      ProfileText, 'VAProfileHEVCMain/VAEntrypointEncSlice') then
     begin
       Result.HasVaapiHEVC := True;
       if Result.VaapiRenderNode = '' then

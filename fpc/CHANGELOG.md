@@ -5,6 +5,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Linux VAAPI hardware-probe safety mirror (2026-10-02)
+
+### Fixed
+- Mirrored the C implementation's VAAPI crash fix
+  (`src/platform/linux/runtime_probe.c`) into `fpc/platform/linux_probe.pas`:
+  the real one-frame VAAPI encode probe (`ProbeVaapiEncoder`) is now opt-in
+  only via `FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1`. By default,
+  `VaapiProfileSupported` resolves H.264/HEVC VAAPI encode support from a
+  read-only `vainfo --display drm --device <node> -a` profile listing
+  (`VaapiNodeProfileText`/`VaapiProfileListed`) only, never submitting a real
+  GPU encode for detection. Fails closed (unsupported) when `vainfo` is
+  unavailable. See the C changelog entry for the full root-cause
+  (kernel-level `VM_L2_PROTECTION_FAULT` crashing the desktop compositor,
+  not the probe process).
+- Note: `linux_probe.pas`'s `{$IFDEF Linux}` branches are currently dead code
+  in the shipped build (Pascal release target is Windows-only), but the unit
+  is still compiled into the Windows build via `cli_args.pas`/`form.pas`/etc.,
+  so this mirror keeps the two implementations' safety policy in sync for any
+  future Linux Pascal re-enablement.
+
 ## [Unreleased] — NVENC preset flag fixes (2026-09-12)
 
 ### Fixed

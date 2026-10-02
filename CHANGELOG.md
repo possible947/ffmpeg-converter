@@ -13,6 +13,53 @@ hardware/input metadata work. GUI migration is unfinished, and macOS/Windows
 build, runtime, and hardware debugging remain required before Version 3 can be
 considered complete.
 
+## [Unreleased] — Linux VAAPI hardware-probe crash fix (2026-10-02)
+
+### Fixed
+- **Critical: Linux VAAPI capability probing (`src/platform/linux/runtime_probe.c`)
+  could crash the desktop session.** Root-caused via kernel log
+  (`journalctl -b -k`) to a genuine GPU-ring-level race: the probe's
+  one-frame real VAAPI encode submits GPU commands on the same physical
+  adapter the compositor (GNOME Shell/Mutter) is concurrently rendering on.
+  On affected AMD (`amdgpu`) systems this triggered a kernel
+  `VM_L2_PROTECTION_FAULT` / gfx-ring timeout, which crashed the compositor
+  itself (not the probe process) — confirmed by `systemd-coredump` of the
+  `gnome-shell` process. Because the fault occurs in another process at the
+  kernel/GPU-ring level, process-level isolation (fork/timeout/signal
+  handling) cannot prevent this class of crash on its own.
+- **Fix: VAAPI real-encode probing is now opt-in only.** By default,
+  capability detection relies solely on a read-only `vainfo --display drm
+  --device <node> -a` profile/entrypoint listing (e.g.
+  `VAProfileHEVCMain/VAEntrypointEncSlice`) — no GPU surface, frame, or
+  encode is ever submitted for detection, so it cannot crash the compositor
+  or any GPU client. Fails closed (reports "unsupported") if `vainfo` itself
+  is unavailable, rather than silently falling back to the risky real-encode
+  path. Set `FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1` to additionally confirm
+  with a real one-frame encode for profiles `vainfo` already lists (opt-in,
+  accepts the crash risk on affected drivers).
+- Hardened the remaining real-encode probes (simple encoders, Vulkan
+  encoders, ProRes Vulkan) to run via `fork`/`exec` with a timeout and
+  `WIFSIGNALED` crash detection instead of raw `system()`, aborting any
+  remaining probes on the same device/node once a crash is detected
+  (cascading abort), instead of continuing to hammer an already-wedged GPU.
+- Added `FFMPEG_CONVERTER_PROBE_DEBUG=1` to redirect probe subprocess stderr
+  to a debug log (`$TMPDIR/ffmpeg_converter_probe_debug.log` or
+  `/tmp/...`) instead of discarding it, for diagnosing probe behavior.
+- Added a persistent on-disk hardware-probe cache
+  (`~/.cache/ffmpeg_converter/hw_probe_cache.bin`, or
+  `$XDG_CACHE_HOME/ffmpeg_converter/...`), keyed by a signature covering the
+  bundled ffmpeg binary, `presets.json`, and the current `/dev/dri/renderD*`
+  node set, so repeat runs skip re-probing entirely (cache hit: ~1ms vs.
+  several seconds cold) and automatically invalidate on driver/catalog/GPU
+  topology changes. `linux_invalidate_codec_support_cache()` is available
+  for a future "rescan hardware" action (not yet wired into CLI/GUI).
+- Confirmed via live testing that `hevc_10bit`/`av1_10bit` reporting as
+  unsupported on some VAAPI drivers is correct behavior, not a probe bug:
+  those drivers list `VAProfileHEVCMain10`/`VAProfileAV1Main10` only with
+  `VAEntrypointVLD` (decode), not `VAEntrypointEncSlice` (encode) — the
+  hardware genuinely does not support encoding those 10-bit profiles via
+  VAAPI.
+
 ## [Unreleased] — Unified preset catalog & architecture cleanup (2026-09-12)
 
 ### Fixed

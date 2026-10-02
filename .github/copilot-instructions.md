@@ -112,8 +112,16 @@ Important repo-level behavior:
 - `mkvmerge` is optional; mux mode is silently disabled when it is absent.
 - Apple M4V pipeline details are intentionally duplicated in C and Pascal and must stay synchronized: stream-copy video, fixed AAC CBR 320k via `libfdk_aac`, AC3 track, `MP4Box` mux, optional chapter import.
 - The repo’s executable sources are the source of truth. If README text and scripts disagree, prefer the actual build or runtime behavior in CMake/Makefile/scripts.
+- **Never add a real hardware-encode probe (VAAPI/Vulkan/NVENC/QSV/AMF) that runs by default without process isolation and a non-invasive fallback.** A real one-frame VAAPI encode in `src/platform/linux/runtime_probe.c` was found to crash the desktop compositor (GNOME Shell/Mutter) via a kernel-level GPU-ring fault on some `amdgpu` systems — not the probe process itself, so `fork`/timeout/signal handling alone cannot prevent it. VAAPI capability detection now defaults to a read-only `vainfo -a` profile/entrypoint listing (`vaapi_profile_supported()`/`VaapiProfileSupported`), with real-encode confirmation gated behind `FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1` (opt-in only). Follow this same read-only-by-default pattern for any new hardware-encoder probe; see `CHANGELOG.md` "Linux VAAPI hardware-probe crash fix" for full details.
 
-## Repo docs worth checking before major changes
+## Key env vars for Linux hardware probing (`src/platform/linux/runtime_probe.c`)
+
+- `FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1` — opt-in: additionally confirm VAAPI profiles already listed by `vainfo` with a real one-frame encode (accepts crash risk on affected drivers). Default off.
+- `FFMPEG_CONVERTER_PROBE_DEBUG=1` — redirect probe subprocess stderr to a debug log instead of discarding it.
+- Probe results are cached at `~/.cache/ffmpeg_converter/hw_probe_cache.bin` (or `$XDG_CACHE_HOME/ffmpeg_converter/...`), auto-invalidated by a signature over the bundled ffmpeg binary, `presets.json`, and the `/dev/dri/renderD*` node set. `linux_invalidate_codec_support_cache()` exists for a future "rescan hardware" action.
+- The same safety policy (vainfo pre-filter + opt-in real probe) is mirrored in `fpc/platform/linux_probe.pas` (`VaapiProfileSupported`), even though that file's `{$IFDEF Linux}` branches are currently dead code in the shipped Windows-only Pascal build.
+
+
 
 - `README.md` for the user-facing feature overview and build requirements
 - `AGENTS.md` for repo-specific AI guidance and gotchas

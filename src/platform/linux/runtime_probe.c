@@ -3,10 +3,15 @@
 #include "../runtime_catalog.h"
 
 #include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -21,6 +26,134 @@ typedef struct {
 
 static LinuxCodecSupportCache g_cache;
 static int get_process_dir(char *out_dir, size_t out_dir_sz);
+
+/* ---------------------------------------------------------------
+ *  Crash-safe subprocess runner for GPU encode probes
+ * ---------------------------------------------------------------
+ * Real one-frame hardware encode probes (VAAPI/Vulkan) are inherently
+ * risky: on some driver/GPU combinations (observed on AMD Vega-class
+ * VAAPI), rapid back-to-back device-context churn (open/encode/close,
+ * repeated for every codec variant on every render node) can destabilize
+ * the GPU badly enough to crash the compositor (VM_L2_PROTECTION_FAULT).
+ * A later probe on the same already-wedged node then "fails" even though
+ * the driver genuinely supports that profile — a false negative that is
+ * really a side effect of the earlier crash, not a capability gap.
+ *
+ * These helpers replace plain system() for every such probe with:
+ *   - fork()/exec() instead of system() — isolates a crashing ffmpeg
+ *     child from the probing process itself.
+ *   - A bounded wall-clock timeout — bounds worst-case hang if the GPU
+ *     wedges instead of exiting.
+ *   - Explicit WIFSIGNALED() detection — lets callers tell "driver
+ *     cleanly refused" (exit code) apart from "child was killed by a
+ *     signal" (crash), so a per-node probe loop can stop early instead
+ *     of hammering an already-unstable device with more probes.
+ */
+#define PROBE_DEFAULT_TIMEOUT_MS 8000
+
+typedef struct {
+    int crashed;      /* 1 if killed by a signal or forcibly timed out */
+    int signal_num;   /* signal number if crashed via WIFSIGNALED, else 0 */
+    int timed_out;    /* 1 if we had to SIGKILL the child ourselves */
+} ProbeRunInfo;
+
+/**
+ * run_probe_cmd()
+ * Runs `/bin/sh -c cmd` via fork+exec, polling with WNOHANG up to
+ * timeout_ms before giving up and SIGKILLing the child. Returns 1 only if
+ * the child exited normally with status 0. info (optional) reports
+ * whether the child crashed (signal) or had to be force-killed (timeout)
+ * so callers can distinguish driver instability from a normal refusal.
+ */
+static int run_probe_cmd(const char *cmd, int timeout_ms, ProbeRunInfo *info)
+{
+    pid_t pid;
+    int status = 0;
+    int elapsed_ms = 0;
+    const int poll_ms = 50;
+
+    if (info) { info->crashed = 0; info->signal_num = 0; info->timed_out = 0; }
+    if (!cmd || !cmd[0])
+        return 0;
+
+    pid = fork();
+    if (pid < 0)
+        return 0;
+
+    if (pid == 0) {
+        /* Child: cmd already carries its own I/O redirection. */
+        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+        _exit(127);
+    }
+
+    for (;;) {
+        pid_t w = waitpid(pid, &status, WNOHANG);
+        if (w == pid)
+            break;
+        if (w < 0) {
+            if (errno == EINTR)
+                continue;
+            return 0;
+        }
+        if (timeout_ms > 0 && elapsed_ms >= timeout_ms) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            if (info) { info->crashed = 1; info->timed_out = 1; }
+            return 0;
+        }
+        usleep(poll_ms * 1000);
+        elapsed_ms += poll_ms;
+    }
+
+    if (WIFSIGNALED(status)) {
+        if (info) { info->crashed = 1; info->signal_num = WTERMSIG(status); }
+        return 0;
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+/**
+ * probe_debug_enabled() / probe_log_path()
+ * When FFMPEG_CONVERTER_PROBE_DEBUG is set in the environment, probe
+ * stderr is appended to a log file instead of being discarded, so probe
+ * failures (including driver error text) can actually be diagnosed.
+ * Disabled by default to keep normal startup silent and fast.
+ */
+static int probe_debug_enabled(void)
+{
+    static int checked = 0, enabled = 0;
+    if (!checked) {
+        const char *v = getenv("FFMPEG_CONVERTER_PROBE_DEBUG");
+        enabled = (v && v[0] && strcmp(v, "0") != 0);
+        checked = 1;
+    }
+    return enabled;
+}
+
+static const char *probe_log_path(void)
+{
+    static char path[PATH_MAX];
+    static int resolved = 0;
+    if (!resolved) {
+        const char *tmp = getenv("TMPDIR");
+        snprintf(path, sizeof(path), "%s/ffmpeg_converter_probe_debug.log",
+                 (tmp && tmp[0]) ? tmp : "/tmp");
+        resolved = 1;
+    }
+    return path;
+}
+
+/* Fills redirect_out with the stdout/stderr redirection suffix to append
+ * to a probe command: silent by default, or appended to the debug log
+ * when FFMPEG_CONVERTER_PROBE_DEBUG is set. */
+static const char *probe_redirect_suffix(char *redirect_out, size_t sz)
+{
+    if (probe_debug_enabled())
+        snprintf(redirect_out, sz, ">/dev/null 2>>%s", probe_log_path());
+    else
+        snprintf(redirect_out, sz, ">/dev/null 2>&1");
+    return redirect_out;
+}
 
 int linux_probe_catalog_component_enabled(const char *catalog_path,
                                           const char *platform,
@@ -317,8 +450,8 @@ static int probe_simple_encoder(const char *ffmpeg_bin,
                                 const char *encoder_name)
 {
     char cmd[8192];
+    char redirect[160];
     char *q;
-    int  rc;
 
     if (!ffmpeg_bin || ffmpeg_bin[0] == '\0' || !encoder_name)
         return 0;
@@ -330,15 +463,11 @@ static int probe_simple_encoder(const char *ffmpeg_bin,
              "%s -v error -hide_banner "
              "-f lavfi -i color=size=1920x1080:rate=1 "
              "-frames:v 1 "
-             "-c:v %s -f null - >/dev/null 2>&1",
-             q, encoder_name);
+             "-c:v %s -f null - %s",
+             q, encoder_name, probe_redirect_suffix(redirect, sizeof(redirect)));
     free(q);
 
-    rc = system(cmd);
-    if (rc == -1)
-        return 0;
-
-    return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
+    return run_probe_cmd(cmd, PROBE_DEFAULT_TIMEOUT_MS, NULL);
 }
 
 static int probe_simple_encoder_format(const char *ffmpeg_bin,
@@ -347,8 +476,8 @@ static int probe_simple_encoder_format(const char *ffmpeg_bin,
                                        const char *extra_args)
 {
     char cmd[8192];
+    char redirect[160];
     char *q;
-    int rc;
 
     if (!ffmpeg_bin || !encoder_name || !pixel_format)
         return 0;
@@ -358,14 +487,12 @@ static int probe_simple_encoder_format(const char *ffmpeg_bin,
     snprintf(cmd, sizeof(cmd),
              "%s -v error -hide_banner -f lavfi "
              "-i color=size=1920x1080:rate=1,format=%s "
-             "-frames:v 1 -vf format=%s %s-c:v %s -f null - >/dev/null 2>&1",
+             "-frames:v 1 -vf format=%s %s-c:v %s -f null - %s",
              q, pixel_format, pixel_format,
-             extra_args ? extra_args : "", encoder_name);
+             extra_args ? extra_args : "", encoder_name,
+             probe_redirect_suffix(redirect, sizeof(redirect)));
     free(q);
-    rc = system(cmd);
-    if (rc == -1)
-        return 0;
-    return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
+    return run_probe_cmd(cmd, PROBE_DEFAULT_TIMEOUT_MS, NULL);
 }
 
 /* Forward declaration: skips CPU-only (llvmpipe/lavapipe) Vulkan devices.
@@ -399,7 +526,8 @@ static int probe_vulkan_prores(const char *ffmpeg_bin,
 
     for (i = 0; i < LINUX_VULKAN_MAX_DEVICES; i++) {
         char cmd[8192];
-        int  rc;
+        char redirect[160];
+        ProbeRunInfo info;
 
         if (vulkan_device_is_software(i))
             continue;
@@ -410,17 +538,17 @@ static int probe_vulkan_prores(const char *ffmpeg_bin,
                  "-f lavfi -i color=size=1920x1080:rate=1 "
                  "-frames:v 1 "
                  "-vf format=yuv422p10le,hwupload "
-                 "-c:v prores_ks_vulkan -f null - >/dev/null 2>&1",
-                 q, i);
+                 "-c:v prores_ks_vulkan -f null - %s",
+                 q, i, probe_redirect_suffix(redirect, sizeof(redirect)));
 
-        rc = system(cmd);
-        if (rc == -1)
-            break;  /* system() failure — stop scanning */
-
-        if (WIFEXITED(rc) && WEXITSTATUS(rc) == 0) {
+        if (run_probe_cmd(cmd, PROBE_DEFAULT_TIMEOUT_MS, &info)) {
             mask |= (1 << i);
             best = i;
             count++;
+        } else if (info.crashed) {
+            /* Driver crashed/hung on this device — don't keep hammering
+             * an unstable GPU context with more probes this run. */
+            break;
         } else if (count == 0 && i >= 2) {
             /* No successes after 3 attempts — no Vulkan GPU present */
             break;
@@ -543,7 +671,8 @@ static int probe_vulkan_encoder(const char *ffmpeg_bin,
 
     for (i = 0; i < LINUX_VULKAN_MAX_DEVICES; i++) {
         char cmd[8192];
-        int  rc;
+        char redirect[160];
+        ProbeRunInfo info;
 
         if (vulkan_device_is_software(i))
             continue;
@@ -554,17 +683,18 @@ static int probe_vulkan_encoder(const char *ffmpeg_bin,
                  "-f lavfi -i color=size=1920x1080:rate=1 "
                  "-frames:v 1 "
                  "-vf format=nv12,hwupload "
-                 "-c:v %s -f null - >/dev/null 2>&1",
-                 q, i, encoder_name);
+                 "-c:v %s -f null - %s",
+                 q, i, encoder_name, probe_redirect_suffix(redirect, sizeof(redirect)));
 
-        rc = system(cmd);
-        if (rc == -1)
-            break;  /* system() failure — stop scanning */
-
-        if (WIFEXITED(rc) && WEXITSTATUS(rc) == 0) {
+        if (run_probe_cmd(cmd, PROBE_DEFAULT_TIMEOUT_MS, &info)) {
             mask |= (1 << i);
             best = i;
             count++;
+        } else if (info.crashed) {
+            /* Driver crashed/hung on this device — stop scanning further
+             * devices for this encoder this run rather than risk cascading
+             * failures on an already-unstable GPU context. */
+            break;
         } else if (count == 0 && i >= 2) {
             /* No successes after 3 attempts — no working Vulkan encode GPU */
             break;
@@ -578,14 +708,160 @@ static int probe_vulkan_encoder(const char *ffmpeg_bin,
     return best;
 }
 
+/**
+ * vaapi_real_encode_probe_enabled()
+ * SAFETY POLICY: real one-frame VAAPI encode probes are OPT-IN ONLY,
+ * via FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1.
+ *
+ * Postmortem evidence (kernel log, this repo's incident): a real VAAPI
+ * encode probe on renderD128/129 submits GPU-ring commands on the same
+ * physical adapter (amdgpu 0000:bN:00.0) that the Wayland compositor is
+ * concurrently rendering on. This caused a genuine kernel-level
+ * VM_L2_PROTECTION_FAULT / gfx-ring timeout, which Mesa/mutter's own
+ * fault handling treated as fatal — gnome-shell itself (not our ffmpeg
+ * child) aborted and dumped core. fork()/timeout/signal-detection
+ * isolation (see run_probe_cmd()) only prevents OUR process from
+ * cascading more probes after such a crash; it cannot prevent the fault,
+ * because the race is at the GPU hardware/ring level, outside any
+ * userspace process boundary.
+ *
+ * Default (safe): rely solely on the read-only `vainfo` profile listing
+ * (vaapi_node_profile_text()/vaapi_profile_listed()) as the final
+ * authority. This cannot crash anything — it never allocates a surface,
+ * uploads a frame, or touches the GPU ring — at the cost of occasionally
+ * reporting a profile as "supported" when some other factor (firmware,
+ * VRAM, permissions) would still make a real encode fail.
+ *
+ * Opt-in (stricter, riskier): set FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1 to
+ * additionally confirm with the real crash-isolated one-frame encode
+ * (run_probe_cmd() + timeout + WIFSIGNALED detection) for profiles the
+ * vainfo listing already reports as present. Never runs for profiles
+ * vainfo doesn't list.
+ */
+static int vaapi_real_encode_probe_enabled(void)
+{
+    static int checked = 0, enabled = 0;
+    if (!checked) {
+        const char *v = getenv("FFMPEG_CONVERTER_VAAPI_REAL_PROBE");
+        enabled = (v && v[0] && strcmp(v, "0") != 0);
+        checked = 1;
+    }
+    return enabled;
+}
+
+/**
+ * vaapi_profile_supported()
+ * Resolves whether a VAAPI profile should be reported as supported, per
+ * the safety policy in vaapi_real_encode_probe_enabled(): vainfo listing
+ * is authoritative by default; the real encode only runs as an opt-in
+ * extra confirmation, and only when vainfo already says the profile is
+ * present. If vainfo itself is unavailable (profile_text is NULL), this
+ * fails CLOSED (returns 0 / "unsupported") rather than falling back to an
+ * unconditional real encode — a missing vainfo should never silently
+ * re-enable the risky path.
+ *
+ * real_probe_fn is called with real_probe_arg only when an opt-in
+ * confirmation encode is actually needed; out_info receives its crash
+ * status so the caller can still abort remaining checks on this node.
+ */
+typedef int (*VaapiRealProbeFn)(void *arg, ProbeRunInfo *out_info);
+
+/* Forward declaration: defined after vaapi_node_profile_text() below. */
+static int vaapi_profile_listed(const char *profile_text, const char *profile_entrypoint);
+
+static int vaapi_profile_supported(const char *profile_text,
+                                   const char *profile_entrypoint,
+                                   VaapiRealProbeFn real_probe_fn,
+                                   void *real_probe_arg,
+                                   ProbeRunInfo *out_info)
+{
+    int listed = vaapi_profile_listed(profile_text, profile_entrypoint);
+
+    if (out_info) { out_info->crashed = 0; out_info->signal_num = 0; out_info->timed_out = 0; }
+
+    if (listed <= 0)
+        return 0;  /* not listed, or vainfo unavailable — fail closed */
+
+    if (!vaapi_real_encode_probe_enabled())
+        return 1;  /* safe default: vainfo listing is authoritative */
+
+    return real_probe_fn(real_probe_arg, out_info);
+}
+
+/**
+ * vaapi_node_profile_text()
+ * Read-only capability pre-filter: runs `vainfo --display drm --device
+ * <render_node> -a` ONCE per render node (no surface/frame allocation, no
+ * encode) and returns its captured text, or NULL if vainfo is unavailable
+ * or produced no output. The result is only used to SKIP a real encode
+ * attempt when the profile is definitely absent; it never upgrades a
+ * result, so the real one-frame encode below remains the final authority
+ * — mirroring the existing vulkan_device_is_software() pre-filter pattern.
+ * Caller must free() the returned buffer.
+ */
+static char *vaapi_node_profile_text(const char *render_node)
+{
+    char cmd[512];
+    char *q_node;
+    char *buf;
+    size_t cap = 16384, len = 0;
+    FILE *fp;
+
+    if (!render_node) return NULL;
+    q_node = posix_shell_quote(render_node);
+    if (!q_node) return NULL;
+
+    snprintf(cmd, sizeof(cmd),
+             "vainfo --display drm --device %s -a 2>/dev/null", q_node);
+    free(q_node);
+
+    fp = popen(cmd, "r");
+    if (!fp) return NULL;
+
+    buf = malloc(cap);
+    if (!buf) { pclose(fp); return NULL; }
+    buf[0] = '\0';
+
+    {
+        char line[1024];
+        while (fgets(line, sizeof(line), fp)) {
+            size_t line_len = strlen(line);
+            if (len + line_len + 1 > cap) {
+                size_t new_cap = cap * 2;
+                char *grown = realloc(buf, new_cap);
+                if (!grown) break;
+                buf = grown;
+                cap = new_cap;
+            }
+            memcpy(buf + len, line, line_len + 1);
+            len += line_len;
+        }
+    }
+    pclose(fp);
+
+    if (len == 0) { free(buf); return NULL; }
+    return buf;
+}
+
+/* Returns 1 if profile_entrypoint (e.g. "VAProfileHEVCMain10/VAEntrypointEncSlice")
+ * appears in the vainfo text captured by vaapi_node_profile_text(), 0 if the
+ * text exists but doesn't mention it, or -1 if profile_text is NULL (vainfo
+ * unavailable/failed — "unknown", caller should fail open to the real probe). */
+static int vaapi_profile_listed(const char *profile_text, const char *profile_entrypoint)
+{
+    if (!profile_text) return -1;
+    return strstr(profile_text, profile_entrypoint) != NULL;
+}
+
 static int probe_vaapi_encoder(const char *ffmpeg_bin,
                                const char *render_node,
-                               const char *encoder_name)
+                               const char *encoder_name,
+                               ProbeRunInfo *out_info)
 {
     char cmd[8192];
+    char redirect[160];
     char *q;
     char *q_node;
-    int rc;
 
     if (!ffmpeg_bin || !render_node || !encoder_name)
         return 0;
@@ -602,30 +878,28 @@ static int probe_vaapi_encoder(const char *ffmpeg_bin,
              "-init_hw_device vaapi=va:%s -filter_hw_device va "
              "-f lavfi -i color=size=1920x1080:rate=1 "
              "-frames:v 1 -vf format=nv12,hwupload "
-             "-c:v %s -f null - >/dev/null 2>&1",
+             "-c:v %s -f null - %s",
              q,
              q_node,
-             encoder_name);
+             encoder_name,
+             probe_redirect_suffix(redirect, sizeof(redirect)));
     free(q);
     free(q_node);
 
-    rc = system(cmd);
-    if (rc == -1)
-        return 0;
-
-    return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
+    return run_probe_cmd(cmd, PROBE_DEFAULT_TIMEOUT_MS, out_info);
 }
 
 static int probe_vaapi_encoder_format(const char *ffmpeg_bin,
                                       const char *render_node,
                                       const char *encoder_name,
                                       const char *pixel_format,
-                                      const char *extra_args)
+                                      const char *extra_args,
+                                      ProbeRunInfo *out_info)
 {
     char cmd[8192];
+    char redirect[160];
     char *q;
     char *q_node;
-    int rc;
 
     if (!ffmpeg_bin || !render_node || !encoder_name || !pixel_format)
         return 0;
@@ -640,15 +914,183 @@ static int probe_vaapi_encoder_format(const char *ffmpeg_bin,
              "%s -v error -hide_banner "
              "-init_hw_device vaapi=va:%s -filter_hw_device va "
              "-f lavfi -i color=size=1920x1080:rate=1,format=%s "
-             "-frames:v 1 -vf format=%s,hwupload %s-c:v %s -f null - >/dev/null 2>&1",
+             "-frames:v 1 -vf format=%s,hwupload %s-c:v %s -f null - %s",
              q, q_node, pixel_format, pixel_format,
-             extra_args ? extra_args : "", encoder_name);
+             extra_args ? extra_args : "", encoder_name,
+             probe_redirect_suffix(redirect, sizeof(redirect)));
     free(q);
     free(q_node);
-    rc = system(cmd);
-    if (rc == -1)
+    return run_probe_cmd(cmd, PROBE_DEFAULT_TIMEOUT_MS, out_info);
+}
+
+/* ---------------------------------------------------------------
+ *  Persistent disk cache for hardware probe results
+ * ---------------------------------------------------------------
+ * The real encode probes above are now crash-isolated and pre-filtered,
+ * but the single biggest remaining way to cut GPU churn (and therefore
+ * crash exposure) is to simply not repeat them on every launch. Results
+ * are persisted keyed by a signature (ffmpeg binary + presets.json
+ * stamps, render-node set); any mismatch (ffmpeg rebuilt/updated, catalog
+ * changed, GPU plugged/unplugged) invalidates the cache automatically.
+ * linux_invalidate_codec_support_cache() lets a future "Rescan hardware"
+ * GUI/CLI action force a fresh probe on demand.
+ */
+#define PROBE_CACHE_MAGIC 0x46435032u /* "FCP2" */
+
+typedef struct {
+    unsigned magic;
+    unsigned struct_size;
+    char signature[512];
+} ProbeCacheHeader;
+
+static int get_cache_dir(char *out_dir, size_t out_dir_sz)
+{
+    const char *xdg = getenv("XDG_CACHE_HOME");
+    const char *home = getenv("HOME");
+
+    if (xdg && xdg[0]) {
+        snprintf(out_dir, out_dir_sz, "%s/ffmpeg_converter", xdg);
+        return 1;
+    }
+    if (home && home[0]) {
+        snprintf(out_dir, out_dir_sz, "%s/.cache/ffmpeg_converter", home);
+        return 1;
+    }
+    return 0;
+}
+
+static int get_cache_file_path(char *out_path, size_t out_path_sz)
+{
+    char dir[PATH_MAX];
+
+    if (!get_cache_dir(dir, sizeof(dir)))
         return 0;
-    return WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
+    snprintf(out_path, out_path_sz, "%s/hw_probe_cache.bin", dir);
+    return 1;
+}
+
+static void append_file_stamp(char *sig, size_t sig_sz, const char *path)
+{
+    struct stat st;
+    size_t len = strlen(sig);
+
+    if (path && path[0] && stat(path, &st) == 0) {
+        snprintf(sig + len, sig_sz - len, "|%s:%lld:%lld",
+                 path, (long long)st.st_mtime, (long long)st.st_size);
+    } else {
+        snprintf(sig + len, sig_sz - len, "|%s:missing", path ? path : "");
+    }
+}
+
+static void compute_probe_signature(char *sig, size_t sig_sz,
+                                    const char *ffmpeg_bin,
+                                    const char *catalog_path)
+{
+    DIR *dir;
+    struct dirent *entry;
+    char names[512] = {0};
+
+    snprintf(sig, sig_sz, "v2");
+    append_file_stamp(sig, sig_sz, ffmpeg_bin);
+    append_file_stamp(sig, sig_sz, catalog_path);
+
+    /* Plugging/unplugging a GPU changes the render-node set — invalidate
+     * the cache rather than reuse results captured on different hardware. */
+    dir = opendir("/dev/dri");
+    if (dir) {
+        while ((entry = readdir(dir)) != NULL) {
+            if (starts_with(entry->d_name, "renderD")) {
+                size_t len = strlen(names);
+                snprintf(names + len, sizeof(names) - len, ",%s", entry->d_name);
+            }
+        }
+        closedir(dir);
+    }
+    {
+        size_t len = strlen(sig);
+        snprintf(sig + len, sig_sz - len, "|nodes:%s", names);
+    }
+}
+
+static int load_probe_cache(const char *cache_path, const char *expected_sig,
+                            LinuxCodecSupport *out)
+{
+    FILE *fp;
+    ProbeCacheHeader hdr;
+    size_t n;
+
+    fp = fopen(cache_path, "rb");
+    if (!fp) return 0;
+
+    n = fread(&hdr, 1, sizeof(hdr), fp);
+    if (n != sizeof(hdr) ||
+        hdr.magic != PROBE_CACHE_MAGIC ||
+        hdr.struct_size != (unsigned)sizeof(*out) ||
+        strncmp(hdr.signature, expected_sig, sizeof(hdr.signature)) != 0) {
+        fclose(fp);
+        return 0;
+    }
+
+    n = fread(out, 1, sizeof(*out), fp);
+    fclose(fp);
+    return n == sizeof(*out);
+}
+
+static void save_probe_cache(const char *cache_path, const char *signature,
+                             const LinuxCodecSupport *support)
+{
+    char dir[PATH_MAX];
+    char *last_slash;
+    FILE *fp;
+    ProbeCacheHeader hdr;
+
+    copy_string(dir, sizeof(dir), cache_path);
+    last_slash = strrchr(dir, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+        mkdir(dir, 0700);  /* best-effort; ignore EEXIST/errors */
+    }
+
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.magic = PROBE_CACHE_MAGIC;
+    hdr.struct_size = (unsigned)sizeof(*support);
+    copy_string(hdr.signature, sizeof(hdr.signature), signature);
+
+    fp = fopen(cache_path, "wb");
+    if (!fp) return;
+    fwrite(&hdr, 1, sizeof(hdr), fp);
+    fwrite(support, 1, sizeof(*support), fp);
+    fclose(fp);
+}
+
+/* Adapter args/trampolines bridging VaapiRealProbeFn to the existing
+ * probe_vaapi_encoder()/probe_vaapi_encoder_format() signatures, used only
+ * for the opt-in FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1 confirmation path. */
+typedef struct {
+    const char *ffmpeg_bin;
+    const char *render_node;
+    const char *encoder_name;
+} VaapiSimpleProbeArgs;
+
+static int vaapi_simple_probe_trampoline(void *arg, ProbeRunInfo *out_info)
+{
+    VaapiSimpleProbeArgs *a = (VaapiSimpleProbeArgs *)arg;
+    return probe_vaapi_encoder(a->ffmpeg_bin, a->render_node, a->encoder_name, out_info);
+}
+
+typedef struct {
+    const char *ffmpeg_bin;
+    const char *render_node;
+    const char *encoder_name;
+    const char *pixel_format;
+    const char *extra_args;
+} VaapiFormatProbeArgs;
+
+static int vaapi_format_probe_trampoline(void *arg, ProbeRunInfo *out_info)
+{
+    VaapiFormatProbeArgs *a = (VaapiFormatProbeArgs *)arg;
+    return probe_vaapi_encoder_format(a->ffmpeg_bin, a->render_node, a->encoder_name,
+                                      a->pixel_format, a->extra_args, out_info);
 }
 
 int linux_probe_codec_support(LinuxCodecSupport *out_support)
@@ -699,6 +1141,40 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
     if (!resolve_presets_v2(catalog_path, sizeof(catalog_path)))
         catalog_path[0] = '\0';
 
+    /* Persistent disk cache — the whole point of the fixes above is to
+     * reduce GPU-probe churn; the biggest remaining lever is simply not
+     * re-running the real encode probes on every single launch. If a
+     * cache entry exists whose signature (ffmpeg binary + presets.json
+     * stamps, plus the current /dev/dri render-node set) matches this
+     * run, reuse its GPU capability results and skip the churn entirely.
+     * Binary-path fields are always kept fresh (cheap, no GPU risk). */
+    {
+        char cache_path[PATH_MAX];
+        char signature[768];
+        LinuxCodecSupport cached;
+
+        compute_probe_signature(signature, sizeof(signature),
+                                detected.ffmpeg_bin, catalog_path);
+
+        if (get_cache_file_path(cache_path, sizeof(cache_path)) &&
+            load_probe_cache(cache_path, signature, &cached)) {
+            cached.using_bundled_ffmpeg   = detected.using_bundled_ffmpeg;
+            cached.using_bundled_ffprobe  = detected.using_bundled_ffprobe;
+            cached.using_bundled_mkvmerge = detected.using_bundled_mkvmerge;
+            cached.using_bundled_mp4box   = detected.using_bundled_mp4box;
+            copy_string(cached.ffmpeg_bin, sizeof(cached.ffmpeg_bin), detected.ffmpeg_bin);
+            copy_string(cached.ffprobe_bin, sizeof(cached.ffprobe_bin), detected.ffprobe_bin);
+            copy_string(cached.mkvmerge_bin, sizeof(cached.mkvmerge_bin), detected.mkvmerge_bin);
+            copy_string(cached.mp4box_bin, sizeof(cached.mp4box_bin), detected.mp4box_bin);
+
+            g_cache.support = cached;
+            g_cache.initialized = 1;
+            if (out_support)
+                *out_support = cached;
+            return 1;
+        }
+    }
+
     vaapi_h264_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "vaapi",
                                                    "h264", "h264_vaapi");
     vaapi_hevc_enabled = runtime_catalog_component_enabled(catalog_path, "linux", "vaapi",
@@ -722,6 +1198,11 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
             char render_node[PATH_MAX];
             int has_h264;
             int has_hevc;
+            char *profile_text;
+            int node_unstable = 0;
+            ProbeRunInfo info;
+            VaapiSimpleProbeArgs simple_args;
+            VaapiFormatProbeArgs format_args;
 
             if (!starts_with(entry->d_name, "renderD"))
                 continue;
@@ -730,22 +1211,75 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
             if (access(render_node, R_OK | W_OK) != 0)
                 continue;
 
-            has_h264 = vaapi_h264_enabled &&
-                       probe_vaapi_encoder(detected.ffmpeg_bin, render_node, "h264_vaapi");
-            has_hevc = vaapi_hevc_enabled &&
-                       probe_vaapi_encoder(detected.ffmpeg_bin, render_node, "hevc_vaapi");
+            /* Read-only capability check (no surface/frame allocation, no
+             * GPU-ring commands submitted — cannot crash anything): runs
+             * `vainfo` once per render node. By default this listing is
+             * the FINAL authority for VAAPI capability detection; see
+             * vaapi_real_encode_probe_enabled() for why the real one-frame
+             * encode is opt-in only (postmortem: it crashed gnome-shell's
+             * own compositor via a shared-GPU-ring race, not something a
+             * process boundary can fence off). */
+            profile_text = vaapi_node_profile_text(render_node);
 
-            if (vaapi_av1_enabled &&
-                probe_vaapi_encoder(detected.ffmpeg_bin, render_node, "av1_vaapi"))
-                detected.has_av1_vaapi = 1;
-            if (vaapi_hevc_10bit_enabled &&
-                probe_vaapi_encoder_format(detected.ffmpeg_bin, render_node,
-                                           "hevc_vaapi", "p010le", "-profile:v main10 "))
-                detected.has_hevc_vaapi_10bit = 1;
-            if (vaapi_av1_10bit_enabled &&
-                probe_vaapi_encoder_format(detected.ffmpeg_bin, render_node,
-                                           "av1_vaapi", "p010le", ""))
-                detected.has_av1_vaapi_10bit = 1;
+            simple_args.ffmpeg_bin = detected.ffmpeg_bin;
+            simple_args.render_node = render_node;
+
+            has_h264 = 0;
+            if (vaapi_h264_enabled) {
+                simple_args.encoder_name = "h264_vaapi";
+                has_h264 = vaapi_profile_supported(profile_text,
+                                                   "VAProfileH264Main/VAEntrypointEncSlice",
+                                                   vaapi_simple_probe_trampoline, &simple_args, &info);
+                if (info.crashed) node_unstable = 1;
+            }
+
+            has_hevc = 0;
+            if (!node_unstable && vaapi_hevc_enabled) {
+                simple_args.encoder_name = "hevc_vaapi";
+                has_hevc = vaapi_profile_supported(profile_text,
+                                                   "VAProfileHEVCMain/VAEntrypointEncSlice",
+                                                   vaapi_simple_probe_trampoline, &simple_args, &info);
+                if (info.crashed) node_unstable = 1;
+            }
+
+            if (!node_unstable && vaapi_av1_enabled) {
+                simple_args.encoder_name = "av1_vaapi";
+                if (vaapi_profile_supported(profile_text,
+                                            "VAProfileAV1Main/VAEntrypointEncSlice",
+                                            vaapi_simple_probe_trampoline, &simple_args, &info))
+                    detected.has_av1_vaapi = 1;
+                if (info.crashed) node_unstable = 1;
+            }
+            if (!node_unstable && vaapi_hevc_10bit_enabled) {
+                format_args.ffmpeg_bin = detected.ffmpeg_bin;
+                format_args.render_node = render_node;
+                format_args.encoder_name = "hevc_vaapi";
+                format_args.pixel_format = "p010le";
+                format_args.extra_args = "-profile:v main10 ";
+                if (vaapi_profile_supported(profile_text,
+                                            "VAProfileHEVCMain10/VAEntrypointEncSlice",
+                                            vaapi_format_probe_trampoline, &format_args, &info))
+                    detected.has_hevc_vaapi_10bit = 1;
+                if (info.crashed) node_unstable = 1;
+            }
+            if (!node_unstable && vaapi_av1_10bit_enabled) {
+                format_args.ffmpeg_bin = detected.ffmpeg_bin;
+                format_args.render_node = render_node;
+                format_args.encoder_name = "av1_vaapi";
+                format_args.pixel_format = "p010le";
+                format_args.extra_args = "";
+                if (vaapi_profile_supported(profile_text,
+                                            "VAProfileAV1Main10/VAEntrypointEncSlice",
+                                            vaapi_format_probe_trampoline, &format_args, &info))
+                    detected.has_av1_vaapi_10bit = 1;
+                if (info.crashed) node_unstable = 1;
+            }
+
+            /* A crash mid-sequence (only reachable in the opt-in real-probe
+             * mode) leaves later/untested codecs on this node at their safe
+             * default (0 = unsupported) rather than risking further probes
+             * against an already-unstable GPU context this run. They'll be
+             * re-evaluated next probe run. */
 
             if (!detected.default_render_node[0] && (has_h264 || has_hevc)) {
                 copy_string(detected.default_render_node,
@@ -757,6 +1291,8 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
                 detected.has_h264_vaapi = 1;
             if (has_hevc)
                 detected.has_hevc_vaapi = 1;
+
+            free(profile_text);
         }
         closedir(dir);
     }
@@ -855,10 +1391,31 @@ int linux_probe_codec_support(LinuxCodecSupport *out_support)
     g_cache.support = detected;
     g_cache.initialized = 1;
 
+    {
+        char cache_path[PATH_MAX];
+        char signature[768];
+
+        compute_probe_signature(signature, sizeof(signature),
+                                detected.ffmpeg_bin, catalog_path);
+        if (get_cache_file_path(cache_path, sizeof(cache_path)))
+            save_probe_cache(cache_path, signature, &detected);
+    }
+
     if (out_support)
         *out_support = detected;
 
     return 1;
+}
+
+void linux_invalidate_codec_support_cache(void)
+{
+    char cache_path[PATH_MAX];
+
+    g_cache.initialized = 0;
+    memset(&g_cache.support, 0, sizeof(g_cache.support));
+
+    if (get_cache_file_path(cache_path, sizeof(cache_path)))
+        unlink(cache_path);
 }
 
 int linux_is_bundled_ffmpeg_available(void)

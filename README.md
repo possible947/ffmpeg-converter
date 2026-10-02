@@ -451,6 +451,22 @@ third_party/   Vendored jansson (C path)
   for the BPP coefficients).
 - Linux hardware codecs are runtime-detected and shown only when the active system
   and driver expose working VAAPI H.264 or HEVC encode.
+- **Linux VAAPI capability detection is read-only by default and cannot crash
+  the desktop.** A real one-frame VAAPI encode probe was found to race with
+  the compositor at the GPU-ring level on some AMD/`amdgpu` systems, crashing
+  GNOME Shell/Mutter rather than the probe process itself. Detection now
+  relies on a read-only `vainfo -a` profile/entrypoint listing by default;
+  set `FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1` to additionally confirm with a
+  real encode for profiles `vainfo` already lists (opt-in, accepts the crash
+  risk on affected drivers). Set `FFMPEG_CONVERTER_PROBE_DEBUG=1` to log probe
+  subprocess output for troubleshooting. Hardware-probe results are cached at
+  `~/.cache/ffmpeg_converter/hw_probe_cache.bin` and auto-invalidate when the
+  bundled ffmpeg, `presets.json`, or the set of `/dev/dri/renderD*` nodes
+  changes. If your driver reports a 10-bit profile (e.g.
+  `VAProfileHEVCMain10`) but the converter still shows it as unsupported,
+  check that `vainfo -a` lists it with `VAEntrypointEncSlice` and not only
+  `VAEntrypointVLD` — many drivers only support *decoding* 10-bit profiles,
+  not encoding them.
 - Linux `mux` mode is a one-source-file workflow that keeps processed audio and
   replaces the final video through `mkvmerge`.
 - Windows `mux` mode uses the same `mkvmerge`-based pipeline. The `mux` codec
