@@ -20,6 +20,7 @@
 
 #include <sys/stat.h>
 #include <unistd.h>
+#include <limits.h>
 
 /* Maximum number of files accepted on the command line */
 #define CLI_MAX_ARG_FILES CLI_BUFFER_SIZE
@@ -354,9 +355,20 @@ int main(int argc, char** argv) {
                         goto cleanup; /* Cannot continue without task dir */
                     }
 
-                    /* Run HQ job */
+                    /* Run HQ job — HQ requires absolute input path */
+                    char abs_input_path[PATH_MAX];
+                    if (realpath(files[fi], abs_input_path) == NULL) {
+                        /* Fallback: prepend CWD */
+                        char cwd[PATH_MAX];
+                        if (getcwd(cwd, sizeof(cwd)))
+                            snprintf(abs_input_path, sizeof(abs_input_path),
+                                     "%s/%s", cwd, files[fi]);
+                        else
+                            strncpy(abs_input_path, files[fi], sizeof(abs_input_path));
+                    }
+
                     HqResult hq_rc = hq_run_job(hq_adapter,
-                                                  files[fi],
+                                                  abs_input_path,
                                                   task_dir,
                                                   hq_encoder,
                                                   hq_preset,

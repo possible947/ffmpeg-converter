@@ -38,6 +38,86 @@ considered complete.
 - **`src/gui/gui_callbacks.c`**: mux dispatch in `run_converter()` replaced with
   `add_track_execute()`.  `run_gui_mux_postprocess()` deleted.  Threading,
   callbacks, and UI state updates remain unchanged.
+
+---
+
+## [Unreleased] — Phase 3.1: HQ Converter integration (2026-10-10)
+
+### Added
+- **`src/hq/`**: new HQ adapter and catalog modules.
+  - `hq_adapter.h` / `hq_adapter.c`: thin wrapper around the HQ Converter
+    Library public ABI. Resolves packaged HQ runtime root (executable-relative
+    on Linux, bundle-relative on macOS), dynamically loads `libhq_converter.so`
+    / `.dylib`, resolves public ABI symbols, manages HQ handle lifecycle,
+    executes synchronous HQ jobs with status callback forwarding, reads
+    eov2 result sessions for `video_track.path`, forwards Stop through the
+    public library control API, and provides recursive `task_N` cleanup.
+  - `hq_catalog.h` / `hq_catalog.c`: shared HQ preset catalog provider.
+    Loads `encoder_presets_v2.json` from the packaged HQ runtime tree,
+    exposes codec identifiers, preset identifiers per codec, default
+    preset per codec, validates codec/preset pairs, and detects ProRes
+    HQ encoders.
+  - `CMakeLists.txt`: STATIC library linked against `jansson` and `dl`.
+- **`hq_runtime_copy`** CMake target: copies the complete prepared HQ
+  release from `third_party/hq_converter/` to the build output next to
+  the CLI binary. Full directory tree preserved intact.
+- **CLI HQ integration** (`src/cli/main.c`): `-c hq_converter --encoder
+  <codec> --preset <preset>` selects HQ mode. The HQ adapter runs the
+  job, reads the eov2 session, and hands off the video track to
+  `add_track_execute()`.
+- **Linux GTK GUI HQ integration** (`src/gui/gui_window.c`,
+  `src/gui/gui_callbacks.c`): `hq_converter` appears as a codec group
+  when available. HQ encoders and presets are populated from the HQ
+  catalog. The worker thread runs HQ, reads the session, calls
+  `add_track_execute()`, and cleans up `task_N`.
+- **macOS native GUI HQ source integration** (`src/gui_macos_native/converter_bridge.m`):
+  HQ execution path added. Objective-C to C callback bridging preserved.
+  Bundle-relative runtime root resolution. HQ runtime tree bundled into
+  `Resources/hq_converter/` when `HQ_CONVERTER_ENABLED`.
+- **`hq_codec_is_available()`** in CLI and platform layers. HQ exposed
+  only when the runtime library loads and symbols resolve.
+- **`codec_is_hq()`** predicate in `gui_codec_utils.h`.
+- **`hq_remove_directory_tree()`**: recursive directory removal for
+  `task_N` cleanup. Does not follow symbolic links.
+
+### Changed
+- **`src/cli/cli_common.c`**: HQ group added to `cli_resolve_selection`.
+  HQ encoder name passed through `hw_device` field. HQ presets validated
+  at runtime from the HQ catalog. HQ codec listing shows encoders from
+  the shared catalog.
+- **`src/cli/cli_platform.h`** and platform implementations: new
+  `platform_hq_is_available()` function.
+- **`CMakeLists.txt`**: `hq_runtime_copy` target copies HQ tree to
+  `build/bin/hq_converter/` when `HQ_CONVERTER_ENABLED`.
+- **`src/cli/CMakeLists.txt`**: `hq_adapter` linked to `linux_cli` and
+  `macos_cli`.
+- **`src/gui/CMakeLists.txt`**: `hq_adapter` linked to `gui_lib`.
+- **`src/gui_macos_native/CMakeLists.txt`**: `hq_adapter` linked to
+  `macos_gui_native`. HQ runtime bundled into app Resources.
+- **Runtime path resolution**: `HQ_PROJECT_ROOT` and
+  `HQ_SEGMENTATOR_TOOLCHAIN_INI` set before dlopen to ensure the
+  Pascal HQ runtime reads correct paths. `FFC_HQ_ROOT` development
+  override supported.
+
+### Verified
+- End-to-end test x264/fullhd: HQ encoding, session read, Add Track,
+  audio processing (PCM), mkvmerge post-mux, `task_N` cleanup. Final
+  output contains H.264 video + PCM audio in MKV container.
+- End-to-end test x265/Medium: HQ encoding, session read, Add Track,
+  audio processing (PCM), mkvmerge post-mux, `task_N` cleanup. Final
+  output contains HEVC video + PCM audio in MKV container.
+- HQ runtime missing: explicit unavailability error, no fallback.
+- HQ codec/preset validation: invalid preset rejected before execution.
+- No HQ-specific audio or mux pipeline created.
+- Existing Audio Orchestrator and mux behavior preserved.
+- macOS runtime testing not performed (Linux build host).
+
+### No Changes
+- `src/converter/converter.c` / `converter.h`
+- `src/add_track/add_track.c` / `add_track.h`
+- `src/audio/audio_orchestrator.c` / `audio_orchestrator.h`
+- `src/mux/mux.c` / `mux.h`
+- FPC, Pascal, Delphi, .NET, C#, and managed implementations
 - **`src/gui_macos_native/converter_bridge.m`**: mux dispatch in
   `startConversionWithOptions:` replaced with `add_track_execute()`.
   `run_bridge_mux_postprocess()` and `resolve_effective_output_dir()` deleted.
