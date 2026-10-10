@@ -1,16 +1,23 @@
 #import "converter_bridge.h"
 #import "apple_m4v_creator.h"
 #include "add_track.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 
 static __weak id s_activeBridge;
 
 static int codec_is_mux(const char *codec) {
     return codec && strcmp(codec, "mux") == 0;
+}
+
+static int codec_is_hq(const char *codec) {
+    return codec && strcmp(codec, "hq_converter") == 0;
 }
 
 static int file_is_regular_readable(const char *path) {
@@ -378,7 +385,121 @@ static int locale_is_utf8(const char *value) {
         ConverterError err;
         ConvertOptions workOpts = optsCopy;
 
-        if (codec_is_mux(optsCopy.codec)) {
+        if (codec_is_hq(optsCopy.codec)) {
+            /* HQ Converter execution path */
+            HqAdapter *hq_adapter = NULL;
+            const char *hq_encoder = optsCopy.hw_device[0] != '\0' ? optsCopy.hw_device : NULL;
+            const char *hq_preset = optsCopy.preset[0] != '\0' ? optsCopy.preset : NULL;
+            char task_dir[1024];
+            char video_track[1024];
+            char effective_output_dir[1024];
+
+            if (fileCount != 1) {
+                err = ERR_INVALID_OPTIONS;
+                [self emitLog:@"HQ mode requires exactly one source file."];
+                [self emitStatus:@"HQ mode requires exactly one source file."];
+                goto finish_conversion;
+            }
+
+            if (!hq_encoder) {
+                err = ERR_INVALID_OPTIONS;
+                [self emitLog:@"HQ: no encoder selected."];
+                [self emitStatus:@"HQ: no encoder selected."];
+                goto finish_conversion;
+            }
+
+            if (!hq_preset) {
+                hq_preset = hq_catalog_default_preset(hq_encoder);
+                if (!hq_preset) {
+                    err = ERR_INVALID_OPTIONS;
+                    [self emitLog:@"HQ: no preset selected."];
+                    [self emitStatus:@"HQ: no preset selected."];
+                    goto finish_conversion;
+                }
+            }
+
+            /* Resolve output directory */
+            if (optsCopy.output_dir[0] != '\0') {
+                strncpy(effective_output_dir, optsCopy.output_dir, sizeof(effective_output_dir) - 1);
+            } else {
+                const char *home = getenv("HOME");
+                if (home)
+                    snprintf(effective_output_dir, sizeof(effective_output_dir),
+                             "%s/ffmpeg_converter", home);
+                else
+                    strncpy(effective_output_dir, "ffmpeg_converter", sizeof(effective_output_dir) - 1);
+            }
+            effective_output_dir[sizeof(effective_output_dir) - 1] = '\0';
+
+            /* Create task_N directory */
+            snprintf(task_dir, sizeof(task_dir), "%s/task_1", effective_output_dir);
+            if (mkdir(task_dir, 0755) != 0 && errno != EEXIST) {
+                err = ERR_OUTPUT_EXISTS;
+                [self emitLog:@"Failed to create task directory."];
+                goto finish_conversion;
+            }
+
+            /* Create HQ adapter and run job */
+            hq_adapter = hq_adapter_create();
+            if (!hq_adapter) {
+                err = ERR_FFMPEG_FAILED;
+                [self emitLog:@"Failed to create HQ adapter."];
+                goto finish_conversion;
+            }
+
+            err = ERR_OK;
+            cb_on_file_begin(cFiles[0], 1, fileCount);
+
+            HqResult hq_rc = hq_run_job(hq_adapter,
+                                         cFiles[0],
+                                         task_dir,
+                                         hq_encoder,
+                                         hq_preset,
+                                         c);
+
+            if (hq_rc == HQ_RESULT_OK) {
+                if (hq_read_video_track_path(task_dir,
+                                             hq_encoder,
+                                             hq_preset,
+                                             video_track,
+                                             sizeof(video_track)) != 0) {
+                    [self emitLog:@"HQ: failed to read session result."];
+                    err = ERR_FFMPEG_FAILED;
+                } else if (!file_is_regular_readable(video_track)) {
+                    [self emitLog:@"HQ: video track not found."];
+                    err = ERR_INPUT_NOT_FOUND;
+                } else if (converter_is_stopped(c)) {
+                    err = ERR_SKIP_FILE;
+                } else {
+                    /* Handoff to add_track_execute() */
+                    ConvertOptions hq_opts = optsCopy;
+                    strncpy(hq_opts.video_track_path, video_track,
+                            sizeof(hq_opts.video_track_path) - 1);
+                    hq_opts.video_track_path[sizeof(hq_opts.video_track_path) - 1] = '\0';
+                    AddTrackRequest req = {
+                        .source_file = cFiles[0],
+                        .convert_options = &hq_opts,
+                    };
+                    AddTrackResult track_result;
+                    err = add_track_execute(c, &req, &track_result);
+                }
+            } else if (hq_rc == HQ_RESULT_CANCELLED) {
+                err = ERR_SKIP_FILE;
+            } else {
+                char hq_err[512];
+                if (hq_adapter_get_last_error(hq_adapter, hq_err, sizeof(hq_err)) == 0
+                        && hq_err[0] != '\0') {
+                    NSString *line = [NSString stringWithUTF8String:hq_err];
+                    [self emitLog:[NSString stringWithFormat:@"HQ failed: %@", line]];
+                }
+                err = ERR_FFMPEG_FAILED;
+            }
+
+            cb_on_file_end(cFiles[0], err);
+            hq_adapter_destroy(hq_adapter);
+            hq_remove_directory_tree(task_dir);
+
+        } else if (codec_is_mux(optsCopy.codec)) {
             if (fileCount != 1) {
                 err = ERR_INVALID_OPTIONS;
                 [self emitLog:@"Mux mode requires exactly one source file."];

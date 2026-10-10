@@ -47,6 +47,7 @@ target_link_libraries(macos_gui_native
     PRIVATE converter
     PRIVATE mux
     PRIVATE add_track
+    PRIVATE hq_adapter
     PRIVATE jansson
     PRIVATE "-framework Cocoa"
 )
@@ -91,6 +92,14 @@ if (EXISTS "${BUNDLE_MKVMERGE_SCRIPT}")
     )
 else()
     message(WARNING "bundle_mkvmerge_deps.sh not found; mkvmerge will not be bundled into app.")
+endif()
+
+if (HQ_CONVERTER_ENABLED)
+    add_custom_command(TARGET macos_gui_native POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/hq_converter"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${HQ_CONVERTER_RELEASE_DIR}" "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/hq_converter"
+        COMMENT "Bundling HQ_converter runtime tree into app Resources"
+    )
 endif()
 
 install(TARGETS macos_gui_native
