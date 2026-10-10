@@ -4,12 +4,14 @@ add_library(converter STATIC
     converter.c
     converter_common.c
     input_video_info.c
+    ${CMAKE_SOURCE_DIR}/src/audio/audio_orchestrator.c
     ${CMAKE_SOURCE_DIR}/src/preset/preset_loader.c
     ${CMAKE_SOURCE_DIR}/src/platform/selection_catalog.c
 )
 
 target_include_directories(converter PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/src/audio
     ${CMAKE_SOURCE_DIR}/src/platform
     ${CMAKE_SOURCE_DIR}/src/preset
 )

@@ -60,6 +60,64 @@ considered complete.
   hardware genuinely does not support encoding those 10-bit profiles via
   VAAPI.
 
+## [Unreleased] — Phase 3A+B: Audio Orchestrator extraction
+
+### Added
+- **`src/audio/audio_orchestrator.h`** (228 lines): public header for the
+  procedural audio policy and analysis module.  Exports enums
+  (`AudioOutputMode`, `AudioNormalizationMode`, `AudioGenre`,
+  `AudioEncoder`), data structs (`AudioEncoderCaps`, `PeakAnalysisResult`,
+  `LoudnormAnalysisResult`, `AudioConfiguration`), and 12 public functions
+  covering mode parsing, genre-to-target mapping, AAC encoder capability
+  probing with process-wide lazy cache, audio configuration resolution,
+  filter-expression generation, and peak/loudnorm two-pass analysis.
+- **`src/audio/audio_orchestrator.c`** (631 lines): implementation of all
+  audio logic previously embedded in `converter.c`.  Uses the existing
+  `ConverterCallbacks` interface for progress and error reporting; no new
+  callback abstraction introduced.  Private static helpers
+  (`parse_time_hms`, `json_number_or_string_value`) for analysis
+  functions.
+
+### Changed
+- **`src/converter/converter.c`** (−476 lines net): removed audio mode
+  validation, genre target switch, AAC encoder probing
+  (`ffmpeg_encoder_available`), filter-expression generation
+  (`build_audio_filter_expr`), peak two-pass (`peak_two_pass`), and
+  loudnorm two-pass (`loudnorm_two_pass`) along with their static helpers.
+  Replaced inline calls with audio module API: `audio_peak_analyze()`,
+  `audio_loudnorm_analyze()`, `audio_build_filter_expression()`,
+  `audio_resolve_configuration()`.  Removed now-unused
+  `#include <jansson.h>`.  `build_ffmpeg_cmd()` remains the sole complete
+  FFmpeg command builder; `converter_process_files()` remains the owner of
+  the per-file workflow orchestration.
+- **`src/converter/CMakeLists.txt`**: added `audio_orchestrator.c` to the
+  converter library source list and `src/audio` to include directories.
+
+### Single-owner boundaries established
+- **Track-selection policy** (`-map`, `-filter_complex`, `asplit`):
+  `build_ffmpeg_cmd()` in `converter.c` — reads `is_dual_output` flag from
+  the audio module but assembles all stream-mapping fragments itself.
+- **Normalization policy** (filter chain per mode): `audio_build_filter_expression()` in the audio module.
+- **Audio-codec selection** (encoder priority, mode→encoder, bitrate,
+  sample rate): `audio_resolve_configuration()` +
+  `audio_select_preferred_encoder()` in the audio module.
+- **Audio-filter policy** (soxr params, loudnorm targets, peak gain
+  formula): `audio_build_filter_expression()` and
+  `audio_peak_analyze()` in the audio module.
+- **FFmpeg command construction**: exclusively `build_ffmpeg_cmd()` in
+  `converter.c` — the audio module contains only analysis-only FFmpeg
+  invocations (`-vn -f null -`), never a complete encode command.
+
+### Result
+- **Net −247 lines** in `converter.c`; audio logic consolidated into a
+  dedicated single-module procedural API.
+- Linux CLI and Linux GUI targets build cleanly; no warnings.
+- 40/40 audio mode × normalization × genre combinations verified with
+  identical output stream codecs, sample rates, and bitrates.
+- No user-visible behavior changes; no new audio modes; no
+  `audio_orchestrator_create/destroy` lifecycle; no second command builder.
+- M4V, mux, CLI, GUI, preset, and platform layers untouched.
+
 ## [Unreleased] — Phase 2: Remove Windows platform support
 
 ### Removed
