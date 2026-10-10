@@ -360,7 +360,7 @@ int hq_adapter_get_last_error(HqAdapter *adapter,
 }
 
 /* ===============================================================
- *  Public API — eov2 session reader (stub)
+ *  Public API — eov2 session reader
  * =============================================================== */
 
 int hq_read_video_track_path(const char *work_dir,
@@ -369,11 +369,65 @@ int hq_read_video_track_path(const char *work_dir,
                               char *out_path,
                               size_t out_path_sz)
 {
-    (void)work_dir;
-    (void)codec;
-    (void)preset;
-    if (out_path && out_path_sz > 0)
-        out_path[0] = '\0';
-    /* Full implementation in Phase 2 commit */
-    return -1;
+    char session_path[4096];
+    json_t *root_json = NULL;
+    json_t *artifacts = NULL;
+    json_t *outputs = NULL;
+    json_t *video_track = NULL;
+    json_t *path_json = NULL;
+    json_error_t error;
+    FILE *fp = NULL;
+    int rc = -1;
+
+    if (!work_dir || !codec || !preset || !out_path || out_path_sz == 0)
+        return -1;
+
+    out_path[0] = '\0';
+
+    /* Construct session file path */
+    snprintf(session_path, sizeof(session_path),
+             "%s/job.%s.%s.eov2.session.json",
+             work_dir, codec, preset);
+
+    /* Load JSON */
+    fp = fopen(session_path, "r");
+    if (!fp)
+        return -1;
+
+    root_json = json_loadf(fp, 0, &error);
+    fclose(fp);
+    fp = NULL;
+
+    if (!root_json)
+        return -1;
+
+    /* Navigate: artifacts -> outputs -> video_track -> path */
+    artifacts = json_object_get(root_json, "artifacts");
+    if (!json_is_object(artifacts))
+        goto done;
+
+    outputs = json_object_get(artifacts, "outputs");
+    if (!json_is_object(outputs))
+        goto done;
+
+    video_track = json_object_get(outputs, "video_track");
+    if (!json_is_object(video_track))
+        goto done;
+
+    path_json = json_object_get(video_track, "path");
+    if (!json_is_string(path_json))
+        goto done;
+
+    {
+        const char *path_str = json_string_value(path_json);
+        if (path_str) {
+            strncpy(out_path, path_str, out_path_sz - 1);
+            out_path[out_path_sz - 1] = '\0';
+            rc = 0;
+        }
+    }
+
+done:
+    json_decref(root_json);
+    return rc;
 }

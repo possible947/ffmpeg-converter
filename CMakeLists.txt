@@ -80,6 +80,17 @@ file(WRITE "${GENERATED_PRESETS_DIR}/presets.json" "${PRESETS_CONTENT}")
 
 if (HQ_CONVERTER_ENABLED)
   message(STATUS "HQ_converter runtime feature: enabled")
+
+  # Copy the complete prepared HQ release to the build output.
+  # The full directory tree must be preserved — the HQ library resolves
+  # preset paths by walking up from its own location.
+  set(HQ_RUNTIME_DEST "${CMAKE_BINARY_DIR}/hq_converter")
+  add_custom_target(hq_runtime_copy ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${HQ_CONVERTER_RELEASE_DIR}"
+      "${HQ_RUNTIME_DEST}"
+    COMMENT "Copying HQ_converter runtime tree"
+  )
 else()
   message(STATUS "HQ_converter runtime feature: disabled")
 endif()

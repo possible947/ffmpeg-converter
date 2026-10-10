@@ -4,12 +4,10 @@
  * HQ preset catalog provider implementation.
  *
  * Loads encoder_presets_v2.json and provides codec/preset enumeration.
- *
- * Phase 1 commit: stub functions only.
- * Full implementation will be added in subsequent commits.
  */
 
 #include "hq_catalog.h"
+#include "hq_adapter.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,10 +37,134 @@ static int g_loaded = 0;
 
 int hq_catalog_load(const char *runtime_root)
 {
-    (void)runtime_root;
-    /* Full implementation in Phase 2 commit */
-    g_loaded = 0;
-    return -1;
+    const char *root;
+    char catalog_path[4096];
+    json_t *root_json = NULL;
+    json_t *encoders = NULL;
+    json_error_t error;
+    FILE *fp = NULL;
+    int rc = -1;
+
+    /* If already loaded, return success */
+    if (g_loaded)
+        return 0;
+
+    /* Resolve runtime root */
+    if (runtime_root && runtime_root[0] != '\0') {
+        root = runtime_root;
+    } else {
+        root = hq_resolve_runtime_root();
+    }
+    if (!root)
+        return -1;
+
+    /* Construct catalog path */
+    snprintf(catalog_path, sizeof(catalog_path),
+             "%s/modules/encoder_orchestrator_v2/config/presets/"
+             "encoder_presets_v2.json",
+             root);
+
+    /* Load JSON */
+    fp = fopen(catalog_path, "r");
+    if (!fp)
+        return -1;
+
+    root_json = json_loadf(fp, 0, &error);
+    fclose(fp);
+    fp = NULL;
+
+    if (!root_json) {
+        return -1;
+    }
+
+    encoders = json_object_get(root_json, "encoders");
+    if (!json_is_object(encoders)) {
+        json_decref(root_json);
+        return -1;
+    }
+
+    /* Count codec entries */
+    {
+        const char *key;
+        json_t *val;
+        size_t count = 0;
+        json_object_foreach(encoders, key, val)
+            count++;
+        g_codec_count = count;
+    }
+
+    if (g_codec_count == 0) {
+        json_decref(root_json);
+        return -1;
+    }
+
+    /* Allocate codec entries */
+    g_codecs = calloc((size_t)g_codec_count, sizeof(HqCodecEntry));
+    if (!g_codecs) {
+        json_decref(root_json);
+        g_codec_count = 0;
+        return -1;
+    }
+
+    /* Parse each encoder entry */
+    {
+        const char *codec_name;
+        json_t *codec_obj;
+        size_t idx = 0;
+
+        json_object_foreach(encoders, codec_name, codec_obj) {
+            json_t *default_preset;
+            json_t *presets_obj;
+            const char *preset_name;
+            json_t *preset_obj;
+
+            /* Codec name */
+            snprintf(g_codecs[idx].name, sizeof(g_codecs[idx].name),
+                     "%s", codec_name);
+
+            /* Default preset */
+            default_preset = json_object_get(codec_obj, "default_preset");
+            if (json_is_string(default_preset)) {
+                snprintf(g_codecs[idx].default_preset,
+                         sizeof(g_codecs[idx].default_preset),
+                         "%s",
+                         json_string_value(default_preset));
+            }
+
+            /* Presets array */
+            presets_obj = json_object_get(codec_obj, "presets");
+            if (json_is_object(presets_obj)) {
+                size_t preset_count = 0;
+                size_t preset_idx = 0;
+
+                /* Count presets */
+                json_object_foreach(presets_obj, preset_name, preset_obj)
+                    preset_count++;
+
+                /* Allocate NULL-terminated array */
+                g_codecs[idx].presets = calloc(preset_count + 1,
+                                               sizeof(char *));
+                if (g_codecs[idx].presets) {
+                    json_object_foreach(presets_obj,
+                                        preset_name, preset_obj) {
+                        g_codecs[idx].presets[preset_idx] =
+                            strdup(preset_name);
+                        preset_idx++;
+                    }
+                    g_codecs[idx].presets[preset_idx] = NULL; /* sentinel */
+                    g_codecs[idx].preset_count = preset_count;
+                }
+            }
+
+            idx++;
+        }
+    }
+
+    json_decref(root_json);
+    g_loaded = 1;
+    rc = 0;
+
+    return rc;
 }
 
 void hq_catalog_free(void)
