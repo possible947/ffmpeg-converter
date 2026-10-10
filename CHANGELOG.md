@@ -60,6 +60,45 @@ considered complete.
   hardware genuinely does not support encoding those 10-bit profiles via
   VAAPI.
 
+## [Unreleased] — Phase 2: Remove Windows platform support
+
+### Removed
+- **Entire Windows C codebase**: `src/cli/platform/cli_windows.c`,
+  `src/converter/platform/converter_windows.c`,
+  `src/mux/platform/mux_platform_windows.c`,
+  `src/m4v/platform/m4v_platform_windows.c`, and
+  `src/platform/windows/` (runtime_probe.c/h, progress.c).
+- **Windows FPC build targets** from root `CMakeLists.txt`
+  (`fpc_converter_windows`, `fpc_gui_windows`).
+- **Windows CLI target** (`windows_cli`) from `src/cli/CMakeLists.txt`.
+- **Windows CMake branches** from all `src/*/CMakeLists.txt` files.
+- **Windows preset catalog data** from `presets.json.in` and
+  `BUILTIN_PRESETS_JSON` in `preset_loader.c`.
+- **Windows `#ifdef _WIN32` conditionals** across the C codebase
+  (strtok_s shim, file API, process ID, path resolution, UTF-16 argv).
+- **Windows `platform_utf8_argv()` declaration** from `cli_platform.h` and
+  its call/cleanup logic from `main.c`.
+- **Windows-specific capability flags** comments and platform name references
+  in all header files.
+- **Windows strings** from `presets.json.in` selection catalog and
+  `platform_names` arrays in preset/loader code.
+
+### Changed
+- `src/platform/CMakeLists.txt` always builds the Linux progress module.
+- `src/converter/CMakeLists.txt` uses Linux or macOS branches only.
+- `src/mux/CMakeLists.txt` and `src/m4v/CMakeLists.txt` use POSIX platform
+  sources unconditionally.
+- Platform comments in headers updated to reference Linux/macOS only.
+- Test fixtures (`test_preset_loader.c`, `test_runtime_probe_catalog.c`)
+  updated to use Linux/macOS platform names.
+
+### Result
+- **~500 lines removed** across platform sources and build files.
+- Linux CLI builds: `cmake --build build --target linux_cli`.
+- Linux GUI builds: `cmake --build build --target linux_gui`.
+- macOS CLI/GUI targets unaffected.
+- No functional changes to converter, audio, mux, or M4V behavior on Linux/macOS.
+
 ## [Unreleased] — Phase 1: Remove interactive CLI menu system
 
 ### Removed

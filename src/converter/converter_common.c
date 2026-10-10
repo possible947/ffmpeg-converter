@@ -37,18 +37,9 @@ double parse_time_hms(const char *s) {
 /**
  * Returns 1 if path is absolute on any platform, 0 if relative.
  * POSIX: starts with '/'
- * Windows: starts with drive letter + ':' or UNC '\\\\'
  */
 int is_path_absolute(const char* path) {
     if (!path || path[0] == '\0') return 0;
-    if (path[0] == '/') return 1;          /* POSIX */
-#ifdef _WIN32
-    size_t plen = strlen(path);
-    /* Windows: "C:\..." or "\\server\..." */
-    if (plen >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/'))
-        return 1;
-    if (plen >= 2 && path[0] == '\\' && path[1] == '\\')
-        return 1;
-#endif
+    if (path[0] == '/') return 1;
     return 0;
 }

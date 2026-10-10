@@ -2,8 +2,7 @@
  * m4v_platform.h
  * Platform abstraction interface for the M4V module.
  * All platform-specific operations are declared here and implemented in
- * platform/m4v_platform_posix.c (Linux + macOS) and
- * platform/m4v_platform_windows.c (Windows).
+ * platform/m4v_platform_posix.c (Linux + macOS).
  *
  * Rules:
  *  - No platform #ifdef in this file
@@ -22,17 +21,10 @@ extern "C" {
 #endif
 
 /* ---------------------------------------------------------------
- *  PATH_MAX fallback (POSIX defines it; Windows MSVC does not)
+ *  PATH_MAX (POSIX defines it)
  * --------------------------------------------------------------- */
 #ifndef PATH_MAX
 #  define PATH_MAX 4096
-#endif
-
-/* ---------------------------------------------------------------
- *  strtok_r / strtok_s compatibility shim
- * --------------------------------------------------------------- */
-#if defined(_MSC_VER)
-#  define strtok_r strtok_s
 #endif
 
 /* ---------------------------------------------------------------
@@ -43,21 +35,18 @@ extern "C" {
  * m4v_platform_is_regular_file() — Returns 1 if path refers to a regular
  * file that exists and can be read.
  * POSIX: stat() + S_ISREG + access(R_OK)
- * Windows: GetFileAttributesA() without FILE_ATTRIBUTE_DIRECTORY
  */
 int m4v_platform_is_regular_file(const char *path);
 
 /**
  * m4v_platform_file_exists() — Returns 1 if path exists (any file type).
  * POSIX: access(F_OK)
- * Windows: GetFileAttributesA() != INVALID_FILE_ATTRIBUTES
  */
 int m4v_platform_file_exists(const char *path);
 
 /**
  * m4v_platform_unlink() — Remove a file.
  * POSIX: unlink()
- * Windows: _unlink()
  * Returns 0 on success, -1 on error.
  */
 int m4v_platform_unlink(const char *path);
@@ -78,7 +67,6 @@ int m4v_platform_make_temp_dir(const char *base_dir, char *path, size_t path_sz)
  * m4v_platform_remove_temp_dir() — Recursively remove a temporary directory
  * and all its contents.
  * POSIX: recursive opendir/unlink/rmdir
- * Windows: FindFirstFileA/DeleteFileA/RemoveDirectoryA
  */
 void m4v_platform_remove_temp_dir(const char *dir);
 
@@ -89,7 +77,6 @@ void m4v_platform_remove_temp_dir(const char *dir);
 /**
  * m4v_platform_popen() — Open a process pipe for reading.
  * POSIX: popen(cmd, mode)
- * Windows: _popen(cmd, mode)
  */
 FILE *m4v_platform_popen(const char *cmd, const char *mode);
 
@@ -97,7 +84,6 @@ FILE *m4v_platform_popen(const char *cmd, const char *mode);
  * m4v_platform_pclose_exitcode() — Close a process pipe and return the
  * process exit code.
  * POSIX: pclose() + WIFEXITED / WEXITSTATUS
- * Windows: _pclose() (returns exit code directly)
  * Returns the exit code on success, or -1 on error.
  */
 int m4v_platform_pclose_exitcode(FILE *fp);
@@ -110,7 +96,6 @@ int m4v_platform_pclose_exitcode(FILE *fp);
  * m4v_platform_null_redirect() — Returns the shell redirect string used to
  * suppress stderr output.
  * POSIX: "2>/dev/null"
- * Windows: "2>nul"
  */
 const char *m4v_platform_null_redirect(void);
 
@@ -118,7 +103,6 @@ const char *m4v_platform_null_redirect(void);
  * m4v_platform_shell_quote() — Write a safely-quoted version of input into
  * out (at most out_sz bytes including the NUL terminator).
  * POSIX: single-quote with '\'' escaping
- * Windows: double-quote with cmd.exe (CommandLineToArgvW) escaping
  */
 void m4v_platform_shell_quote(const char *input, char *out, size_t out_sz);
 

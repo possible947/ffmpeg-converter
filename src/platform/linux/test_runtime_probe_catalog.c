@@ -40,7 +40,7 @@ int main(void)
         "          }\n"
         "        }\n"
         "      },\n"
-        "      \"windows\": {\n"
+        "      \"macos\": {\n"
         "        \"hwaccel\": {\"enabled\": true, \"groups\": {}}\n"
         "      }\n"
         "    }\n"
@@ -70,7 +70,7 @@ int main(void)
            "disabled component is rejected");
     expect(!linux_probe_catalog_component_enabled(path, "linux", "disabled", "h264", "h264_vaapi"),
            "disabled group is rejected");
-    expect(!linux_probe_catalog_component_enabled(path, "windows", "vaapi", "h264", "h264_vaapi"),
+    expect(!linux_probe_catalog_component_enabled(path, "macos", "vaapi", "h264", "h264_vaapi"),
            "component from another platform is rejected");
     expect(!linux_probe_catalog_component_enabled(path, "linux", "vaapi", "h264", "wrong_codec"),
            "final codec mismatch is rejected");

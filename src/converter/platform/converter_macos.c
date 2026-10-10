@@ -396,7 +396,7 @@ int platform_supports_codec(const char* codec) {
         strcmp(codec, "prores_videotoolbox") == 0)
         return 1;
 
-    /* Linux / Windows platform-specific codecs are not supported on macOS */
+    /* Linux platform-specific codecs are not supported on macOS */
     return 0;
 }
 

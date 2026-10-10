@@ -15,21 +15,7 @@ target_include_directories(converter PUBLIC
 )
 
 # Platform-specific source files and settings
-if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    target_sources(converter PRIVATE
-        platform/converter_windows.c
-        ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
-        ${CMAKE_SOURCE_DIR}/src/platform/runtime_catalog.c
-        ${CMAKE_SOURCE_DIR}/src/platform/windows/runtime_probe.c
-    )
-    target_include_directories(converter PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/platform/windows
-    )
-    target_link_libraries(converter PRIVATE
-        shlwapi      # PathFindOnPathA, PathFileExistsA
-    )
-
-elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(converter PRIVATE
         platform/converter_linux.c
         platform/converter_posix.c
@@ -40,8 +26,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_compile_definitions(converter PRIVATE
         FFMPEG_CONVERTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     )
-
-elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+elseif (APPLE)
     target_sources(converter PRIVATE
         platform/converter_macos.c
         platform/converter_posix.c
@@ -55,7 +40,6 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     target_link_libraries(converter PRIVATE
         "-framework CoreFoundation"
     )
-
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")

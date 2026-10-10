@@ -14,7 +14,7 @@ extern "C" {
 #endif
 
 /* Common binary resolution fields (same on all platforms).
- * Windows and macOS CodecSupport structs embed this as their first member. */
+ * Linux and macOS CodecSupport structs embed this as their first member. */
 typedef struct {
     char ffmpeg_bin[1024];
     char ffprobe_bin[1024];

@@ -1,6 +1,6 @@
 /**
  * cli_common.c
- * Platform-agnostic CLI helpers shared by Linux, macOS, and Windows.
+ * Platform-agnostic CLI helpers shared by Linux and macOS.
  *
  * This file must not contain any platform #ifdef blocks.
  * All platform-specific behaviour is delegated to cli_platform.h functions.
@@ -492,8 +492,6 @@ int verify_all_files(const char** files, int file_count) {
 static const char* get_platform_name(void) {
 #if defined(__APPLE__)
     return "macos";
-#elif defined(_WIN32)
-    return "windows";
 #else
     return "linux";
 #endif

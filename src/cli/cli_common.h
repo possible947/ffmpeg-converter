@@ -2,7 +2,7 @@
  * cli_common.h
  * Declarations for platform-agnostic CLI helpers.
  * All functions here are implemented in cli_common.c and are
- * shared across Linux, macOS, and Windows.
+ * shared across Linux and macOS.
  */
 
 #ifndef CLI_COMMON_H

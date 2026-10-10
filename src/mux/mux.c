@@ -9,11 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#if defined(_WIN32)
-#include <process.h>
-#else
 #include <unistd.h>
-#endif
 
 static void emit_message(const ConverterCallbacks* callbacks, const char* text)
 {
@@ -240,11 +236,7 @@ static int run_mux_command(const char* cmd, const ConverterCallbacks* callbacks)
 
 static unsigned long current_process_id(void)
 {
-#if defined(_WIN32)
-    return (unsigned long)_getpid();
-#else
     return (unsigned long)getpid();
-#endif
 }
 
 static int build_unique_temp_output_path(const char* output_file,

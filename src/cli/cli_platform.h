@@ -2,7 +2,7 @@
  * cli_platform.h
  * Platform abstraction interface for the CLI entry point.
  * All platform-specific operations are declared here and implemented
- * in platform/cli_{linux,macos,windows}.c
+ * in platform/cli_{linux,macos}.c
  *
  * Rules:
  *  - No platform #ifdef in this file
@@ -73,7 +73,6 @@ int platform_mux_is_supported(void);
 /**
  * platform_m4v_is_supported() — Returns 1 if Apple M4V creation is
  * available (requires MP4Box found on PATH or next to the executable).
- * Windows only; always returns 0 on other platforms.
  */
 int platform_m4v_is_supported(void);
 
@@ -156,19 +155,6 @@ int platform_ensure_output_dir(const char* path);
 ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
                                             const ConverterCallbacks* cb,
                                             const char* input_file);
-
-/**
- * platform_utf8_argv() — Returns an argv array where every string is
- * UTF-8 encoded.  On Windows this uses GetCommandLineW / CommandLineToArgvW
- * to bypass the ANSI code-page conversion applied by the C runtime, so file
- * paths with non-ANSI characters (Cyrillic, CJK, special symbols) arrive
- * intact.  On Linux / macOS the process already receives UTF-8 argv, so the
- * function is a no-op that returns the original argv unchanged.
- *
- * If *needs_free is set to 1 on return, the caller must free each
- * result[i] and then result itself when argv is no longer needed.
- */
-char** platform_utf8_argv(int argc, char** argv, int* needs_free);
 
 #ifdef __cplusplus
 }

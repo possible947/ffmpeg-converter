@@ -18,21 +18,12 @@
 #define CLI_MAX_ARG_FILES CLI_BUFFER_SIZE
 
 int main(int argc, char** argv) {
-    CliPlatformHandle* h          = NULL;
-    Converter*         c          = NULL;
-    const char**       files      = NULL;
+    CliPlatformHandle* h    = NULL;
+    Converter*         c    = NULL;
+    const char**       files = NULL;
     const char*        arg_files[CLI_MAX_ARG_FILES];
     int                file_count = 0;
     int                result     = 0;
-    char**             utf8_argv  = NULL;
-    int                utf8_needs_free = 0;
-
-    /* Replace argv with properly-encoded UTF-8 strings.
-     * On Windows this uses GetCommandLineW so paths with non-ANSI
-     * characters (Cyrillic, special symbols) survive argument passing. */
-    utf8_argv = platform_utf8_argv(argc, argv, &utf8_needs_free);
-    if (utf8_argv)
-        argv = utf8_argv;
 
     printf("Hardware components detection in progress...\n");
     fflush(stdout);
@@ -266,12 +257,6 @@ cleanup:
 
     converter_destroy(c);
     cli_platform_cleanup(h);
-
-    if (utf8_needs_free && utf8_argv) {
-        int i;
-        for (i = 0; i < argc; i++) free(utf8_argv[i]);
-        free(utf8_argv);
-    }
 
     return result;
 }

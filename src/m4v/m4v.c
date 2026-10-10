@@ -416,11 +416,6 @@ ConverterError m4v_create_from_input(const char *input_file,
     copy_string(output_dir, sizeof(output_dir), output_file);
     {
         char *last_slash = strrchr(output_dir, '/');
-#ifdef _WIN32
-        char *last_backslash = strrchr(output_dir, '\\');
-        if (last_backslash && (!last_slash || last_backslash > last_slash))
-            last_slash = last_backslash;
-#endif
         if (last_slash)
             *last_slash = '\0';
         else

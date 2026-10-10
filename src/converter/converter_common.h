@@ -19,7 +19,6 @@ int    get_filter_threads(void);
 /**
  * Returns 1 if path is absolute on any platform, 0 if relative.
  * POSIX: starts with '/'
- * Windows: starts with drive letter + ':' or UNC '\\\\'
  */
 int    is_path_absolute(const char* path);
 

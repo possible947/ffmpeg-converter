@@ -135,8 +135,6 @@ static const char *get_platform_name(void)
 {
 #if defined(__APPLE__)
     return "macos";
-#elif defined(_WIN32)
-    return "windows";
 #else
     return "linux";
 #endif

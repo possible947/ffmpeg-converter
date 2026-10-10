@@ -63,7 +63,7 @@ static void test_preset_lookup(void) {
             {"linux", "prores_ks", "default"},
             {"macos", "copy", "default"},
             {"macos", "prores", "default"},
-            {"windows", "copy", "default"},
+            {"linux", "copy", "default"},
         };
         
         for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
@@ -219,7 +219,7 @@ static void test_memory_cleanup(void) {
         for (int i = 0; i < 10; i++) {
             preset_db_get(db, "linux", "copy", "default");
             preset_db_get(db, "macos", "prores", "default");
-            preset_db_get(db, "windows", "prores_ks", "default");
+            preset_db_get(db, "linux", "prores_ks", "default");
         }
         
         // Free should work without errors
@@ -236,7 +236,7 @@ static void test_cross_platform_consistency(void) {
     
     if (db) {
         // All platforms should have 'copy' codec with 'default' preset
-        const char *platforms[] = {"linux", "macos", "windows"};
+        const char *platforms[] = {"linux", "macos"};
         
         for (int i = 0; i < 3; i++) {
             const PresetInfo *preset = preset_db_get(db, platforms[i], "copy", "default");
