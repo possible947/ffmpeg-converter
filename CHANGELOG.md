@@ -60,6 +60,39 @@ considered complete.
   hardware genuinely does not support encoding those 10-bit profiles via
   VAAPI.
 
+## [Unreleased] — Phase 1: Remove interactive CLI menu system
+
+### Removed
+- **Entire interactive CLI menu** (`run_menu()`, `~600 lines`): step-by-step
+  codec/profile/deblock/audio-normalization/audio-output/overwrite/output-dir
+  wizard, including drag-and-drop file collection and M4V stream-option
+  prompts.
+- **All interactive input helpers** (`~140 lines`): `clear_screen()`,
+  `read_choice()`, `process_input_path()`, `read_input_list()`,
+  `read_output_dir()`, `read_single_file_path()`.
+- **Interactive preset chooser** (`cli_choose_preset_for_codec()`): numbered
+  preset list with `scanf` selection.
+- **PlatformCodecEntry infrastructure**: `PlatformCodecEntry` struct,
+  `PlatformCodecEntry entries[]` arrays, `codec_count` fields, and
+  `platform_get_codec_count()` / `platform_get_codec_entries()` from all
+  three platform files (Linux, macOS, Windows).
+- **Obsolete backup file**: `src/cli/cli_common.c.backup`.
+
+### Changed
+- `src/cli/main.c` no longer dispatches `run_menu()` when `argc == 1`;
+  instead it calls `parse_args()` and prints usage when no files are given.
+- `cli_common.h`: removed all interactive-menu declarations; M4V options
+  comment updated to reflect `parse_args`-only population.
+- `cli_platform.h`: removed `PlatformCodecEntry` struct and
+  `platform_get_codec_count()` / `platform_get_codec_entries()` declarations.
+
+### Result
+- **−1,445 lines** across 7 files.
+- CLI is now argument-only: `ffmpeg_converter --help`, `--version`, and
+  `ffmpeg_converter file.mp4 [options]` continue to work exactly as before.
+- No audio, converter, mux, M4V, GUI, preset, catalog, or runtime logic
+  was modified.
+
 ## [Unreleased] — Unified preset catalog & architecture cleanup (2026-09-12)
 
 ### Fixed
