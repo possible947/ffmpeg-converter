@@ -308,7 +308,104 @@ int hq_request_stop_from_converter(HqAdapter *adapter)
 }
 
 /* ===============================================================
- *  Public API — job execution (stub)
+ *  HQ status callback bridge
+ * =============================================================== */
+
+/* Context passed through the HQ callback chain */
+typedef struct {
+    Converter *converter;
+} HqCallbackCtx;
+
+static void hq_status_callback_bridge(const uint8_t *json_utf8,
+                                       int64_t json_length,
+                                       void *user_context)
+{
+    HqCallbackCtx *ctx = (HqCallbackCtx *)user_context;
+    const ConverterCallbacks *cb;
+    json_t *root_json;
+    json_t *stage_j, *progress_j, *fps_j, *eta_j, *message_j;
+    const char *stage_str;
+    float progress = 0, fps = 0, eta = 0;
+
+    if (!ctx || !ctx->converter)
+        return;
+
+    cb = converter_get_callbacks(ctx->converter);
+    if (!cb)
+        return;
+
+    /* Parse the JSON payload */
+    root_json = json_loadb((const char *)json_utf8,
+                           (size_t)json_length, 0, NULL);
+    if (!root_json)
+        return;
+
+    /* Extract fields */
+    stage_j = json_object_get(root_json, "stage");
+    progress_j = json_object_get(root_json, "progress_percent");
+    fps_j = json_object_get(root_json, "fps");
+    eta_j = json_object_get(root_json, "remaining_time_sec");
+    message_j = json_object_get(root_json, "message");
+
+    stage_str = json_is_string(stage_j)
+                    ? json_string_value(stage_j) : NULL;
+    if (json_is_real(progress_j))
+        progress = (float)json_real_value(progress_j);
+    else if (json_is_integer(progress_j))
+        progress = (float)(int)json_integer_value(progress_j);
+    if (json_is_real(fps_j))
+        fps = (float)json_real_value(fps_j);
+    else if (json_is_integer(fps_j))
+        fps = (float)(int)json_integer_value(fps_j);
+    if (json_is_real(eta_j))
+        eta = (float)json_real_value(eta_j);
+    else if (json_is_integer(eta_j))
+        eta = (float)(int)json_integer_value(eta_j);
+
+    /* Map HQ stage to converter callbacks */
+    if (stage_str) {
+        if (strcmp(stage_str, "preparing") == 0) {
+            if (cb->on_message) {
+                const char *msg = json_is_string(message_j)
+                                     ? json_string_value(message_j)
+                                     : "Preparing HQ session...";
+                cb->on_message(msg);
+            }
+        } else if (strcmp(stage_str, "analyzing") == 0) {
+            if (cb->on_progress_analysis)
+                cb->on_progress_analysis(progress, eta);
+        } else if (strcmp(stage_str, "encoding") == 0) {
+            if (cb->on_progress_encode)
+                cb->on_progress_encode(progress, fps, eta);
+        } else if (strcmp(stage_str, "completed") == 0) {
+            if (cb->on_message) {
+                const char *msg = json_is_string(message_j)
+                                     ? json_string_value(message_j)
+                                     : "HQ encoding complete";
+                cb->on_message(msg);
+            }
+        } else if (strcmp(stage_str, "failed") == 0) {
+            if (cb->on_error) {
+                const char *msg = json_is_string(message_j)
+                                     ? json_string_value(message_j)
+                                     : "HQ processing failed";
+                cb->on_error(msg, ERR_FFMPEG_FAILED);
+            }
+        } else if (strcmp(stage_str, "cancelled") == 0) {
+            if (cb->on_error) {
+                const char *msg = json_is_string(message_j)
+                                     ? json_string_value(message_j)
+                                     : "HQ cancelled";
+                cb->on_error(msg, ERR_SKIP_FILE);
+            }
+        }
+    }
+
+    json_decref(root_json);
+}
+
+/* ===============================================================
+ *  Public API — job execution
  * =============================================================== */
 
 HqResult hq_run_job(HqAdapter *adapter,
@@ -318,14 +415,69 @@ HqResult hq_run_job(HqAdapter *adapter,
                     const char *preset,
                     Converter *converter)
 {
-    (void)adapter;
-    (void)input_path;
-    (void)work_dir;
-    (void)codec;
-    (void)preset;
-    (void)converter;
-    /* Full implementation in Phase 2 commit */
-    return HQ_RESULT_FAILED;
+    const char *runtime_root;
+    char project_root[4096];
+    const char *existing_env;
+    char saved_env[4096];
+    int saved_env_set = 0;
+    HqCallbackCtx cb_ctx;
+    int32_t rc;
+    HqResult result;
+
+    if (!adapter || !adapter->hq_handle ||
+        !input_path || !work_dir || !codec || !preset)
+        return HQ_RESULT_INVALID_ARGUMENT;
+
+    /* Resolve runtime root and set HQ_PROJECT_ROOT */
+    runtime_root = hq_resolve_runtime_root();
+    if (!runtime_root)
+        return HQ_RESULT_RUNTIME_UNAVAILABLE;
+
+    snprintf(project_root, sizeof(project_root), "%s/modules/",
+             runtime_root);
+
+    existing_env = getenv("HQ_PROJECT_ROOT");
+    if (existing_env && existing_env[0] != '\0') {
+        /* Preserve existing value (dev override) */
+        strncpy(saved_env, existing_env, sizeof(saved_env) - 1);
+        saved_env[sizeof(saved_env) - 1] = '\0';
+        saved_env_set = 1;
+    }
+    setenv("HQ_PROJECT_ROOT", project_root, 1);
+
+    /* Prepare callback context */
+    cb_ctx.converter = converter;
+
+    /* Execute the job */
+    rc = g_hqclib_run_job(adapter->hq_handle,
+                           input_path,
+                           work_dir,
+                           codec,
+                           preset,
+                           (void *)hq_status_callback_bridge,
+                           &cb_ctx);
+
+    /* Restore HQ_PROJECT_ROOT if it was previously set */
+    if (saved_env_set) {
+        setenv("HQ_PROJECT_ROOT", saved_env, 1);
+    }
+
+    /* Map result code */
+    switch (rc) {
+        case 0:  result = HQ_RESULT_OK;             break;
+        case 1:  result = HQ_RESULT_CANCELLED;      break;
+        case 2:  result = HQ_RESULT_FAILED;         break;
+        case 3:  result = HQ_RESULT_INVALID_ARGUMENT; break;
+        case 4:  result = HQ_RESULT_INVALID_UTF8;   break;
+        case 5:  result = HQ_RESULT_INVALID_STATE;  break;
+        case 6:  result = HQ_RESULT_IO_ERROR;       break;
+        case 7:  result = HQ_RESULT_CONTROL_ERROR;  break;
+        case 8:  result = HQ_RESULT_INTERNAL_ERROR; break;
+        case 9:  result = HQ_RESULT_NOT_RUNNING;    break;
+        default: result = HQ_RESULT_INTERNAL_ERROR; break;
+    }
+
+    return result;
 }
 
 /* ===============================================================
