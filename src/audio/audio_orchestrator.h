@@ -26,6 +26,7 @@ extern "C" {
 
 typedef enum {
     AUDIO_MODE_PCM = 0,
+    AUDIO_MODE_COPY,
     AUDIO_MODE_FDK_AAC_320,
     AUDIO_MODE_FDK_AAC_320_AC3_640,
     AUDIO_MODE_INVALID
@@ -56,6 +57,11 @@ typedef enum {
     AUDIO_ENCODER_AAC_NATIVE,
     AUDIO_ENCODER_NONE
 } AudioEncoder;
+
+typedef enum {
+    AUDIO_TRACK_POLICY_FIRST = 0,  /* -map 0:a:0 — first audio track only */
+    AUDIO_TRACK_POLICY_ALL           /* -map 0:a   — all audio tracks */
+} AudioTrackPolicy;
 
 /* ---------------------------------------------------------------
  *  Result and Configuration Structures
@@ -88,6 +94,7 @@ typedef struct {
 typedef struct {
     AudioOutputMode mode;
     AudioEncoder encoder;
+    AudioTrackPolicy track_policy;
     int is_dual_output;
     const char *encoder_name;
     int bitrate;
@@ -106,6 +113,12 @@ int audio_output_mode_is_valid(const char *value);
 
 /** Parse a normalization mode string. Returns AUDIO_NORM_INVALID on failure. */
 AudioNormalizationMode audio_normalization_mode_parse(const char *value);
+
+/**
+ * Return the track selection policy for the given audio output mode.
+ * COPY mode selects all audio tracks; all other modes select the first.
+ */
+AudioTrackPolicy audio_get_track_policy(AudioOutputMode mode);
 
 /** Map an integer genre index to an AudioGenre enum. */
 AudioGenre audio_genre_parse(int value);

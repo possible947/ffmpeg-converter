@@ -26,6 +26,7 @@ static int audio_mode_string_is(const char *mode, const char *expected) {
 
 AudioOutputMode audio_output_mode_parse(const char *value) {
     if (!value) return AUDIO_MODE_INVALID;
+    if (audio_mode_string_is(value, "copy")) return AUDIO_MODE_COPY;
     if (audio_mode_string_is(value, "pcm")) return AUDIO_MODE_PCM;
     if (audio_mode_string_is(value, "fdk_aac_320")) return AUDIO_MODE_FDK_AAC_320;
     if (audio_mode_string_is(value, "fdk_aac_320_ac3_640")) return AUDIO_MODE_FDK_AAC_320_AC3_640;
@@ -45,6 +46,12 @@ AudioNormalizationMode audio_normalization_mode_parse(const char *value) {
     if (strcmp(value, "loudness_norm") == 0) return AUDIO_NORM_LOUDNESS;
     if (strcmp(value, "loudness_norm_2pass") == 0) return AUDIO_NORM_LOUDNESS_2PASS;
     return AUDIO_NORM_INVALID;
+}
+
+AudioTrackPolicy audio_get_track_policy(AudioOutputMode mode) {
+    if (mode == AUDIO_MODE_COPY)
+        return AUDIO_TRACK_POLICY_ALL;
+    return AUDIO_TRACK_POLICY_FIRST;
 }
 
 AudioGenre audio_genre_parse(int value) {
@@ -195,12 +202,20 @@ int audio_resolve_configuration(
 
     out_config->mode = mode;
     out_config->encoder = AUDIO_ENCODER_NONE;
+    out_config->track_policy = AUDIO_TRACK_POLICY_FIRST;
     out_config->encoder_name = "";
     out_config->is_dual_output = 0;
     out_config->bitrate = 0;
     out_config->sample_rate = 48000;
 
     switch (mode) {
+        case AUDIO_MODE_COPY:
+            out_config->encoder_name = "copy";
+            out_config->track_policy = AUDIO_TRACK_POLICY_ALL;
+            out_config->bitrate = 0;
+            out_config->sample_rate = 0;
+            break;
+
         case AUDIO_MODE_PCM:
             out_config->encoder_name = "pcm_s16le";
             out_config->sample_rate = 48000;

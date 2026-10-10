@@ -382,7 +382,7 @@ static int macSelectionCapability(void *context,
     [content addSubview:audioOutLabel];
 
     self.audioOutputPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(380, 486, 200, 28) pullsDown:NO];
-    [self.audioOutputPopup addItemsWithTitles:@[@"pcm", @"fdk_aac_320", @"fdk_aac_320_ac3_640"]];
+    [self.audioOutputPopup addItemsWithTitles:@[@"pcm", @"copy", @"fdk_aac_320", @"fdk_aac_320_ac3_640"]];
     [self.audioOutputPopup selectItemAtIndex:0];
     [content addSubview:self.audioOutputPopup];
 

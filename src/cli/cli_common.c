@@ -96,7 +96,7 @@ void print_usage(const CliPlatformHandle* h) {
     printf("  Available groups are filtered from presets.json after hardware detection.\n");
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
-    printf("      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>\n");
+    printf("      --audio-output <copy|pcm|fdk_aac_320|fdk_aac_320_ac3_640>\n");
     if (platform_mux_is_supported())
         printf("      --video-track <file>  replacement video track for mux mode\n");
     printf("  -g, --genre <edm|rock|hiphop|classical|podcast>\n");
@@ -380,7 +380,7 @@ void print_summary(const ConvertOptions* opts,
 
     printf("Audio norm:   %s\n", opts->audio_norm);
     printf("Audio out:    %s\n",
-           opts->audio_output_mode[0] != '\0' ? opts->audio_output_mode : "pcm");
+           opts->audio_output_mode[0] != '\0' ? opts->audio_output_mode : "(default)");
 
     if (!strcmp(opts->codec, "mux"))
         printf("Video track:  %s\n",

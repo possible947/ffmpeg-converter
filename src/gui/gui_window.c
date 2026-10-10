@@ -663,7 +663,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     /* ---------- Audio output combo ---------- */
     {
         static const char *output_items[] = {
-            "pcm", "fdk_aac_320", "fdk_aac_320_ac3_640", NULL
+            "pcm", "copy", "fdk_aac_320", "fdk_aac_320_ac3_640", NULL
         };
         GtkStringList *list = gtk_string_list_new(output_items);
         w->audio_output_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
@@ -774,7 +774,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_widget_set_tooltip_text(w->genre_combo,
         "Genre hint used by loudness normalisation to target genre-appropriate loudness.");
     gtk_widget_set_tooltip_text(w->audio_output_combo,
-        "Audio output format: PCM (uncompressed), AAC 320 kbps, or AAC+AC3 dual track.");
+        "Audio output format: COPY (passthrough all tracks), PCM (uncompressed), AAC 320 kbps, or AAC+AC3 dual track.");
     gtk_widget_set_tooltip_text(w->overwrite_check,
         "Overwrite output files if they already exist.");
     gtk_widget_set_tooltip_text(w->output_dir_btn,
