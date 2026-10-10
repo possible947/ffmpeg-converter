@@ -27,15 +27,10 @@
  *  Private platform handle definition
  * --------------------------------------------------------------- */
 
-/* Maximum codec entries: copy + prores + prores_ks +
- *                        prores_videotoolbox + hevc_videotoolbox +
- *                        h264_videotoolbox + m4v */
-#define MACOS_MAX_CODECS 7
+/* Maximum codec support flags. */
 
 struct CliPlatformHandle {
     MacosCodecSupport   support;
-    PlatformCodecEntry  entries[MACOS_MAX_CODECS];
-    int                 codec_count;
 };
 
 /* ---------------------------------------------------------------
@@ -50,45 +45,6 @@ CliPlatformHandle* cli_platform_init(void) {
         return NULL;
 
     macos_probe_codec_support(&h->support);
-
-    /* Build codec list */
-    h->entries[h->codec_count].name          = "copy";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "prores";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 1;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "prores_ks";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 1;
-    h->codec_count++;
-
-    /* prores_videotoolbox: has profile selection but no deblock */
-    h->entries[h->codec_count].name          = "prores_videotoolbox";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "hevc_videotoolbox";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "h264_videotoolbox";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    if (platform_m4v_is_supported()) {
-        h->entries[h->codec_count].name          = "m4v";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
 
     return h;
 }
@@ -133,18 +89,6 @@ int platform_m4v_is_supported(void) {
     const char* bin = macos_get_preferred_mp4box_bin();
     /* A bare binary name (no path separator) means the resolver found nothing. */
     return bin && (strchr(bin, '/') != NULL);
-}
-
-/* ---------------------------------------------------------------
- *  Codec list
- * --------------------------------------------------------------- */
-
-int platform_get_codec_count(const CliPlatformHandle* h) {
-    return h ? h->codec_count : 0;
-}
-
-const PlatformCodecEntry* platform_get_codec_entries(const CliPlatformHandle* h) {
-    return h ? h->entries : NULL;
 }
 
 /* ---------------------------------------------------------------

@@ -31,16 +31,6 @@ extern "C" {
 typedef struct CliPlatformHandle CliPlatformHandle;
 
 /* ---------------------------------------------------------------
- *  Codec entry for the interactive menu
- * --------------------------------------------------------------- */
-
-typedef struct {
-    const char* name;         /* codec string, e.g. "prores_ks"  */
-    int         needs_profile; /* 1 = show profile selection step */
-    int         needs_deblock; /* 1 = show deblock selection step */
-} PlatformCodecEntry;
-
-/* ---------------------------------------------------------------
  *  Lifecycle
  * --------------------------------------------------------------- */
 
@@ -101,22 +91,6 @@ int platform_m4v_is_supported(void);
  * Returns 0 on platforms that do not support Vulkan (macOS).
  */
 int platform_get_default_vulkan_device(const CliPlatformHandle* h, const char* codec);
-
-/* ---------------------------------------------------------------
- *  Interactive menu codec list
- * --------------------------------------------------------------- */
-
-/**
- * platform_get_codec_count() — Returns the number of codec entries
- * available in the interactive menu on this platform/hardware.
- */
-int platform_get_codec_count(const CliPlatformHandle* h);
-
-/**
- * platform_get_codec_entries() — Returns a pointer to the array of
- * PlatformCodecEntry structs.  The array is valid for the lifetime of h.
- */
-const PlatformCodecEntry* platform_get_codec_entries(const CliPlatformHandle* h);
 
 /* ---------------------------------------------------------------
  *  Hardware device defaults

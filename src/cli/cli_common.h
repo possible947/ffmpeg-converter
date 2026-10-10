@@ -37,7 +37,7 @@ void cli_on_complete(void);
 
 /* ---------------------------------------------------------------
  *  Apple M4V options (platform-agnostic mirror of M4VOptions)
- *  Filled by parse_args / run_menu; copied into M4VOptions in main.c.
+ *  Filled by parse_args / copied into M4VOptions in main.c.
  * --------------------------------------------------------------- */
 
 typedef struct {
@@ -52,46 +52,11 @@ typedef struct {
  *  Display helpers
  * --------------------------------------------------------------- */
 
-void clear_screen(void);
 void print_usage(const CliPlatformHandle* h);
 void print_version(void);
 void print_summary(const ConvertOptions* opts,
                    const CliM4VOptions* m4v_opts,
                    const char** files, int file_count);
-
-/* ---------------------------------------------------------------
- *  Input helpers
- * --------------------------------------------------------------- */
-
-/** Reads a single character choice from stdin (newline = default). */
-int read_choice(void);
-
-/**
- * Strips shell quoting and escape characters from an input path.
- * Returns 1 on success, 0 on error.
- */
-int process_input_path(const char* input, char* output, size_t out_size);
-
-/**
- * Interactively reads a list of file paths from stdin.
- * Allocates *out_files (caller must free each element and the array).
- * Returns 0 on success, -1 on cancel/error.
- */
-int read_input_list(char*** out_files, int max_cnt, int* count);
-
-/**
- * Interactively reads and validates an output directory path.
- * Uses platform_get_home_dir() for the default.
- * Returns 0 on success, -1 on cancel/error.
- */
-int read_output_dir(char* out_buf, size_t bufsize, int* status);
-
-/**
- * Reads a single file path with validation.
- * Returns 0 on success, -1 on cancel/error.
- */
-int read_single_file_path(const char* prompt,
-                          char* out_path, size_t out_path_sz);
 
 /* ---------------------------------------------------------------
  *  File validation
@@ -116,15 +81,6 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
                ConvertOptions* opts, CliM4VOptions* m4v_opts,
                const char** files, int* file_count);
 
-/**
- * Runs the interactive step-by-step menu.
- * On success, fills opts, m4v_opts, *files_ptr, and *file_count.
- * Returns 0 on success, -1 on cancel/error.
- */
-int run_menu(const CliPlatformHandle* h, ConvertOptions* opts,
-             CliM4VOptions* m4v_opts,
-             const char*** files_ptr, int* file_count);
-
 /* ---------------------------------------------------------------
  *  Codec/Preset listing and validation (Task 4)
  * --------------------------------------------------------------- */
@@ -148,13 +104,6 @@ int cli_validate_codec_preset(const char* codec, const char* preset);
 /* Resolve the structured CLI selection to the existing converter codec ID. */
 int cli_resolve_selection(const char* group, const char* encoder,
                           char* final_codec, size_t final_codec_sz);
-
-/**
- * Gets the preset choice menu for a specific codec.
- * Returns the selected preset name, or NULL on cancel.
- * Caller must free the returned string.
- */
-char* cli_choose_preset_for_codec(const char* codec);
 
 #ifdef __cplusplus
 }

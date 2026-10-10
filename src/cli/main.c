@@ -88,34 +88,18 @@ int main(int argc, char** argv) {
 
         ConvertOptions  opts;
         CliM4VOptions   m4v_cli_opts;
-        int menu_result = 0;
 
         converter_set_callbacks(c, &cb);
 
-        if (argc == 1) {
-            /* Interactive menu mode */
-            menu_result = run_menu(h, &opts, &m4v_cli_opts, &files, &file_count);
-            if (menu_result < 0) {
-                printf("Menu cancelled by user.\n");
-                result = 1;
-                goto cleanup;
-            }
-            if (file_count == 0) {
-                printf("No files selected.\n");
-                result = 1;
-                goto cleanup;
-            }
-        } else {
-            /* Command-line argument mode */
-            if (!parse_args(argc, argv, h, &opts, &m4v_cli_opts, arg_files, &file_count)) {
-                printf("Invalid options. Use -h for help.\n");
-                result = 1;
-                goto cleanup;
-            }
-            files = arg_files;
-            /* Apply platform hardware defaults (e.g. VAAPI render node) */
-            platform_apply_hw_device(&opts, h);
+        /* Command-line argument mode only */
+        if (!parse_args(argc, argv, h, &opts, &m4v_cli_opts, arg_files, &file_count)) {
+            printf("Invalid options. Use -h for help.\n");
+            result = 1;
+            goto cleanup;
         }
+        files = arg_files;
+        /* Apply platform hardware defaults (e.g. VAAPI render node) */
+        platform_apply_hw_device(&opts, h);
 
         if (file_count == 0) {
             print_usage(h);
@@ -278,13 +262,6 @@ int main(int argc, char** argv) {
         }
 
 cleanup:
-        /* Free memory allocated by run_menu */
-        if (argc == 1 && files) {
-            int i;
-            for (i = 0; i < file_count; i++)
-                free((void*)files[i]);
-            free((void*)files);
-        }
     }
 
     converter_destroy(c);

@@ -27,20 +27,10 @@
  *  Private platform handle definition
  * --------------------------------------------------------------- */
 
-/* Maximum codec entries: copy + prores + prores_ks + mux +
- *                        h264_vaapi + hevc_vaapi +
- *                        h264_nvenc + hevc_nvenc +
- *                        h264_amf   + hevc_amf   + av1_amf +
- *                        h264_qsv   + hevc_qsv   +
- *                        prores_ks_vulkan +
- *                        h264_vulkan + hevc_vulkan + av1_vulkan +
- *                        m4v                                       */
-#define LINUX_MAX_CODECS 18
+/* Maximum codec support flags. */
 
 struct CliPlatformHandle {
     LinuxCodecSupport   support;
-    PlatformCodecEntry  entries[LINUX_MAX_CODECS];
-    int                 codec_count;
 };
 
 /* ---------------------------------------------------------------
@@ -55,125 +45,6 @@ CliPlatformHandle* cli_platform_init(void) {
         return NULL;
 
     linux_probe_codec_support(&h->support);
-
-    /* Build codec list */
-    h->entries[h->codec_count].name          = "copy";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "prores";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 1;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "prores_ks";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 1;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "mux";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    if (h->support.has_h264_vaapi) {
-        h->entries[h->codec_count].name          = "h264_vaapi";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_vaapi) {
-        h->entries[h->codec_count].name          = "hevc_vaapi";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_h264_nvenc) {
-        h->entries[h->codec_count].name          = "h264_nvenc";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_nvenc) {
-        h->entries[h->codec_count].name          = "hevc_nvenc";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_h264_amf) {
-        h->entries[h->codec_count].name          = "h264_amf";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_amf) {
-        h->entries[h->codec_count].name          = "hevc_amf";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_av1_amf) {
-        h->entries[h->codec_count].name          = "av1_amf";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_h264_qsv) {
-        h->entries[h->codec_count].name          = "h264_qsv";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_qsv) {
-        h->entries[h->codec_count].name          = "hevc_qsv";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_prores_ks_vulkan) {
-        h->entries[h->codec_count].name          = "prores_ks_vulkan";
-        h->entries[h->codec_count].needs_profile = 1;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_h264_vulkan) {
-        h->entries[h->codec_count].name          = "h264_vulkan";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_vulkan) {
-        h->entries[h->codec_count].name          = "hevc_vulkan";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_av1_vulkan) {
-        h->entries[h->codec_count].name          = "av1_vulkan";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (platform_m4v_is_supported()) {
-        h->entries[h->codec_count].name          = "m4v";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
 
     return h;
 }
@@ -245,18 +116,6 @@ int platform_m4v_is_supported(void) {
     const char* bin = linux_get_preferred_mp4box_bin();
     /* A bare binary name (no path separator) means the resolver found nothing. */
     return bin && (strchr(bin, '/') != NULL);
-}
-
-/* ---------------------------------------------------------------
- *  Codec list
- * --------------------------------------------------------------- */
-
-int platform_get_codec_count(const CliPlatformHandle* h) {
-    return h ? h->codec_count : 0;
-}
-
-const PlatformCodecEntry* platform_get_codec_entries(const CliPlatformHandle* h) {
-    return h ? h->entries : NULL;
 }
 
 /* ---------------------------------------------------------------
