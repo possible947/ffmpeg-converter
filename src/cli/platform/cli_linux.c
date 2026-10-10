@@ -20,7 +20,6 @@
 #include "converter.h"
 #include "cli_platform.h"
 #include "linux/runtime_probe.h"
-#include "mux.h"
 #include "m4v.h"
 
 /* ---------------------------------------------------------------
@@ -101,9 +100,8 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
 
 int platform_audio_mode_is_available(const char* mode) {
     return mode &&
-           (!strcmp(mode, "pcm")                 ||
-            !strcmp(mode, "fdk_aac_320")           ||
-            !strcmp(mode, "fdk_aac_320_ac3_640")   ||
+           (!strcmp(mode, "copy")                    ||
+            !strcmp(mode, "pcm")                 ||
             !strcmp(mode, "fdk_aac_320")           ||
             !strcmp(mode, "fdk_aac_320_ac3_640"));
 }
@@ -261,62 +259,6 @@ int platform_ensure_output_dir(const char* path) {
     }
 
     return 1;
-}
-
-/* ---------------------------------------------------------------
- *  Mux post-processing
- * --------------------------------------------------------------- */
-
-ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
-                                            const ConverterCallbacks* cb,
-                                            const char* input_file)
-{
-    ConvertOptions file_opts;
-    ConvertOptions final_name_opts;
-    MuxOptions     mux_opts;
-    char effective_output_dir[4096];
-    char final_output_file[1200];
-
-    if (!opts || !cb || !input_file)
-        return ERR_INVALID_OPTIONS;
-
-    memset(&file_opts, 0, sizeof(file_opts));
-    file_opts = *opts;
-    strcpy(file_opts.codec, "copy");
-
-    if (opts->output_dir[0] != '\0') {
-        strncpy(effective_output_dir, opts->output_dir,
-                sizeof(effective_output_dir) - 1);
-        effective_output_dir[sizeof(effective_output_dir) - 1] = '\0';
-    } else {
-        const char* home = cli_get_home_dir();
-        snprintf(effective_output_dir, sizeof(effective_output_dir),
-                 "%s/ffmpeg_converter", home);
-    }
-
-    strncpy(file_opts.output_dir, effective_output_dir,
-            sizeof(file_opts.output_dir) - 1);
-    file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = '\0';
-
-    memset(&mux_opts, 0, sizeof(mux_opts));
-    converter_make_output_name(input_file, &file_opts,
-                               mux_opts.intermediate_file,
-                               sizeof(mux_opts.intermediate_file));
-    strncpy(mux_opts.video_track_file, opts->video_track_path,
-            sizeof(mux_opts.video_track_file) - 1);
-    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
-    mux_opts.overwrite = opts->overwrite;
-
-    /* Final container/extension depends on opts->preset (mkv/mov/m4v);
-     * keep codec="mux" here so converter_make_output_name() picks it up. */
-    final_name_opts = *opts;
-    strncpy(final_name_opts.output_dir, effective_output_dir,
-            sizeof(final_name_opts.output_dir) - 1);
-    final_name_opts.output_dir[sizeof(final_name_opts.output_dir) - 1] = '\0';
-    converter_make_output_name(input_file, &final_name_opts,
-                               final_output_file, sizeof(final_output_file));
-
-    return mux_run_postprocess_for_preset(&mux_opts, opts, final_output_file, cb);
 }
 
 char** platform_utf8_argv(int argc, char** argv, int* needs_free)

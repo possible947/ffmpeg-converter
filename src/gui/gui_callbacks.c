@@ -4,7 +4,7 @@
 
 #include "gui_window.h"
 #include "gui_codec_utils.h"
-#include "mux.h"
+#include "add_track.h"
 #include <glib.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -89,39 +89,6 @@ static void resolve_effective_output_dir(const ConvertOptions *opts, char *out_d
         home = ".";
 
     g_snprintf(out_dir, out_dir_sz, "%s/ffmpeg_converter", home);
-}
-
-static ConverterError run_gui_mux_postprocess(const ConvertOptions *opts,
-                                              const ConverterCallbacks *cb,
-                                              const char *input_file)
-{
-    ConvertOptions file_opts;
-    ConvertOptions final_name_opts;
-    MuxOptions mux_opts;
-    char effective_output_dir[1024];
-    char final_output_file[1200];
-
-    memset(&file_opts, 0, sizeof(file_opts));
-    file_opts = *opts;
-    strcpy(file_opts.codec, "copy");
-    resolve_effective_output_dir(opts, effective_output_dir, sizeof(effective_output_dir));
-    strncpy(file_opts.output_dir, effective_output_dir, sizeof(file_opts.output_dir) - 1);
-    file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = '\0';
-
-    memset(&mux_opts, 0, sizeof(mux_opts));
-    converter_make_output_name(input_file, &file_opts, mux_opts.intermediate_file, sizeof(mux_opts.intermediate_file));
-    strncpy(mux_opts.video_track_file, opts->video_track_path, sizeof(mux_opts.video_track_file) - 1);
-    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
-    mux_opts.overwrite = opts->overwrite;
-
-    /* Final container/extension depends on opts->preset (mkv/mov/m4v);
-     * keep codec="mux" here so converter_make_output_name() picks it up. */
-    final_name_opts = *opts;
-    strncpy(final_name_opts.output_dir, effective_output_dir, sizeof(final_name_opts.output_dir) - 1);
-    final_name_opts.output_dir[sizeof(final_name_opts.output_dir) - 1] = '\0';
-    converter_make_output_name(input_file, &final_name_opts, final_output_file, sizeof(final_output_file));
-
-    return mux_run_postprocess_for_preset(&mux_opts, opts, final_output_file, cb);
 }
 
 static ConverterError run_gui_m4v_job(AppWidgets *w,
@@ -620,23 +587,23 @@ static gpointer run_converter(gpointer user_data)
     }
 
     converter_set_callbacks(c, &cb);
-    {
-        ConvertOptions work_opts = opts;
 
-        if (codec_is_mux(opts.codec)) {
-            strcpy(work_opts.codec, "copy");
-            strcpy(work_opts.preset, "default");
-            work_opts.deblock = 0;
-        }
+    if (codec_is_mux(opts.codec)) {
+        AddTrackRequest req = {
+            .source_file      = file_list[0],
+            .convert_options  = &opts,
+        };
+        AddTrackResult result;
+        err = add_track_execute(c, &req, &result);
+    } else {
+        ConvertOptions work_opts = opts;
 
         err = converter_set_options(c, &work_opts);
         if (err != ERR_OK)
             goto cleanup;
-    }
 
-    err = converter_process_files(c, (const char**)file_list, file_count);
-    if (err == ERR_OK && codec_is_mux(opts.codec))
-        err = run_gui_mux_postprocess(&opts, &cb, file_list[0]);
+        err = converter_process_files(c, (const char**)file_list, file_count);
+    }
 
     if (err == ERR_SKIP_FILE) {
         LogUpdateData *data = g_new0(LogUpdateData, 1);

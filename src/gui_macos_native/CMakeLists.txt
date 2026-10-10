@@ -46,6 +46,7 @@ target_include_directories(macos_gui_native
 target_link_libraries(macos_gui_native
     PRIVATE converter
     PRIVATE mux
+    PRIVATE add_track
     PRIVATE jansson
     PRIVATE "-framework Cocoa"
 )

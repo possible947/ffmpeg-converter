@@ -1,6 +1,6 @@
 #import "converter_bridge.h"
 #import "apple_m4v_creator.h"
-#include "mux.h"
+#include "add_track.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -20,61 +20,7 @@ static int file_is_regular_readable(const char *path) {
            path[0] != '\0' &&
            stat(path, &st) == 0 &&
            S_ISREG(st.st_mode) &&
-           access(path, R_OK) == 0;
-}
-
-static void resolve_effective_output_dir(const ConvertOptions *opts, char *out_dir, size_t out_dir_sz) {
-    const char *home;
-
-    if (!opts || !out_dir || out_dir_sz == 0)
-        return;
-
-    if (opts->output_dir[0] != '\0') {
-        strncpy(out_dir, opts->output_dir, out_dir_sz - 1);
-        out_dir[out_dir_sz - 1] = '\0';
-        return;
-    }
-
-    home = getenv("HOME");
-    if (!home || home[0] == '\0')
-        home = ".";
-
-    snprintf(out_dir, out_dir_sz, "%s/ffmpeg_converter", home);
-}
-
-static ConverterError run_bridge_mux_postprocess(const ConvertOptions *opts,
-                                                 const ConverterCallbacks *cb,
-                                                 const char *input_file) {
-    ConvertOptions file_opts;
-    ConvertOptions final_name_opts;
-    MuxOptions mux_opts;
-    char effective_output_dir[1024];
-    char final_output_file[1200];
-
-    if (!opts || !cb || !input_file)
-        return ERR_INVALID_OPTIONS;
-
-    memset(&file_opts, 0, sizeof(file_opts));
-    file_opts = *opts;
-    strcpy(file_opts.codec, "copy");
-    resolve_effective_output_dir(opts, effective_output_dir, sizeof(effective_output_dir));
-    strncpy(file_opts.output_dir, effective_output_dir, sizeof(file_opts.output_dir) - 1);
-    file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = '\0';
-
-    memset(&mux_opts, 0, sizeof(mux_opts));
-    converter_make_output_name(input_file, &file_opts, mux_opts.intermediate_file, sizeof(mux_opts.intermediate_file));
-    strncpy(mux_opts.video_track_file, opts->video_track_path, sizeof(mux_opts.video_track_file) - 1);
-    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
-    mux_opts.overwrite = opts->overwrite;
-
-    /* Final container/extension depends on opts->preset (mkv/mov/m4v);
-     * keep codec="mux" here so converter_make_output_name() picks it up. */
-    final_name_opts = *opts;
-    strncpy(final_name_opts.output_dir, effective_output_dir, sizeof(final_name_opts.output_dir) - 1);
-    final_name_opts.output_dir[sizeof(final_name_opts.output_dir) - 1] = '\0';
-    converter_make_output_name(input_file, &final_name_opts, final_output_file, sizeof(final_output_file));
-
-    return mux_run_postprocess_for_preset(&mux_opts, opts, final_output_file, cb);
+    access(path, R_OK) == 0;
 }
 
 @interface ConverterBridge () {
@@ -447,19 +393,19 @@ static int locale_is_utf8(const char *value) {
                 goto finish_conversion;
             }
 
-            strcpy(workOpts.codec, "copy");
-            strcpy(workOpts.preset, "default");
-            workOpts.deblock = 0;
-        }
+            AddTrackRequest req = {
+                .source_file      = cFiles[0],
+                .convert_options  = &optsCopy,
+            };
+            AddTrackResult result;
+            err = add_track_execute(c, &req, &result);
+        } else {
+            err = converter_set_options(c, &workOpts);
+            if (err != ERR_OK) {
+                goto finish_conversion;
+            }
 
-        err = converter_set_options(c, &workOpts);
-        if (err != ERR_OK) {
-            goto finish_conversion;
-        }
-
-        err = converter_process_files(c, (const char **)cFiles, fileCount);
-        if (err == ERR_OK && codec_is_mux(optsCopy.codec)) {
-            err = run_bridge_mux_postprocess(&optsCopy, &cb, cFiles[0]);
+            err = converter_process_files(c, (const char **)cFiles, fileCount);
         }
 
 finish_conversion:

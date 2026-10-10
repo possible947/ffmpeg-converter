@@ -183,12 +183,16 @@ ConverterError converter_set_options(
     if (!audio_output_mode_is_valid(c->opts.audio_output_mode))
         return ERR_INVALID_OPTIONS;
 
-    /* Validate required audio filters */
-    if (!platform_validate_audio_filters()) {
-        if (c->cb.on_error)
-            c->cb.on_error("required FFmpeg audio filters not available",
-                           ERR_AUDIO_FILTER_VALIDATION_FAILED);
-        return ERR_AUDIO_FILTER_VALIDATION_FAILED;
+    /* COPY mode does no audio encoding or filtering; skip validation. */
+    AudioOutputMode audio_mode = audio_output_mode_parse(c->opts.audio_output_mode);
+    if (audio_mode != AUDIO_MODE_COPY) {
+        /* Validate required audio filters */
+        if (!platform_validate_audio_filters()) {
+            if (c->cb.on_error)
+                c->cb.on_error("required FFmpeg audio filters not available",
+                               ERR_AUDIO_FILTER_VALIDATION_FAILED);
+            return ERR_AUDIO_FILTER_VALIDATION_FAILED;
+        }
     }
 
     /* Platform-specific codec validation */
@@ -219,6 +223,16 @@ ConverterError converter_set_options(
 void converter_stop(Converter* c) {
     if (!c) return;
     c->stop_flag = 1;
+}
+
+int converter_is_stopped(Converter* c) {
+    if (!c) return 1;
+    return c->stop_flag;
+}
+
+const ConverterCallbacks* converter_get_callbacks(Converter* c) {
+    if (!c) return NULL;
+    return &c->cb;
 }
 
 // ------------------------------------------------------------
@@ -497,10 +511,17 @@ static void build_ffmpeg_cmd(
     AudioConfiguration audio_cfg;
     int cfg_ok = audio_resolve_configuration(audio_mode, &caps, &audio_cfg) == 0;
 
+    /* Track selection policy from configuration */
+    AudioTrackPolicy track_policy = AUDIO_TRACK_POLICY_FIRST;
+    if (cfg_ok)
+        track_policy = audio_cfg.track_policy;
+
     /* For use_aac_for_h265 path: resolve separately */
     int is_dual_audio_output = cfg_ok && audio_cfg.is_dual_output;
     int is_fdk_single_audio_output =
         audio_mode == AUDIO_MODE_FDK_AAC_320;
+    int is_copy_audio_output =
+        audio_mode == AUDIO_MODE_COPY;
     int has_aac_at = caps.has_aac_at;
     int has_libfdk_aac = caps.has_libfdk_aac;
     int has_aac_native = caps.has_aac_native;
@@ -658,6 +679,8 @@ static void build_ffmpeg_cmd(
             cmd_cat(cmd, sizeof(cmd), &pos, audio_filter) < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos, ",asplit=2[aout0][aout1]\" ") < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos, "-map [aout0] -map [aout1] ") < 0) goto overflow;
+    } else if (track_policy == AUDIO_TRACK_POLICY_ALL) {
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:a ") < 0) goto overflow;
     } else {
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:a:0 ") < 0) goto overflow;
     }
@@ -776,6 +799,8 @@ static void build_ffmpeg_cmd(
             cmd_out[0] = '\0';
             return;
         }
+    } else if (is_copy_audio_output) {
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a copy ") < 0) goto overflow;
     } else if (audio_mode == AUDIO_MODE_PCM) {
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a pcm_s16le -ar 48000 ") < 0) goto overflow;
     } else if (c->opts.use_aac_for_h265) {
@@ -793,7 +818,7 @@ static void build_ffmpeg_cmd(
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a pcm_s16le -ar 48000 ") < 0) goto overflow;
     }
 
-    if (!is_dual_audio_output) {
+    if (!is_dual_audio_output && !is_copy_audio_output) {
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-af \"") < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos, audio_filter) < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos, "\" ") < 0) goto overflow;
@@ -981,9 +1006,10 @@ ConverterError converter_process_files(
             return ERR_SKIP_FILE;
 
         // ----------------------------------------------------
-        //  Peak 2-pass
+        //  Peak 2-pass (skip for COPY mode — no audio encoding)
         // ----------------------------------------------------
-        if (strcmp(c->opts.audio_norm, "peak_norm_2pass") == 0) {
+        if (strcmp(c->opts.audio_norm, "peak_norm_2pass") == 0 &&
+            strcmp(c->opts.audio_output_mode, "copy") != 0) {
             PeakAnalysisResult peak_result;
             err = audio_peak_analyze(input, &c->cb, &c->stop_flag, &peak_result);
             if (err != ERR_OK) {
@@ -995,9 +1021,10 @@ ConverterError converter_process_files(
         }
 
         // ----------------------------------------------------
-        //  Loudnorm 2-pass
+        //  Loudnorm 2-pass (skip for COPY mode — no audio encoding)
         // ----------------------------------------------------
-        if (strcmp(c->opts.audio_norm, "loudness_norm_2pass") == 0) {
+        if (strcmp(c->opts.audio_norm, "loudness_norm_2pass") == 0 &&
+            strcmp(c->opts.audio_output_mode, "copy") != 0) {
             AudioGenre genre = audio_genre_parse(c->opts.genre);
             LoudnormAnalysisResult ln_result;
             err = audio_loudnorm_analyze(input, genre, &c->cb,

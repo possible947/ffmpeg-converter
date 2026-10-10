@@ -143,19 +143,6 @@ int platform_dir_is_writable(const char* path);
  */
 int platform_ensure_output_dir(const char* path);
 
-/* ---------------------------------------------------------------
- *  Mux post-processing
- * --------------------------------------------------------------- */
-
-/**
- * platform_run_mux_postprocess() — Runs the mkvmerge mux step after
- * the main ffmpeg conversion (Linux only).
- * Returns ERR_INVALID_OPTIONS on platforms where mux is not supported.
- */
-ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
-                                            const ConverterCallbacks* cb,
-                                            const char* input_file);
-
 #ifdef __cplusplus
 }
 #endif

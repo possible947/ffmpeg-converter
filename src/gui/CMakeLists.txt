@@ -70,6 +70,7 @@ target_link_libraries(gui_lib
     PUBLIC converter   # already defined in src/converter/CMakeLists
     PUBLIC m4v
     PUBLIC mux
+    PUBLIC add_track
 )
 
 # Executable for Linux

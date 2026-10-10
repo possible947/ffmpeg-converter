@@ -20,6 +20,7 @@ target_include_directories(ffmpeg_cmd INTERFACE ${CMAKE_SOURCE_DIR}/src/ffmpeg_c
 add_subdirectory(converter)
 add_subdirectory(m4v)
 add_subdirectory(mux)
+add_subdirectory(add_track)
 add_subdirectory(platform)
 add_subdirectory(preset)
 

@@ -10,6 +10,7 @@
 #include <stdlib.h>
 
 #include "converter.h"
+#include "add_track.h"
 #include "cli_common.h"
 #include "cli_platform.h"
 #include "m4v.h"
@@ -224,20 +225,12 @@ int main(int argc, char** argv) {
                     cli_on_complete();
 
             } else if (!strcmp(opts.codec, "mux")) {
-                strcpy(work_opts.codec, "copy");
-                strcpy(work_opts.preset, "default");
-                work_opts.deblock = 0;
-
-                err = converter_set_options(c, &work_opts);
-                if (err != ERR_OK) {
-                    fprintf(stderr, "Error: invalid options for codec '%s': %s\n",
-                            work_opts.codec, converter_error_string(err));
-                } else {
-                    err = converter_process_files(c, files, file_count);
-
-                    if (err == ERR_OK)
-                        err = platform_run_mux_postprocess(&opts, &cb, files[0]);
-                }
+                AddTrackRequest req = {
+                    .source_file      = files[0],
+                    .convert_options  = &opts,
+                };
+                AddTrackResult result;
+                err = add_track_execute(c, &req, &result);
 
             } else {
                 err = converter_set_options(c, &work_opts);

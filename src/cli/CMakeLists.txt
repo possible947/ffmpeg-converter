@@ -70,6 +70,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         PRIVATE converter
         PRIVATE mux
         PRIVATE m4v
+        PRIVATE add_track
         PRIVATE platform
         PRIVATE jansson
     )

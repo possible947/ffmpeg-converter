@@ -13,6 +13,55 @@ hardware/input metadata work. GUI migration is unfinished, and macOS/Windows
 build, runtime, and hardware debugging remain required before Version 3 can be
 considered complete.
 
+## [Unreleased] — Stage 5.2: Unified Add Track execution pipeline (2026-10-10)
+
+### Added
+- **`src/add_track/add_track.h`**: public header for the Manual Add Track (mux codec mode)
+  pipeline.  Exports `AddTrackRequest`, `AddTrackResult`, and the single entry point
+  `add_track_execute()`.
+- **`src/add_track/add_track.c`**: shared C implementation of the Add Track pipeline.
+  Validates inputs, runs the converter with `codec="copy"`, resolves the effective
+  output directory, computes intermediate and final output paths via
+  `converter_make_output_name()`, and dispatches to
+  `mux_run_postprocess_for_preset()` for the final mkv/mov/m4v assembly.
+- **`src/add_track/CMakeLists.txt`**: STATIC library linked against `converter` and
+  `mux`.
+- **`converter_is_stopped()`** and **`converter_get_callbacks()`** accessors in
+  `converter.h`/`converter.c` — required by the pipeline to check cancellation
+  between sub-steps and to pass callbacks to mux without exposing the opaque
+  `Converter` struct.
+
+### Changed
+- **`src/cli/main.c`**: mux dispatch block replaced with a single
+  `add_track_execute()` call.  CLI-specific preflight (mux support, file count,
+  video-track readability) and error reporting remain unchanged.
+- **`src/gui/gui_callbacks.c`**: mux dispatch in `run_converter()` replaced with
+  `add_track_execute()`.  `run_gui_mux_postprocess()` deleted.  Threading,
+  callbacks, and UI state updates remain unchanged.
+- **`src/gui_macos_native/converter_bridge.m`**: mux dispatch in
+  `startConversionWithOptions:` replaced with `add_track_execute()`.
+  `run_bridge_mux_postprocess()` and `resolve_effective_output_dir()` deleted.
+  ObjC bridge lifecycle, GCD dispatch, and callback blocks remain unchanged.
+
+### Removed
+- **`platform_run_mux_postprocess()`** from `src/cli/platform/cli_linux.c` and
+  `src/cli/platform/cli_macos.c` — duplicated ~50-line mux orchestration replaced
+  by the shared pipeline.
+- **`platform_run_mux_postprocess` declaration** from `src/cli/cli_platform.h`.
+- **`run_gui_mux_postprocess()`** from `src/gui/gui_callbacks.c`.
+- **`run_bridge_mux_postprocess()`** and its helper
+  `resolve_effective_output_dir()` from `src/gui_macos_native/converter_bridge.m`.
+
+### Result
+- **−136 net lines** across 12 modified files (3 new files added, 4 duplicated
+  functions deleted, 3 call sites simplified).
+- Linux CLI (`linux_cli`) and Linux GUI (`linux_gui`) build cleanly with no
+  warnings.
+- macOS Cocoa GUI source compiles (native build requires macOS host).
+- No user-visible behavior changes: same output paths, same mux pipeline, same
+  error codes, same cancellation semantics.  macOS CLI still rejects mux mode
+  (`platform_mux_is_supported() == 0`).
+
 ## [Unreleased] — Linux VAAPI hardware-probe crash fix (2026-10-02)
 
 ### Fixed

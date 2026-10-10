@@ -74,9 +74,8 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
 
 int platform_audio_mode_is_available(const char* mode) {
     return mode &&
-           (!strcmp(mode, "pcm")                 ||
-            !strcmp(mode, "fdk_aac_320")           ||
-            !strcmp(mode, "fdk_aac_320_ac3_640")   ||
+           (!strcmp(mode, "copy")                    ||
+            !strcmp(mode, "pcm")                 ||
             !strcmp(mode, "fdk_aac_320")           ||
             !strcmp(mode, "fdk_aac_320_ac3_640"));
 }
@@ -197,20 +196,6 @@ int platform_ensure_output_dir(const char* path) {
     }
 
     return 1;
-}
-
-/* ---------------------------------------------------------------
- *  Mux post-processing (not supported on macOS)
- * --------------------------------------------------------------- */
-
-ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
-                                            const ConverterCallbacks* cb,
-                                            const char* input_file)
-{
-    (void)opts;
-    (void)cb;
-    (void)input_file;
-    return ERR_INVALID_OPTIONS;
 }
 
 char** platform_utf8_argv(int argc, char** argv, int* needs_free)
