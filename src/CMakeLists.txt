@@ -23,6 +23,7 @@ add_subdirectory(mux)
 add_subdirectory(add_track)
 add_subdirectory(platform)
 add_subdirectory(preset)
+add_subdirectory(hq)
 
 # CLI (после объявления библиотек)
 add_subdirectory(cli)
