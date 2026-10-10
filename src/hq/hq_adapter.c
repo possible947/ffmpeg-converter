@@ -196,6 +196,24 @@ static int load_hq_library(void)
     if (!runtime_root)
         return 0;
 
+    /* Set HQ runtime environment BEFORE dlopen.
+     * The Pascal runtime inside the HQ library may cache environment
+     * variable values at load time. Setting them afterwards is unreliable.
+     *
+     * HQ_PROJECT_ROOT must point to a directory whose child 'modules/'
+     * exists (the HQ Library checks this). */
+    setenv("HQ_PROJECT_ROOT", runtime_root, 1);
+
+    /* The segmentator has its own path resolution that does NOT
+     * use HQ_PROJECT_ROOT. Override it with its own env var. */
+    {
+        char seg_ini[4096];
+        snprintf(seg_ini, sizeof(seg_ini),
+                 "%s/modules/segmentator/config/toolchain_runtime.ini",
+                 runtime_root);
+        setenv("HQ_SEGMENTATOR_TOOLCHAIN_INI", seg_ini, 1);
+    }
+
     char lib_path[4096];
 #if defined(__APPLE__)
     snprintf(lib_path, sizeof(lib_path),
@@ -418,10 +436,6 @@ HqResult hq_run_job(HqAdapter *adapter,
                     Converter *converter)
 {
     const char *runtime_root;
-    char project_root[4096];
-    const char *existing_env;
-    char saved_env[4096];
-    int saved_env_set = 0;
     HqCallbackCtx cb_ctx;
     int32_t rc;
     HqResult result;
@@ -430,22 +444,11 @@ HqResult hq_run_job(HqAdapter *adapter,
         !input_path || !work_dir || !codec || !preset)
         return HQ_RESULT_INVALID_ARGUMENT;
 
-    /* Resolve runtime root and set HQ_PROJECT_ROOT */
+    /* Runtime environment was set during load_hq_library (before dlopen).
+     * Verify it's still valid. */
     runtime_root = hq_resolve_runtime_root();
     if (!runtime_root)
         return HQ_RESULT_RUNTIME_UNAVAILABLE;
-
-    snprintf(project_root, sizeof(project_root), "%s/modules/",
-             runtime_root);
-
-    existing_env = getenv("HQ_PROJECT_ROOT");
-    if (existing_env && existing_env[0] != '\0') {
-        /* Preserve existing value (dev override) */
-        strncpy(saved_env, existing_env, sizeof(saved_env) - 1);
-        saved_env[sizeof(saved_env) - 1] = '\0';
-        saved_env_set = 1;
-    }
-    setenv("HQ_PROJECT_ROOT", project_root, 1);
 
     /* Prepare callback context */
     cb_ctx.converter = converter;
@@ -458,11 +461,6 @@ HqResult hq_run_job(HqAdapter *adapter,
                            preset,
                            (void *)hq_status_callback_bridge,
                            &cb_ctx);
-
-    /* Restore HQ_PROJECT_ROOT if it was previously set */
-    if (saved_env_set) {
-        setenv("HQ_PROJECT_ROOT", saved_env, 1);
-    }
 
     /* Map result code */
     switch (rc) {
