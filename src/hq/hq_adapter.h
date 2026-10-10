@@ -187,6 +187,13 @@ int hq_read_video_track_path(const char *work_dir,
                               char *out_path,
                               size_t out_path_sz);
 
+/**
+ * Recursively remove a directory tree (task_N cleanup).
+ * Does not follow symbolic links outside the target directory.
+ * Returns 0 on success, -1 on error.
+ */
+int hq_remove_directory_tree(const char *path);
+
 #ifdef __cplusplus
 }
 #endif

@@ -69,7 +69,8 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
            !strcmp(codec, "prores_videotoolbox")  ||
            !strcmp(codec, "hevc_videotoolbox")    ||
            !strcmp(codec, "h264_videotoolbox")    ||
-           (!strcmp(codec, "m4v") && platform_m4v_is_supported());
+           (!strcmp(codec, "m4v") && platform_m4v_is_supported()) ||
+           (!strcmp(codec, "hq_converter") && platform_hq_is_available());
 }
 
 int platform_audio_mode_is_available(const char* mode) {
@@ -88,6 +89,13 @@ int platform_m4v_is_supported(void) {
     const char* bin = macos_get_preferred_mp4box_bin();
     /* A bare binary name (no path separator) means the resolver found nothing. */
     return bin && (strchr(bin, '/') != NULL);
+}
+
+int platform_hq_is_available(void) {
+    /* HQ availability is determined by the adapter module — it checks
+     * both library load and catalog access. */
+    extern int hq_is_available(void);
+    return hq_is_available();
 }
 
 /* ---------------------------------------------------------------

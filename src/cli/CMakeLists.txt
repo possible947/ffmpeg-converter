@@ -64,6 +64,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         ${CMAKE_SOURCE_DIR}/src/platform/linux
         ${CMAKE_SOURCE_DIR}/src/mux
         ${CMAKE_SOURCE_DIR}/src/m4v
+        ${CMAKE_SOURCE_DIR}/src/hq
     )
 
     target_link_libraries(linux_cli
@@ -71,6 +72,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         PRIVATE mux
         PRIVATE m4v
         PRIVATE add_track
+        PRIVATE hq_adapter
         PRIVATE platform
         PRIVATE jansson
     )
@@ -131,11 +133,13 @@ if (APPLE)
         ${CMAKE_SOURCE_DIR}/src/platform
         ${CMAKE_SOURCE_DIR}/src/platform/macos
         ${CMAKE_SOURCE_DIR}/src/m4v
+        ${CMAKE_SOURCE_DIR}/src/hq
     )
 
     target_link_libraries(macos_cli
         PRIVATE converter
         PRIVATE m4v
+        PRIVATE hq_adapter
         PRIVATE platform
         PRIVATE jansson
     )

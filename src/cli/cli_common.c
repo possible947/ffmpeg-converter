@@ -18,6 +18,8 @@
 #include "cli_common.h"
 #include "cli_platform.h"
 #include "preset_loader.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
 #include <jansson.h>
 
 static const char* get_platform_name(void);
@@ -186,6 +188,14 @@ int cli_resolve_selection(const char* group, const char* encoder,
         (!strcmp(encoder, "mkv") || !strcmp(encoder, "mov") ||
          !strcmp(encoder, "m4v"))) {
         strncpy(final_codec, "mux", final_codec_sz - 1);
+        final_codec[final_codec_sz - 1] = '\0';
+        return 1;
+    }
+
+    /* hq_converter is an external encoder group. The encoder name is the
+     * HQ codec identifier (e.g., "x264"). The final codec is "hq_converter". */
+    if (!strcmp(group, "hq_converter")) {
+        strncpy(final_codec, "hq_converter", final_codec_sz - 1);
         final_codec[final_codec_sz - 1] = '\0';
         return 1;
     }
@@ -554,6 +564,21 @@ void cli_print_codecs_list(const CliPlatformHandle* h) {
     if (groups)
         json_object_foreach(groups, name, group)
             print_catalog_group(name, group, h);
+
+    /* HQ Converter — list encoders from the HQ runtime catalog */
+    if (platform_hq_is_available() && hq_catalog_load(NULL) == 0) {
+        size_t i;
+        printf("hq_converter:\n");
+        for (i = 0; i < hq_catalog_codec_count(); i++) {
+            const char *enc = hq_catalog_codec_name(i);
+            const char *def = hq_catalog_default_preset(enc);
+            printf("  %s (default: %s, presets: %zu)\n",
+                   enc, def ? def : "(none)",
+                   hq_catalog_preset_count(enc));
+        }
+        hq_catalog_free();
+    }
+
     json_decref(root);
 }
 
@@ -838,6 +863,15 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
                 selection_group, selection_encoder);
         return 0;
     }
+
+    /* For HQ mode, pass the encoder name through hw_device so the
+     * adapter can retrieve it. hw_device is unused by HQ. */
+    if (!strcmp(opts->codec, "hq_converter")) {
+        strncpy(opts->hw_device, selection_encoder,
+                sizeof(opts->hw_device) - 1);
+        opts->hw_device[sizeof(opts->hw_device) - 1] = '\0';
+    }
+
     if (!preset_explicit) {
         if (!strcmp(opts->codec, "copy"))
             strcpy(opts->preset, "default");
@@ -846,6 +880,8 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
                   !strcmp(selection_encoder, "mov") ||
                   !strcmp(selection_encoder, "m4v")))
             strncpy(opts->preset, selection_encoder, sizeof(opts->preset) - 1);
+        else if (!strcmp(opts->codec, "hq_converter"))
+            opts->preset[0] = '\0'; /* Will be filled from HQ catalog at runtime */
         else if (strstr(opts->codec, "prores") != NULL)
             strcpy(opts->preset, "standard");
         else
@@ -868,7 +904,10 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
 
         if (preset_explicit) {
             int valid_preset = 0;
-            if (!strcmp(opts->codec, "prores_ks_vulkan"))
+            if (!strcmp(opts->codec, "hq_converter")) {
+                /* HQ presets are validated at runtime from the HQ catalog */
+                valid_preset = 1;
+            } else if (!strcmp(opts->codec, "prores_ks_vulkan"))
                 valid_preset = !strcmp(opts->preset, "lt") ||
                                !strcmp(opts->preset, "standard") ||
                                !strcmp(opts->preset, "hq") ||

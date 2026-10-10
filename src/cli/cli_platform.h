@@ -77,6 +77,12 @@ int platform_mux_is_supported(void);
 int platform_m4v_is_supported(void);
 
 /**
+ * platform_hq_is_available() — Returns 1 if HQ Converter runtime is
+ * available (library loads and HQ catalog can be read).
+ */
+int platform_hq_is_available(void);
+
+/**
  * platform_get_default_vulkan_device() — Returns the recommended Vulkan
  * device index for the given codec, based on the startup probe result.
  * `codec` may be NULL (e.g. generic help text printed before any codec is

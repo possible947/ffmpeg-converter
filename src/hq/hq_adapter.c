@@ -15,6 +15,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <errno.h>
 
 #include <jansson.h>
 
@@ -582,4 +584,62 @@ int hq_read_video_track_path(const char *work_dir,
 done:
     json_decref(root_json);
     return rc;
+}
+
+/* ===============================================================
+ *  Recursive directory removal (task_N cleanup)
+ * =============================================================== */
+
+static int hq_rmtree_recursive(const char *path)
+{
+    DIR *d;
+    struct dirent *ent;
+    struct stat st;
+    char child[2048];
+
+    if (!path || path[0] == '\0')
+        return -1;
+
+    /* Stat the path; if it doesn't exist, nothing to do */
+    if (stat(path, &st) != 0) {
+        if (errno == ENOENT)
+            return 0;
+        return -1;
+    }
+
+    /* If it's a directory, recurse into it */
+    if (S_ISDIR(st.st_mode)) {
+        d = opendir(path);
+        if (!d)
+            return -1;
+
+        while ((ent = readdir(d)) != NULL) {
+            if (strcmp(ent->d_name, ".") == 0 ||
+                strcmp(ent->d_name, "..") == 0)
+                continue;
+
+            snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
+            if (hq_rmtree_recursive(child) != 0) {
+                closedir(d);
+                return -1;
+            }
+        }
+
+        closedir(d);
+
+        /* Remove the directory itself */
+        if (rmdir(path) != 0)
+            return -1;
+    } else {
+        /* Regular file or symlink — unlink */
+        if (unlink(path) != 0)
+            return -1;
+    }
+
+    return 0;
+}
+
+int hq_remove_directory_tree(const char *path)
+{
+    return hq_rmtree_recursive(path);
 }

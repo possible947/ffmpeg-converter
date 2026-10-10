@@ -84,7 +84,8 @@ if (HQ_CONVERTER_ENABLED)
   # Copy the complete prepared HQ release to the build output.
   # The full directory tree must be preserved — the HQ library resolves
   # preset paths by walking up from its own location.
-  set(HQ_RUNTIME_DEST "${CMAKE_BINARY_DIR}/hq_converter")
+  # Destination is next to the CLI binary so runtime root resolution works.
+  set(HQ_RUNTIME_DEST "${CMAKE_BINARY_DIR}/bin/hq_converter")
   add_custom_target(hq_runtime_copy ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       "${HQ_CONVERTER_RELEASE_DIR}"
