@@ -5,6 +5,8 @@
 #include "gui_window.h"
 #include "gui_codec_utils.h"
 #include "preset_loader.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -347,6 +349,12 @@ static void populate_codec_combo(AppWidgets *w)
         gtk_string_list_append(w->codec_list, groups[i]);
     selection_catalog_free_list(groups);
 
+    /* Add HQ Converter group when available */
+    if (hq_is_available() && hq_catalog_load(NULL) == 0) {
+        gtk_string_list_append(w->codec_list, "hq_converter");
+        /* Keep the catalog loaded for encoder/preset population */
+    }
+
     gtk_drop_down_set_selected(GTK_DROP_DOWN(w->codec_combo), 0);
 }
 
@@ -366,12 +374,22 @@ static void populate_encoder_combo(AppWidgets *w)
                            NULL);
     codec = get_dropdown_text(w->codec_combo);
     if (codec && codec[0] != '\0' && w->selection_catalog) {
-        encoder_count = selection_catalog_list_encoders(
-            w->selection_catalog, codec, linux_selection_capability,
-            &w->linux_codec_support, &encoders);
-        for (i = 0; i < encoder_count; i++)
-            gtk_string_list_append(w->encoder_list, encoders[i]);
-        selection_catalog_free_list(encoders);
+        /* HQ: populate encoders from the HQ catalog */
+        if (g_strcmp0(codec, "hq_converter") == 0) {
+            size_t i;
+            if (hq_catalog_is_loaded()) {
+                for (i = 0; i < hq_catalog_codec_count(); i++)
+                    gtk_string_list_append(w->encoder_list,
+                                           hq_catalog_codec_name(i));
+            }
+        } else {
+            encoder_count = selection_catalog_list_encoders(
+                w->selection_catalog, codec, linux_selection_capability,
+                &w->linux_codec_support, &encoders);
+            for (i = 0; i < encoder_count; i++)
+                gtk_string_list_append(w->encoder_list, encoders[i]);
+            selection_catalog_free_list(encoders);
+        }
     }
     g_free(codec);
     if (previous_encoder && previous_encoder[0] != '\0') {
@@ -425,6 +443,20 @@ static void populate_preset_combo(AppWidgets *w)
     if (g_strcmp0(codec, "mux") == 0) {
         gtk_string_list_append(w->preset_list, "default");
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 0);
+        g_free(encoder);
+        g_free(codec);
+        return;
+    }
+
+    /* HQ: populate presets from the HQ catalog */
+    if (g_strcmp0(codec, "hq_converter") == 0 && encoder && hq_catalog_is_loaded()) {
+        size_t i;
+        size_t preset_count = hq_catalog_preset_count(encoder);
+        for (i = 0; i < preset_count; i++)
+            gtk_string_list_append(w->preset_list,
+                                   hq_catalog_preset_name(encoder, i));
+        if (preset_count > 0)
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 0);
         g_free(encoder);
         g_free(codec);
         return;
@@ -1023,6 +1055,7 @@ static void update_dependent_widgets(AppWidgets *w)
     char *encoder;
     char resolved_codec[sizeof(((ConvertOptions *)0)->codec)] = "";
     gboolean mux_group;
+    gboolean hq_group;
     gboolean mux_needs_track;
 
     g_free(codec);
@@ -1032,6 +1065,7 @@ static void update_dependent_widgets(AppWidgets *w)
         selection_catalog_resolve(w->selection_catalog, codec, encoder,
                                   resolved_codec, sizeof(resolved_codec));
     mux_group = g_strcmp0(codec, "mux") == 0;
+    hq_group = g_strcmp0(codec, "hq_converter") == 0;
     mux_needs_track = mux_group && g_strcmp0(encoder, "copy") != 0;
     /* Update preset combo with presets for the selected codec */
     populate_preset_combo(w);
@@ -1039,7 +1073,7 @@ static void update_dependent_widgets(AppWidgets *w)
     /* A codec with one preset has nothing to choose; all multi-preset
      * codecs, including GPU encoders, must expose their preset tiers. */
     gtk_widget_set_sensitive(w->profile_combo,
-        !mux_group && g_list_model_get_n_items(G_LIST_MODEL(w->preset_list)) > 1);
+        !mux_group && !hq_group && g_list_model_get_n_items(G_LIST_MODEL(w->preset_list)) > 1);
     gtk_widget_set_sensitive(w->encoder_combo, codec && codec[0] != '\0');
     gtk_widget_set_sensitive(w->filter_combo, codec && codec[0] != '\0');
     gtk_widget_set_sensitive(w->filter_preset_combo, codec && codec[0] != '\0');
@@ -1498,6 +1532,12 @@ void collect_options_from_gui(AppWidgets *w,
             g_strlcpy(opts->codec, "mux", sizeof(opts->codec));
             g_strlcpy(opts->preset, encoder ? encoder : "mkv", sizeof(opts->preset));
         }
+    } else if (group && g_strcmp0(group, "hq_converter") == 0) {
+        /* HQ: codec is hq_converter, encoder carried in hw_device */
+        g_strlcpy(opts->codec, "hq_converter", sizeof(opts->codec));
+        if (encoder)
+            g_strlcpy(opts->hw_device, encoder, sizeof(opts->hw_device));
+        /* Preset is the HQ preset from the combo */
     }
 
     g_free(encoder);

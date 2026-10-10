@@ -46,4 +46,9 @@ static inline gboolean codec_is_mux(const char *codec)
     return g_strcmp0(codec, "mux") == 0;
 }
 
+static inline gboolean codec_is_hq(const char *codec)
+{
+    return g_strcmp0(codec, "hq_converter") == 0;
+}
+
 #endif /* GUI_CODEC_UTILS_H */

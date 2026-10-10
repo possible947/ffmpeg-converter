@@ -71,6 +71,7 @@ target_link_libraries(gui_lib
     PUBLIC m4v
     PUBLIC mux
     PUBLIC add_track
+    PUBLIC hq_adapter
 )
 
 # Executable for Linux

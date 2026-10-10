@@ -5,9 +5,12 @@
 #include "gui_window.h"
 #include "gui_codec_utils.h"
 #include "add_track.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
 #include <glib.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -588,7 +591,134 @@ static gpointer run_converter(gpointer user_data)
 
     converter_set_callbacks(c, &cb);
 
-    if (codec_is_mux(opts.codec)) {
+    if (codec_is_hq(opts.codec)) {
+        /* HQ Converter execution path */
+        HqAdapter *hq_adapter = NULL;
+        const char *hq_encoder = opts.hw_device[0] != '\0' ? opts.hw_device : NULL;
+        const char *hq_preset = opts.preset[0] != '\0' ? opts.preset : NULL;
+        char task_dir[1024];
+        char video_track[1024];
+        char effective_output_dir[1024];
+
+        if (file_count != 1) {
+            LogUpdateData *data = g_new0(LogUpdateData, 1);
+            data->w = w;
+            data->msg = g_strdup("HQ mode requires exactly one source file\n");
+            g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+            err = ERR_INVALID_OPTIONS;
+            goto cleanup;
+        }
+
+        if (!hq_encoder) {
+            LogUpdateData *data = g_new0(LogUpdateData, 1);
+            data->w = w;
+            data->msg = g_strdup("HQ: no encoder selected\n");
+            g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+            err = ERR_INVALID_OPTIONS;
+            goto cleanup;
+        }
+
+        if (!hq_preset) {
+            hq_preset = hq_catalog_default_preset(hq_encoder);
+            if (!hq_preset) {
+                LogUpdateData *data = g_new0(LogUpdateData, 1);
+                data->w = w;
+                data->msg = g_strdup("HQ: no preset selected\n");
+                g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+                err = ERR_INVALID_OPTIONS;
+                goto cleanup;
+            }
+        }
+
+        /* Resolve output directory */
+        resolve_effective_output_dir(&opts, effective_output_dir, sizeof(effective_output_dir));
+
+        /* Create task_N directory */
+        snprintf(task_dir, sizeof(task_dir), "%s/task_1", effective_output_dir);
+        if (mkdir(task_dir, 0755) != 0 && errno != EEXIST) {
+            LogUpdateData *data = g_new0(LogUpdateData, 1);
+            data->w = w;
+            data->msg = g_strdup_printf("Failed to create task directory: %s\n", task_dir);
+            g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+            err = ERR_OUTPUT_EXISTS;
+            goto cleanup;
+        }
+
+        /* Create HQ adapter and run job */
+        hq_adapter = hq_adapter_create();
+        if (!hq_adapter) {
+            LogUpdateData *data = g_new0(LogUpdateData, 1);
+            data->w = w;
+            data->msg = g_strdup("Failed to create HQ adapter\n");
+            g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+            err = ERR_FFMPEG_FAILED;
+            goto cleanup;
+        }
+
+        err = ERR_OK;
+
+        on_file_begin(file_list[0], 1, file_count);
+
+        HqResult hq_rc = hq_run_job(hq_adapter,
+                                     file_list[0],
+                                     task_dir,
+                                     hq_encoder,
+                                     hq_preset,
+                                     c);
+
+        if (hq_rc == HQ_RESULT_OK) {
+            if (hq_read_video_track_path(task_dir,
+                                         hq_encoder,
+                                         hq_preset,
+                                         video_track,
+                                         sizeof(video_track)) != 0) {
+                LogUpdateData *data = g_new0(LogUpdateData, 1);
+                data->w = w;
+                data->msg = g_strdup("HQ: failed to read session result\n");
+                g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+                err = ERR_FFMPEG_FAILED;
+            } else if (!file_is_regular_readable(video_track)) {
+                LogUpdateData *data = g_new0(LogUpdateData, 1);
+                data->w = w;
+                data->msg = g_strdup_printf("HQ: video track not found: %s\n", video_track);
+                g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+                err = ERR_INPUT_NOT_FOUND;
+            } else if (converter_is_stopped(c)) {
+                err = ERR_SKIP_FILE;
+            } else {
+                /* Handoff to add_track_execute() */
+                ConvertOptions hq_opts = opts;
+                g_strlcpy(hq_opts.video_track_path, video_track,
+                          sizeof(hq_opts.video_track_path));
+                AddTrackRequest req = {
+                    .source_file = file_list[0],
+                    .convert_options = &hq_opts,
+                };
+                AddTrackResult track_result;
+                err = add_track_execute(c, &req, &track_result);
+            }
+        } else if (hq_rc == HQ_RESULT_CANCELLED) {
+            err = ERR_SKIP_FILE;
+        } else {
+            char hq_err[512];
+            if (hq_adapter_get_last_error(hq_adapter, hq_err, sizeof(hq_err)) == 0
+                    && hq_err[0] != '\0') {
+                LogUpdateData *data = g_new0(LogUpdateData, 1);
+                data->w = w;
+                data->msg = g_strdup_printf("HQ failed: %s\n", hq_err);
+                g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+            }
+            err = ERR_FFMPEG_FAILED;
+        }
+
+        on_file_end(file_list[0], err);
+
+        hq_adapter_destroy(hq_adapter);
+
+        /* Remove task_N directory */
+        hq_remove_directory_tree(task_dir);
+
+    } else if (codec_is_mux(opts.codec)) {
         AddTrackRequest req = {
             .source_file      = file_list[0],
             .convert_options  = &opts,
