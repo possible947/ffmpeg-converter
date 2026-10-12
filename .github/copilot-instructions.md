@@ -80,6 +80,8 @@ bash fpc/test/test_cli_args_matrix.sh
 
 There is no dedicated lint target in the repo; validation is build-oriented and script-driven.
 
+Pascal build notes: default `FPCFLAGS=-Mobjfpc -Sh -O2`; compiled units land in `fpc/build/.units/`, binaries in `fpc/bin/` (never commit these). On Windows/MSYS2, bash mangles `-Fu` include paths — the Makefile wraps them with `cygpath -w` + double quotes; follow that pattern for any new `-Fu` flag. Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat` (distinct from the MSVC `windows_build.ps1`).
+
 ## Architecture at a glance
 
 This repo has two independent implementations that share the same conversion model and CLI behavior:
@@ -121,7 +123,15 @@ Important repo-level behavior:
 - Probe results are cached at `~/.cache/ffmpeg_converter/hw_probe_cache.bin` (or `$XDG_CACHE_HOME/ffmpeg_converter/...`), auto-invalidated by a signature over the bundled ffmpeg binary, `presets.json`, and the `/dev/dri/renderD*` node set. `linux_invalidate_codec_support_cache()` exists for a future "rescan hardware" action.
 - The same safety policy (vainfo pre-filter + opt-in real probe) is mirrored in `fpc/platform/linux_probe.pas` (`VaapiProfileSupported`), even though that file's `{$IFDEF Linux}` branches are currently dead code in the shipped Windows-only Pascal build.
 
+## Apple M4V pipeline
 
+Implemented separately in C (`src/m4v/`, `src/gui_macos_native/apple_m4v_creator.m`) and Pascal (`fpc/converter/apple_m4v_creator.pas`). Order: (1) stream-copy video to temp `.mp4`, (2) AAC via `libfdk_aac -b:a 320k` CBR — **fixed, not configurable** (`aac_quality` removed in v2.5), (3) AC3 (384/448/640), (4) `MP4Box` mux, (5) optional `ffmpeg -map_chapters 1 -c copy`.
+
+## CI / releases
+
+`.github/workflows/` is **tag-driven**: pushing tag `macos` → macOS build/release; tag `windows` → MSVC build/release. Both also support `workflow_dispatch`. Each builds only `macos_cli` / `windows_cli` and creates a GitHub Release with an auto-generated changelog.
+
+## Further reading
 
 - `README.md` for the user-facing feature overview and build requirements
 - `AGENTS.md` for repo-specific AI guidance and gotchas
@@ -145,3 +155,8 @@ Important repo-level behavior:
 | macOS: Error when building FPC | Pascal support discontinued | Use C implementation (`cmake --build build --target macos_cli`). FPC Makefile exits with error on Darwin. |
 | Both C & Pascal sync issue | Changed `converter.h` but not Pascal export | Any change to `src/converter/converter.h` → mirror in `fpc/converter/converter_pas.lpr` (8 exported functions) |
 | M4V pipeline broken after edit | C and Pascal M4V diverged | Keep `src/m4v/` + `src/gui_macos_native/apple_m4v_creator.m` synchronized with `fpc/converter/apple_m4v_creator.pas` |
+
+## Misc gotchas
+
+- `AGENTS.md` itself is gitignored; this file (`.github/copilot-instructions.md`) is its committed sibling — keep them in sync when either is updated.
+- Codec strings vary by platform (`*_vaapi` Linux, `*_videotoolbox` macOS, `prores_ks_vulkan` Windows) and are runtime-probed — check `README.md` Features and `converter.h` comments rather than assuming a fixed list.
