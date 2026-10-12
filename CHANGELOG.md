@@ -142,6 +142,90 @@ considered complete.
   error codes, same cancellation semantics.  macOS CLI still rejects mux mode
   (`platform_mux_is_supported() == 0`).
 
+## [Unreleased] — HQ + mux integration review: multi-file queue and GUI fork hang fixes (2026-10-12)
+
+Follow-up code review and bug-fix pass on the Phase 3.1 HQ Converter
+integration above, triggered by a bug report: with HQ + mux, the first queued
+file converted correctly, but the second file's HQ job completed encoding and
+then the program exited (CLI) or hung (GUI) before the mux step, leaving a
+stray `task_N` directory on disk. Full analysis and rationale in
+`docs/v3.0-Phase3.1.md` Section 28.
+
+### Fixed
+- **`src/add_track/add_track.c`**: ProRes HQ jobs now resolve to the correct
+  `.mov` container/preset in `converter_make_output_name()` and
+  `mux_run_postprocess_for_preset()` (previously mismatched because HQ's
+  `hw_device`/`preset` fields carry encoder id / encoder preset, not a
+  container keyword). The HQ-encoded intermediate (`*_converted.mkv`) is now
+  removed after a successful ProRes HQ + mux run, when it differs from the
+  final output path (non-ProRes case is unaffected — mkvmerge already
+  overwrites the intermediate path in place there).
+- **`src/cli/main.c`**: removed a leftover `file_count != 1` guard that
+  rejected multi-file HQ queues outright, and changed a per-file directory
+  error from `goto cleanup` (aborts the whole queue) to `continue` (skips
+  just that file), matching the non-HQ CLI paths.
+- **`src/gui/gui_callbacks.c`, `src/gui_macos_native/converter_bridge.m`**:
+  both GUIs' HQ execution paths only ever handled a single file
+  (`file_list[0]`/`cFiles[0]`) with an explicit "exactly one file" rejection
+  — there was no architecture for HQ queues of more than one file. Rewrote
+  both to loop over the full queue, creating a `task_N` directory and running
+  `hq_run_job()` → `add_track_execute()` → cleanup per file, reusing one
+  `HqAdapter` across the whole run.
+- **`src/gui/gui_window.h`, `src/gui/gui_callbacks.c`,
+  `src/gui_macos_native/converter_bridge.m`**: Stop/Cancel previously only
+  called `converter_stop()`, which the HQ worker process does not observe.
+  Added a mutex/`@synchronized`-guarded `current_hq_adapter`/`_hqAdapter`
+  field (alongside the existing `current_converter` field) and call
+  `hq_request_stop_from_converter()` on it from both GUIs' stop/shutdown
+  paths.
+- **GUI-only hang after the fixes above (`src/hq/hq_adapter.c`,
+  `src/hq/hq_adapter.h`, new `src/hq/hq_worker_main.c`)**: even with queue
+  support restored, the GTK GUI still hung on a 2-file HQ+mux run — root
+  cause was `fork()` from a multi-threaded process (the GUI always has a
+  main thread plus at least one worker thread) risking an inherited,
+  permanently-locked glibc malloc-arena lock in the forked child if another
+  thread held it at fork time, deadlocking the child's first `malloc()`
+  (CLI is single-threaded, so unaffected — matches the original "CLI OK, GUI
+  hangs" report exactly). Fixed by having the forked child immediately
+  `execve()` a new dedicated `hq_worker` helper binary before doing any
+  further `malloc()`/`dlopen()`/`pthread_create()`, so the worker always
+  starts from a fresh, single-threaded process image regardless of the
+  parent's thread state at fork time.
+
+### Added
+- **`src/hq/hq_worker_main.c`**: minimal `main()` for the new `hq_worker`
+  helper executable; parses pipe fds and job parameters from argv and calls
+  the new `hq_worker_main_entry()`.
+- **`hq_worker` CMake target** (`src/hq/CMakeLists.txt`): built alongside
+  `linux_cli`/`linux_gui` (shared `bin/` output dir) and
+  `macos_cli`/`macos_gui_native` (explicit `POST_BUILD` copy next to each
+  target, since macOS targets don't share `hq_worker`'s output directory).
+
+### Verified
+- CLI: real 2-file ProRes HQ + mux queue — both files completed, correct
+  `.mov` outputs, no leftover `task_N` directories, exit code 0.
+- GUI hang fix: a standalone harness reproducing the GUI's threading model
+  (a thread continuously allocating/freeing memory concurrently with a
+  second thread driving `hq_run_job()` through a real 2-file ProRes HQ+mux
+  queue, linked against the actual built static libraries) completed
+  successfully 5/5 consecutive runs.
+- Maintainer-run manual tests (see `docs/v3.0-Phase3.1.md` §28.4): 2-file
+  `x264`/`fullhd` queue (copy audio) — completed; 2-file ProRes HQ + mux
+  queue — completed; Stop/Cancel against a running HQ job — confirmed
+  working. A 2-file `x265`/`Medium` + `peak_norm_2pass` + `aac320_ac3_640`
+  queue completed but was reported as very slow, attributed to HQ
+  Converter's own internal segmentator analysis pass rather than a defect in
+  this integration layer.
+- Full Linux rebuild (`cmake --build build`) clean, no warnings.
+
+### Not Verified in This Pass
+- macOS build/runtime of the `hq_worker` re-exec fix (no macOS toolchain
+  available in this environment — code-reviewed only).
+- The general-purpose mux pipeline (`-c mux --video-track`) as a standalone
+  feature independent of the HQ hand-off path.
+- The HQ Converter Library's own internal behavior (treated as a black box
+  per the governing invariants in `docs/v3.0-Phase3.1.md` §25).
+
 ## [Unreleased] — Linux VAAPI hardware-probe crash fix (2026-10-02)
 
 ### Fixed
