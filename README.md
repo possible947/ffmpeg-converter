@@ -32,8 +32,9 @@ Two independent implementations share the same conversion logic and CLI behavior
 - **macOS and Windows:** source paths, GUI prototypes, catalog population, and
   option-resolution paths are prepared; native builds, runtime behavior, and
   hardware encoder combinations still require dedicated platform debugging.
-- **HQ_converter:** external Linux/macOS integration remains a later Phase 3
-  feature and is not exposed by the current CLI implementation.
+- **HQ_converter:** external Linux/macOS integration (Phase 3) is complete —
+  see "Version 3.0 Phase 3.0 – Phase 3.1 Updates" below and
+  `docs/v3.0-Phase3.1.md`.
 
 ## V3 Preparation Status
 
@@ -152,6 +153,65 @@ Two independent implementations share the same conversion logic and CLI behavior
   AAC, removed `--m4v-aac-quality`).
 - Updated summary output: shows "M4V AAC: CBR 320k (libfdk_aac)" instead of
   the old quality value.
+
+## Version 3.0 Phase 3.0 – Phase 3.1 Updates
+
+**Phase 3 status: fully implemented** (Linux and macOS; Windows C/FPC excluded
+from HQ Converter scope — see `docs/v3.0-Phase3.1.md`).
+
+### Phase 3.0 — Pre-integration refactor
+
+Before the HQ Converter Library could be integrated, the converter core was
+refactored so the new backend could reuse existing pipelines instead of
+duplicating them:
+
+- **Audio core isolated** into `src/audio/audio_orchestrator.c`/`.h`,
+  extracted out of `converter.c`. All 40 mode × normalization × genre
+  combinations verified unchanged.
+- **Add Track isolated** into `src/add_track/add_track.c`/`.h` as the single
+  shared convergence point (`add_track_execute()`) for every Add Track-style
+  flow (manual mux, and later HQ Converter), used identically by CLI, Linux
+  GUI, and macOS GUI.
+- **Mux core isolated**: duplicated per-platform mux postprocessing code
+  collapsed into one shared pipeline called from `add_track_execute()`.
+- **Interactive CLI menu removed**: the CLI is now flag/argument-driven only
+  (`-c`, `--encoder`, `--preset`, etc.), no interactive prompt mode.
+- **Windows C version removed** (later reintroduced separately as an
+  MSVC-only CLI target, excluded from HQ Converter scope): legacy Windows
+  platform sources and build branches were dropped from the C implementation
+  as part of this cleanup pass.
+
+### Phase 3.1 — HQ Converter integration
+
+Integrates the external **HQ Converter Library** (`third_party/hq_converter/`,
+prepared and bundled as an immutable, unmodified runtime tree — see
+`docs/hq-converter-integration-policy.md`) as a new `hq_converter` codec group
+on Linux and macOS:
+
+- **New codec group `hq_converter`** selectable from CLI (`-c hq_converter
+  --encoder <id> --preset <preset>`) and from both GUIs, backed by a shared
+  runtime catalog (`src/hq/hq_catalog.c`) read from the packaged HQ release —
+  no hardcoded encoder/preset lists.
+- **`hq_converter = automatic Add Track video source`**: the HQ Library only
+  produces an external video track; once that track is ready, the exact
+  existing `add_track_execute()` pipeline takes over for audio processing,
+  muxing, and final output — no HQ-specific audio or mux code was added.
+- **Process isolation**: every HQ job runs in a dedicated forked + `execve()`'d
+  helper process (`hq_worker`) with its own fresh library handle, created and
+  destroyed per job. A library fault only ends the disposable worker, never
+  the CLI/GUI process. The forked child re-execs immediately (before any
+  `malloc()`/`dlopen()`/`pthread_create()`) specifically to avoid a
+  fork()-in-multi-threaded-process malloc-arena deadlock that could hang the
+  GUI on multi-file queues.
+- **Multi-file queues**, Stop/Cancel, `task_N` working-directory lifecycle and
+  cleanup, and ProRes HQ container/preset handling are implemented
+  consistently across the CLI, Linux GTK GUI, and macOS Cocoa GUI.
+- **Runtime root resolution** is executable-relative (works from an
+  AppImage, an installed tree, or a macOS `.app` bundle) and never depends on
+  the current working directory or source-project environment variables.
+- See `docs/v3.0-Phase3.1.md` for the full specification, governing
+  invariants, and Section 28 for code-review findings, root causes, and
+  verification results from the post-implementation review.
 
 ## Version 2.4 Updates
 
