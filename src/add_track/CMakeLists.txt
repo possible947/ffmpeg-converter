@@ -7,9 +7,11 @@ target_include_directories(add_track PUBLIC
     ${CMAKE_SOURCE_DIR}/src/converter
     ${CMAKE_SOURCE_DIR}/src/mux
     ${CMAKE_SOURCE_DIR}/src/platform
+    ${CMAKE_SOURCE_DIR}/src/hq
 )
 
 target_link_libraries(add_track PUBLIC
     converter
     mux
+    hq_adapter
 )

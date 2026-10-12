@@ -2,6 +2,7 @@
 #include "mux.h"
 #include "mux_platform.h"
 #include "converter_platform.h"
+#include "hq_catalog.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -111,27 +112,68 @@ ConverterError add_track_execute(Converter *converter,
             sizeof(final_opts.output_dir) - 1);
     final_opts.output_dir[sizeof(final_opts.output_dir) - 1] = '\0';
 
-    converter_make_output_name(request->source_file, &final_opts,
-                               final_file, sizeof(final_file));
+    /* HQ Converter jobs carry the real encoder id in hw_device and an
+     * encoder preset name (not a container keyword) in preset — neither
+     * converter_make_output_name()'s codec check nor
+     * mux_run_postprocess_for_preset()'s preset check recognize these
+     * HQ-specific field meanings. Detect the ProRes HQ case here and
+     * substitute container-selection values understood by those two
+     * functions, without touching request->convert_options itself. */
+    {
+        int is_hq_prores =
+            !strcmp(request->convert_options->codec, "hq_converter") &&
+            hq_catalog_is_prores_codec(request->convert_options->hw_device);
 
-    memset(&mux_opts, 0, sizeof(mux_opts));
-    strncpy(mux_opts.intermediate_file, intermediate_file,
-            sizeof(mux_opts.intermediate_file) - 1);
-    mux_opts.intermediate_file[sizeof(mux_opts.intermediate_file) - 1] = '\0';
+        if (is_hq_prores) {
+            strncpy(final_opts.codec, "prores_ks", sizeof(final_opts.codec) - 1);
+            final_opts.codec[sizeof(final_opts.codec) - 1] = '\0';
+        }
 
-    strncpy(mux_opts.video_track_file,
-            request->convert_options->video_track_path,
-            sizeof(mux_opts.video_track_file) - 1);
-    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
+        converter_make_output_name(request->source_file, &final_opts,
+                                   final_file, sizeof(final_file));
 
-    mux_opts.overwrite = request->convert_options->overwrite;
+        memset(&mux_opts, 0, sizeof(mux_opts));
+        strncpy(mux_opts.intermediate_file, intermediate_file,
+                sizeof(mux_opts.intermediate_file) - 1);
+        mux_opts.intermediate_file[sizeof(mux_opts.intermediate_file) - 1] = '\0';
 
-    err = mux_run_postprocess_for_preset(&mux_opts,
-                                          request->convert_options,
-                                          final_file,
-                                          converter_get_callbacks(converter));
+        strncpy(mux_opts.video_track_file,
+                request->convert_options->video_track_path,
+                sizeof(mux_opts.video_track_file) - 1);
+        mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
+
+        mux_opts.overwrite = request->convert_options->overwrite;
+
+        if (is_hq_prores) {
+            ConvertOptions mux_preset_opts = *request->convert_options;
+            strncpy(mux_preset_opts.preset, "mov",
+                    sizeof(mux_preset_opts.preset) - 1);
+            mux_preset_opts.preset[sizeof(mux_preset_opts.preset) - 1] = '\0';
+
+            err = mux_run_postprocess_for_preset(&mux_opts,
+                                                  &mux_preset_opts,
+                                                  final_file,
+                                                  converter_get_callbacks(converter));
+        } else {
+            err = mux_run_postprocess_for_preset(&mux_opts,
+                                                  request->convert_options,
+                                                  final_file,
+                                                  converter_get_callbacks(converter));
+        }
+    }
     if (err != ERR_OK)
         return err;
+
+    /* intermediate_file (the HQ-encoded video-only work file) has now been
+     * consumed into final_file by the mux step above. When the two paths
+     * differ — e.g. the ProRes case, where final_file is .mov but
+     * intermediate_file is always .mkv — the intermediate is left behind on
+     * disk unless removed here. When the paths are identical (the common
+     * non-ProRes case), mkvmerge already wrote directly over
+     * intermediate_file in place, so skip removal to avoid deleting the
+     * just-produced final output. */
+    if (strcmp(intermediate_file, final_file) != 0)
+        platform_unlink(intermediate_file);
 
     strncpy(result->output_file, final_file, sizeof(result->output_file) - 1);
     result->output_file[sizeof(result->output_file) - 1] = '\0';
