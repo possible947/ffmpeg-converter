@@ -102,6 +102,18 @@ if (HQ_CONVERTER_ENABLED)
     )
 endif()
 
+# hq_worker is the dedicated helper binary hq_adapter.c exec()'s right
+# after fork() to run a single HQ job in a fresh process image (see
+# hq_adapter.c's file header comment). resolve_exe_dir() looks for it
+# next to the running binary, i.e. Contents/MacOS/ for an app bundle.
+if (TARGET hq_worker)
+    add_dependencies(macos_gui_native hq_worker)
+    add_custom_command(TARGET macos_gui_native POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:hq_worker>" "$<TARGET_FILE_DIR:macos_gui_native>/hq_worker"
+        COMMENT "Copying hq_worker helper into app bundle MacOS dir"
+    )
+endif()
+
 install(TARGETS macos_gui_native
     BUNDLE DESTINATION .
     RUNTIME DESTINATION bin

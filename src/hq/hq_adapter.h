@@ -18,12 +18,34 @@
  *  - Mux processing (uses existing mux module)
  *  - Output path logic (uses existing converter output workflow)
  *
+ * Process isolation:
+ *  - hq_run_job() executes hqclib_run_job() inside a short-lived forked
+ *    + re-exec'd worker process (the hq_worker helper binary) with its
+ *    own fresh hqclib_handle_t, created and destroyed solely within that
+ *    worker. No hqclib_handle_t survives across calls to hq_run_job() in
+ *    this (parent) process. This both matches the documented per-job
+ *    create/run/destroy lifecycle and guarantees that a fault inside
+ *    the third-party library only ends the disposable worker process,
+ *    not the caller.
+ *  - The worker re-execs immediately after fork(), before doing any
+ *    non-async-signal-safe work (malloc, dlopen, pthread_create). This
+ *    is required, not optional: fork()ing from a multi-threaded caller
+ *    (e.g. the GTK GUI) without an immediate exec() risks inheriting a
+ *    malloc arena lock in a permanently-locked state if another thread
+ *    held it at fork time, deadlocking the worker. See hq_adapter.c's
+ *    file header for the full rationale.
+ *  - Status callback payloads are relayed from the worker to the
+ *    caller's Converter callbacks over a pipe, synchronously, as part
+ *    of hq_run_job()'s blocking read loop.
+ *
  * Thread model:
  *  - hq_resolve_runtime_root() is safe to call from any thread
  *    (lazy init, read-only after first call).
- *  - hq_run_job() blocks the calling thread.
+ *  - hq_run_job() blocks the calling thread until the worker process
+ *    exits.
  *  - hq_request_stop_from_converter() may be called from another
- *    thread to cancel an active job.
+ *    thread while hq_run_job() is blocked; it signals the active
+ *    worker process over a control pipe.
  */
 
 #ifndef HQ_ADAPTER_H
@@ -114,8 +136,12 @@ HqAdapter *hq_adapter_create(void);
 void hq_adapter_destroy(HqAdapter *adapter);
 
 /**
- * Return the underlying HQCLIB handle (for stop/kill forwarding).
- * Returns NULL if the adapter has no active handle.
+ * Deprecated / always returns NULL.
+ *
+ * Job execution is process-isolated (see the file header comment in
+ * hq_adapter.c): the hqclib_handle_t is created and destroyed entirely
+ * inside a disposable worker process and never exists in the caller's
+ * process. Kept for API compatibility.
  */
 void *hq_adapter_get_hqclib_handle(const HqAdapter *adapter);
 
@@ -124,8 +150,10 @@ void *hq_adapter_get_hqclib_handle(const HqAdapter *adapter);
  * --------------------------------------------------------------- */
 
 /**
- * Forward converter_stop() to the HQ Library control API.
- * Returns 0 on success, -1 if no active handle or library not loaded.
+ * Forward converter_stop() to the currently running HQ worker process,
+ * which relays it to hqclib_request_stop() on its local handle.
+ * Returns 0 on success (a worker was active and signalled), -1 if no
+ * job is currently running.
  */
 int hq_request_stop_from_converter(HqAdapter *adapter);
 
@@ -136,7 +164,13 @@ int hq_request_stop_from_converter(HqAdapter *adapter);
 /**
  * Run a synchronous HQ Converter job.
  *
- * @param adapter       HqAdapter context (must have valid HQ handle).
+ * Internally forks a disposable worker process that creates its own
+ * fresh hqclib_handle_t, runs the job, and exits. A crash inside the
+ * third-party library is contained to that worker and reported as
+ * HQ_RESULT_FAILED (with a descriptive message retrievable via
+ * hq_adapter_get_last_error()) instead of terminating the caller.
+ *
+ * @param adapter       HqAdapter context (tracks the active worker, if any).
  * @param input_path    Absolute path to the input file.
  * @param work_dir      Absolute path to the task_N working directory.
  * @param codec         HQ codec identifier from the HQ catalog.
@@ -152,6 +186,34 @@ HqResult hq_run_job(
     const char *preset,
     Converter *converter
 );
+
+/* ---------------------------------------------------------------
+ *  Worker helper entry point (internal — used only by hq_worker_main.c)
+ * --------------------------------------------------------------- */
+
+/**
+ * Entry point for the dedicated hq_worker helper process (see the
+ * process-isolation / re-exec rationale in hq_adapter.c's file header
+ * comment). Loads the HQ library in this fresh process image and runs
+ * exactly one job, reporting status/result over the given pipe fds.
+ *
+ * Not part of the public HqAdapter API — only hq_worker_main.c's
+ * main() calls this, immediately after exec(), before doing anything
+ * else. Never returns; always terminates the process.
+ *
+ * @param status_write_fd  Write end of the status/result pipe to the parent.
+ * @param control_read_fd  Read end of the stop-control pipe from the parent.
+ * @param input_path       Absolute path to the input file.
+ * @param work_dir          Absolute path to the task_N working directory.
+ * @param codec             HQ codec identifier from the HQ catalog.
+ * @param preset            HQ preset identifier from the HQ catalog.
+ */
+void hq_worker_main_entry(int status_write_fd,
+                           int control_read_fd,
+                           const char *input_path,
+                           const char *work_dir,
+                           const char *codec,
+                           const char *preset);
 
 /* ---------------------------------------------------------------
  *  Error text

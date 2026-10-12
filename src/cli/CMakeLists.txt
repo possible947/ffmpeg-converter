@@ -77,6 +77,14 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         PRIVATE jansson
     )
 
+    # hq_worker already builds into the same bin/ directory as linux_cli
+    # (both set RUNTIME_OUTPUT_DIRECTORY to CMAKE_BINARY_DIR/bin), so no
+    # copy step is needed — just make sure it gets built when linux_cli
+    # is built as a standalone target.
+    if (TARGET hq_worker)
+        add_dependencies(linux_cli hq_worker)
+    endif()
+
     if (EXISTS "${LINUX_BUNDLED_FFMPEG}" AND EXISTS "${LINUX_BUNDLED_FFPROBE}")
         add_custom_command(TARGET linux_cli POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LINUX_BUNDLED_FFMPEG}" "$<TARGET_FILE_DIR:linux_cli>/ffmpeg"
@@ -110,7 +118,16 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_cli>/presets.json"
         COMMENT "Copying presets.json next to linux_cli"
     )
+
+    # Copy the HQ Converter runtime next to the CLI binary.
+    if (EXISTS "${CMAKE_SOURCE_DIR}/third_party/hq_converter")
+        add_custom_command(TARGET linux_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/third_party/hq_converter" "$<TARGET_FILE_DIR:linux_cli>/hq_converter"
+            COMMENT "Copying HQ Converter runtime next to linux_cli"
+        )
+    endif()
 endif()
+
 
 # --- MACOS CLI ---
 set(MACOS_BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg")
@@ -144,6 +161,17 @@ if (APPLE)
         PRIVATE jansson
     )
 
+    # macos_cli does not share hq_worker's RUNTIME_OUTPUT_DIRECTORY, so
+    # explicitly copy the helper binary next to it (resolve_exe_dir()
+    # looks for hq_worker in the same directory as the running binary).
+    if (TARGET hq_worker)
+        add_dependencies(macos_cli hq_worker)
+        add_custom_command(TARGET macos_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:hq_worker>" "$<TARGET_FILE_DIR:macos_cli>/hq_worker"
+            COMMENT "Copying hq_worker helper next to macos_cli"
+        )
+    endif()
+
     # Copy the whole bin/ dir (not just ffmpeg/ffprobe): ffmpeg's @rpath deps
     # (libxcb, libvulkan, etc.) resolve via @loader_path, so they must sit
     # next to the binary or dyld fails with "Library not loaded" (SIGABRT).
@@ -157,5 +185,13 @@ if (APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:macos_cli>/presets.json"
         COMMENT "Copying presets.json next to macos_cli"
     )
+
+    # Copy the HQ Converter runtime next to the CLI binary.
+    if (EXISTS "${CMAKE_SOURCE_DIR}/third_party/hq_converter")
+        add_custom_command(TARGET macos_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/third_party/hq_converter" "$<TARGET_FILE_DIR:macos_cli>/hq_converter"
+            COMMENT "Copying HQ Converter runtime next to macos_cli"
+        )
+    endif()
 endif()
 

@@ -87,6 +87,14 @@ target_link_libraries(linux_gui
     PRIVATE jansson
 )
 
+# hq_worker already builds into the same bin/ directory as linux_gui
+# (both set RUNTIME_OUTPUT_DIRECTORY to CMAKE_BINARY_DIR/bin), so no
+# copy step is needed — just make sure it gets built when linux_gui
+# is built as a standalone target.
+if (TARGET hq_worker)
+    add_dependencies(linux_gui hq_worker)
+endif()
+
 if (EXISTS "${LINUX_BUNDLED_FFMPEG}" AND EXISTS "${LINUX_BUNDLED_FFPROBE}")
     add_custom_command(TARGET linux_gui POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LINUX_BUNDLED_FFMPEG}" "$<TARGET_FILE_DIR:linux_gui>/ffmpeg"
@@ -120,6 +128,14 @@ add_custom_command(TARGET linux_gui POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_gui>/presets.json"
     COMMENT "Copying presets.json next to linux_gui"
 )
+
+# Copy the HQ Converter runtime next to the GUI binary.
+if (EXISTS "${CMAKE_SOURCE_DIR}/third_party/hq_converter")
+    add_custom_command(TARGET linux_gui POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/third_party/hq_converter" "$<TARGET_FILE_DIR:linux_gui>/hq_converter"
+        COMMENT "Copying HQ Converter runtime next to linux_gui"
+    )
+endif()
 
  install(TARGETS linux_gui RUNTIME DESTINATION bin)
 
