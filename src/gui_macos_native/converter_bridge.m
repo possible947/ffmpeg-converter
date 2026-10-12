@@ -32,6 +32,9 @@ static int file_is_regular_readable(const char *path) {
 
 @interface ConverterBridge () {
     Converter *_converter;
+    HqAdapter *_hqAdapter;        /* non-NULL only while an HQ job is
+                                   * actively running; guarded the same
+                                   * way as _converter (@synchronized(self)) */
     BOOL _running;
     BOOL _appleRunning;
     volatile BOOL _appleStopFlag;
@@ -386,20 +389,13 @@ static int locale_is_utf8(const char *value) {
         ConvertOptions workOpts = optsCopy;
 
         if (codec_is_hq(optsCopy.codec)) {
-            /* HQ Converter execution path */
+            /* HQ Converter execution path — queue iteration per spec Section 19. */
             HqAdapter *hq_adapter = NULL;
             const char *hq_encoder = optsCopy.hw_device[0] != '\0' ? optsCopy.hw_device : NULL;
             const char *hq_preset = optsCopy.preset[0] != '\0' ? optsCopy.preset : NULL;
-            char task_dir[1024];
             char video_track[1024];
             char effective_output_dir[1024];
-
-            if (fileCount != 1) {
-                err = ERR_INVALID_OPTIONS;
-                [self emitLog:@"HQ mode requires exactly one source file."];
-                [self emitStatus:@"HQ mode requires exactly one source file."];
-                goto finish_conversion;
-            }
+            int fi;
 
             if (!hq_encoder) {
                 err = ERR_INVALID_OPTIONS;
@@ -431,15 +427,8 @@ static int locale_is_utf8(const char *value) {
             }
             effective_output_dir[sizeof(effective_output_dir) - 1] = '\0';
 
-            /* Create task_N directory */
-            snprintf(task_dir, sizeof(task_dir), "%s/task_1", effective_output_dir);
-            if (mkdir(task_dir, 0755) != 0 && errno != EEXIST) {
-                err = ERR_OUTPUT_EXISTS;
-                [self emitLog:@"Failed to create task directory."];
-                goto finish_conversion;
-            }
-
-            /* Create HQ adapter and run job */
+            /* Create HQ adapter once — reused across all queue items (each
+             * hq_run_job() call is internally process-isolated per job). */
             hq_adapter = hq_adapter_create();
             if (!hq_adapter) {
                 err = ERR_FFMPEG_FAILED;
@@ -447,57 +436,83 @@ static int locale_is_utf8(const char *value) {
                 goto finish_conversion;
             }
 
+            @synchronized (self) { _hqAdapter = hq_adapter; }
+
             err = ERR_OK;
-            cb_on_file_begin(cFiles[0], 1, fileCount);
 
-            HqResult hq_rc = hq_run_job(hq_adapter,
-                                         cFiles[0],
-                                         task_dir,
-                                         hq_encoder,
-                                         hq_preset,
-                                         c);
+            for (fi = 0; fi < fileCount; fi++) {
+                char task_dir[1024];
+                ConvertOptions hq_opts;
+                AddTrackRequest req;
+                AddTrackResult track_result;
+                ConverterError ferr = ERR_OK;
 
-            if (hq_rc == HQ_RESULT_OK) {
-                if (hq_read_video_track_path(task_dir,
+                /* Create task_N directory */
+                snprintf(task_dir, sizeof(task_dir), "%s/task_%d",
+                         effective_output_dir, fi + 1);
+                if (mkdir(task_dir, 0755) != 0 && errno != EEXIST) {
+                    ferr = ERR_OUTPUT_EXISTS;
+                    [self emitLog:@"Failed to create task directory."];
+                    cb_on_file_end(cFiles[fi], ferr);
+                    if (err == ERR_OK) err = ferr;
+                    continue;
+                }
+
+                cb_on_file_begin(cFiles[fi], fi + 1, fileCount);
+
+                HqResult hq_rc = hq_run_job(hq_adapter,
+                                             cFiles[fi],
+                                             task_dir,
                                              hq_encoder,
                                              hq_preset,
-                                             video_track,
-                                             sizeof(video_track)) != 0) {
-                    [self emitLog:@"HQ: failed to read session result."];
-                    err = ERR_FFMPEG_FAILED;
-                } else if (!file_is_regular_readable(video_track)) {
-                    [self emitLog:@"HQ: video track not found."];
-                    err = ERR_INPUT_NOT_FOUND;
-                } else if (converter_is_stopped(c)) {
-                    err = ERR_SKIP_FILE;
+                                             c);
+
+                if (hq_rc == HQ_RESULT_OK) {
+                    if (hq_read_video_track_path(task_dir,
+                                                 hq_encoder,
+                                                 hq_preset,
+                                                 video_track,
+                                                 sizeof(video_track)) != 0) {
+                        [self emitLog:@"HQ: failed to read session result."];
+                        ferr = ERR_FFMPEG_FAILED;
+                    } else if (!file_is_regular_readable(video_track)) {
+                        [self emitLog:@"HQ: video track not found."];
+                        ferr = ERR_INPUT_NOT_FOUND;
+                    } else if (converter_is_stopped(c)) {
+                        ferr = ERR_SKIP_FILE;
+                    } else {
+                        /* Handoff to add_track_execute() */
+                        hq_opts = optsCopy;
+                        strncpy(hq_opts.video_track_path, video_track,
+                                sizeof(hq_opts.video_track_path) - 1);
+                        hq_opts.video_track_path[sizeof(hq_opts.video_track_path) - 1] = '\0';
+                        req.source_file = cFiles[fi];
+                        req.convert_options = &hq_opts;
+                        ferr = add_track_execute(c, &req, &track_result);
+                    }
+                } else if (hq_rc == HQ_RESULT_CANCELLED) {
+                    ferr = ERR_SKIP_FILE;
                 } else {
-                    /* Handoff to add_track_execute() */
-                    ConvertOptions hq_opts = optsCopy;
-                    strncpy(hq_opts.video_track_path, video_track,
-                            sizeof(hq_opts.video_track_path) - 1);
-                    hq_opts.video_track_path[sizeof(hq_opts.video_track_path) - 1] = '\0';
-                    AddTrackRequest req = {
-                        .source_file = cFiles[0],
-                        .convert_options = &hq_opts,
-                    };
-                    AddTrackResult track_result;
-                    err = add_track_execute(c, &req, &track_result);
+                    char hq_err[512];
+                    if (hq_adapter_get_last_error(hq_adapter, hq_err, sizeof(hq_err)) == 0
+                            && hq_err[0] != '\0') {
+                        NSString *line = [NSString stringWithUTF8String:hq_err];
+                        [self emitLog:[NSString stringWithFormat:@"HQ failed: %@", line]];
+                    }
+                    ferr = ERR_FFMPEG_FAILED;
                 }
-            } else if (hq_rc == HQ_RESULT_CANCELLED) {
-                err = ERR_SKIP_FILE;
-            } else {
-                char hq_err[512];
-                if (hq_adapter_get_last_error(hq_adapter, hq_err, sizeof(hq_err)) == 0
-                        && hq_err[0] != '\0') {
-                    NSString *line = [NSString stringWithUTF8String:hq_err];
-                    [self emitLog:[NSString stringWithFormat:@"HQ failed: %@", line]];
-                }
-                err = ERR_FFMPEG_FAILED;
+
+                cb_on_file_end(cFiles[fi], ferr);
+                if (err == ERR_OK) err = ferr;
+
+                /* Remove task_N directory */
+                hq_remove_directory_tree(task_dir);
             }
 
-            cb_on_file_end(cFiles[0], err);
+            @synchronized (self) { _hqAdapter = NULL; }
+
             hq_adapter_destroy(hq_adapter);
-            hq_remove_directory_tree(task_dir);
+            hq_adapter = NULL;
 
         } else if (codec_is_mux(optsCopy.codec)) {
             if (fileCount != 1) {
@@ -876,6 +891,9 @@ finish_conversion:
     @synchronized (self) {
         if (_converter) {
             converter_stop(_converter);
+        }
+        if (_hqAdapter) {
+            hq_request_stop_from_converter(_hqAdapter);
         }
     }
 }
