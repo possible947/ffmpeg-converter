@@ -17,6 +17,10 @@ typedef enum {
     GUI_JOB_M4V
 } GuiJobKind;
 
+/* Opaque forward declaration — full definition in hq_adapter.h, only
+ * included by translation units that actually run HQ jobs. */
+typedef struct HqAdapter HqAdapter;
+
 typedef struct {
     /* Main window */
     GtkWidget *window;
@@ -67,6 +71,9 @@ typedef struct {
     GThread *probe_thread;          /* hardware codec probe thread */
     GMutex   thread_lock;           /* protects worker_thread */
     Converter *current_converter;   /* protected by thread_lock */
+    HqAdapter *current_hq_adapter;  /* protected by thread_lock; non-NULL
+                                      * only while an HQ job is actively
+                                      * running */
     gboolean shutting_down;         /* set during app shutdown */
     gboolean updating_selection;    /* blocks nested combo refresh signals */
 

@@ -1073,7 +1073,7 @@ static void update_dependent_widgets(AppWidgets *w)
     /* A codec with one preset has nothing to choose; all multi-preset
      * codecs, including GPU encoders, must expose their preset tiers. */
     gtk_widget_set_sensitive(w->profile_combo,
-        !mux_group && !hq_group && g_list_model_get_n_items(G_LIST_MODEL(w->preset_list)) > 1);
+        !mux_group && g_list_model_get_n_items(G_LIST_MODEL(w->preset_list)) > 1);
     gtk_widget_set_sensitive(w->encoder_combo, codec && codec[0] != '\0');
     gtk_widget_set_sensitive(w->filter_combo, codec && codec[0] != '\0');
     gtk_widget_set_sensitive(w->filter_preset_combo, codec && codec[0] != '\0');
