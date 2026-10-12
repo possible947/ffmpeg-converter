@@ -288,18 +288,11 @@ int main(int argc, char** argv) {
                     goto cleanup;
                 }
 
-                /* Create HQ adapter */
+                /* Create HQ adapter (reused across all files) */
                 hq_adapter = hq_adapter_create();
                 if (!hq_adapter) {
                     fprintf(stderr,
                             "Failed to create HQ adapter.\n");
-                    result = 1;
-                    goto cleanup;
-                }
-
-                if (file_count != 1) {
-                    fprintf(stderr,
-                            "HQ mode requires exactly one source file.\n");
                     result = 1;
                     goto cleanup;
                 }
@@ -352,7 +345,7 @@ int main(int argc, char** argv) {
                         ferr = ERR_OUTPUT_EXISTS;
                         cli_on_file_end(files[fi], ferr);
                         if (err == ERR_OK) err = ferr;
-                        goto cleanup; /* Cannot continue without task dir */
+                        continue; /* Cannot continue without task dir */
                     }
 
                     /* Run HQ job — HQ requires absolute input path */
