@@ -99,6 +99,16 @@ endif()
 # --- JANSSON VENDORED HEADERS ---
 add_subdirectory(third_party/jansson)
 
+# Always copy HQ release unconditionally
+if (EXISTS "${HQ_CONVERTER_RELEASE_DIR}")
+    set(HQ_RUNTIME_DEST "${CMAKE_BINARY_DIR}/bin/hq_converter")
+    add_custom_target(copy_hq_release ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${HQ_CONVERTER_RELEASE_DIR}"
+            "${HQ_RUNTIME_DEST}"
+        COMMENT Copying HQ_converter runtime tree (unconditional)
+    )
+endif()
 # --- МОДУЛЬНАЯ СТРУКТУРА ---
 add_subdirectory(src)
 
