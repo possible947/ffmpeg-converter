@@ -453,6 +453,7 @@ int main(int argc, char** argv) {
         }
 
 cleanup:
+        ;
     }
 
     converter_destroy(c);

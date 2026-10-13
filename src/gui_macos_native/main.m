@@ -3,11 +3,21 @@
 #include "preset_loader.h"
 #include "macos/runtime_probe.h"
 #include "selection_catalog.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
 #include <string.h>
 
 typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
 static PresetDb *gPresetDb = NULL;
 static SelectionCatalog *gSelectionCatalog = NULL;
+
+static BOOL macGuiIsHqGroup(NSString *group) {
+    return [group isEqualToString:@"hq_converter"];
+}
+
+static BOOL macGuiHqCatalogReady(void) {
+    return hq_catalog_is_loaded() || (hq_is_available() && hq_catalog_load(NULL) == 0);
+}
 
 @interface DropWindow : NSWindow
 @property (copy, nonatomic) DropPathsHandler dropHandler;
@@ -107,6 +117,7 @@ static SelectionCatalog *gSelectionCatalog = NULL;
  - (void)populatePresetPopup;
  - (NSString *)resolvedCodecForCurrentSelection;
  - (void)resolveCodec:(NSString **)outCodec preset:(NSString **)outPreset;
+- (void)applyHqEncoderToOptions:(ConvertOptions *)opts;
 @end
 
 @implementation AppDelegate
@@ -596,6 +607,7 @@ static int macSelectionCapability(void *context,
                                                       genre:genre
                                                   overwrite:overwrite
                                                   outputDir:outputDir];
+    [self applyHqEncoderToOptions:&opts];
 
     [self setRunningUIState:YES];
     [self.progress setDoubleValue:0.0];
@@ -721,6 +733,7 @@ static int macSelectionCapability(void *context,
                                                                  genre:genre
                                                              overwrite:overwrite
                                                              outputDir:outputDir];
+    [self applyHqEncoderToOptions:&convertOptions];
 
     [self setAppleM4VUIState:YES];
     [self.progress setDoubleValue:0.0];
@@ -987,6 +1000,9 @@ static int macSelectionCapability(void *context,
     for (int index = 0; index < count; index++) {
         [self.codecPopup addItemWithTitle:[NSString stringWithUTF8String:groups[index]]];
     }
+    if (macGuiHqCatalogReady()) {
+        [self.codecPopup addItemWithTitle:@"hq_converter"];
+    }
     if (self.codecPopup.numberOfItems == 0) {
         [self.codecPopup addItemWithTitle:@"copy"];
     }
@@ -1006,6 +1022,15 @@ static int macSelectionCapability(void *context,
     memset(&support, 0, sizeof(support));
     macos_probe_codec_support(&support);
     [self.encoderPopup removeAllItems];
+    if (macGuiIsHqGroup(group)) {
+        if (macGuiHqCatalogReady()) {
+            for (size_t index = 0; index < hq_catalog_codec_count(); index++)
+                [self.encoderPopup addItemWithTitle:[NSString stringWithUTF8String:hq_catalog_codec_name(index)]];
+        }
+        if (self.encoderPopup.numberOfItems > 0)
+            [self.encoderPopup selectItemAtIndex:0];
+        return;
+    }
     int count = gSelectionCatalog ? selection_catalog_list_encoders(
         gSelectionCatalog, group.UTF8String, macSelectionCapability, &support, &encoders) : 0;
     for (int index = 0; index < count; index++)
@@ -1025,6 +1050,19 @@ static int macSelectionCapability(void *context,
     if ([group isEqualToString:@"mux"]) {
         [self.profilePopup removeAllItems];
         [self.profilePopup addItemWithTitle:@"default"];
+        [self.profilePopup selectItemAtIndex:0];
+        return;
+    }
+
+    if (macGuiIsHqGroup(group)) {
+        [self.profilePopup removeAllItems];
+        if (encoder.length > 0 && macGuiHqCatalogReady()) {
+            size_t presetCount = hq_catalog_preset_count(encoder.UTF8String);
+            for (size_t index = 0; index < presetCount; index++)
+                [self.profilePopup addItemWithTitle:[NSString stringWithUTF8String:hq_catalog_preset_name(encoder.UTF8String, index)]];
+        }
+        if (self.profilePopup.numberOfItems == 0)
+            [self.profilePopup addItemWithTitle:@"default"];
         [self.profilePopup selectItemAtIndex:0];
         return;
     }
@@ -1081,6 +1119,17 @@ static int macSelectionCapability(void *context,
             resolved, sizeof(resolved)))
         return [NSString stringWithUTF8String:resolved];
     return group;
+}
+
+/* HQ jobs carry the selected HQ encoder in hw_device (same as the Linux GUI). */
+- (void)applyHqEncoderToOptions:(ConvertOptions *)opts {
+    NSString *group = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *encoder = self.encoderPopup.titleOfSelectedItem ?: @"";
+    if (!opts || !macGuiIsHqGroup(group)) return;
+    strncpy(opts->codec, "hq_converter", sizeof(opts->codec) - 1);
+    opts->codec[sizeof(opts->codec) - 1] = '\0';
+    strncpy(opts->hw_device, encoder.UTF8String, sizeof(opts->hw_device) - 1);
+    opts->hw_device[sizeof(opts->hw_device) - 1] = '\0';
 }
 
 /* Codec/preset to submit for conversion. For the mux group the encoder

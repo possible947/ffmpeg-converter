@@ -143,19 +143,25 @@ if (APPLE)
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/cli_macos.c
     )
 
-    set_target_properties(macos_cli PROPERTIES OUTPUT_NAME "ffmpeg_converter")
+    set_target_properties(macos_cli PROPERTIES
+        OUTPUT_NAME "ffmpeg_converter"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
 
     target_include_directories(macos_cli PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/src/platform
         ${CMAKE_SOURCE_DIR}/src/platform/macos
+        ${CMAKE_SOURCE_DIR}/src/mux
         ${CMAKE_SOURCE_DIR}/src/m4v
         ${CMAKE_SOURCE_DIR}/src/hq
     )
 
     target_link_libraries(macos_cli
         PRIVATE converter
+        PRIVATE mux
         PRIVATE m4v
+        PRIVATE add_track
         PRIVATE hq_adapter
         PRIVATE platform
         PRIVATE jansson

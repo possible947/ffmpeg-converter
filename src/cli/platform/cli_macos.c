@@ -58,17 +58,20 @@ void cli_platform_cleanup(CliPlatformHandle* h) {
  * --------------------------------------------------------------- */
 
 int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
-    (void)h;
-
     if (!codec)
         return 0;
+
+    if (!strcmp(codec, "prores_videotoolbox"))
+        return h && h->support.has_prores_videotoolbox;
+    if (!strcmp(codec, "hevc_videotoolbox"))
+        return h && h->support.has_hevc_videotoolbox;
+    if (!strcmp(codec, "h264_videotoolbox"))
+        return h && h->support.has_h264_videotoolbox;
 
     return !strcmp(codec, "copy")                 ||
            !strcmp(codec, "prores")               ||
            !strcmp(codec, "prores_ks")            ||
-           !strcmp(codec, "prores_videotoolbox")  ||
-           !strcmp(codec, "hevc_videotoolbox")    ||
-           !strcmp(codec, "h264_videotoolbox")    ||
+           !strcmp(codec, "mux")                  ||
            (!strcmp(codec, "m4v") && platform_m4v_is_supported()) ||
            (!strcmp(codec, "hq_converter") && platform_hq_is_available());
 }
@@ -82,7 +85,7 @@ int platform_audio_mode_is_available(const char* mode) {
 }
 
 int platform_mux_is_supported(void) {
-    return 0;
+    return 1;
 }
 
 int platform_m4v_is_supported(void) {

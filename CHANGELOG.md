@@ -13,6 +13,20 @@ hardware/input metadata work. GUI migration is unfinished, and macOS/Windows
 build, runtime, and hardware debugging remain required before Version 3 can be
 considered complete.
 
+## [Unreleased] — macOS build/runtime fixes (2026-10-13)
+
+### Fixed
+- **macOS CLI build**: `macos_cli` now links `mux` and `add_track` and includes `src/mux` (missing `add_track.h`).
+- **`src/cli/main.c`**: added `;` after the `cleanup:` label before `}`.
+- **macOS output location**: `macos_cli` and `macos_gui_native` are written to `build/bin/`.
+- **macOS mux audio always PCM**: `macos_resolve_bundled_bin()` returned one shared static buffer for ffmpeg, ffprobe and mkvmerge, so tool paths overwrote each other. Each tool now has its own buffer.
+- **macOS CLI**: `platform_mux_is_supported()` returns 1 (`--video-track` was rejected); `mux` is always available; VideoToolbox availability uses probe results.
+- **macOS GUI**: added the `hq_converter` codec group with its encoders and presets.
+
+### Known issues
+- Bundled SVT-AV1 4.2.0 (macOS x86_64) segfaults at preset 7+ in `svt_aom_sub_pixel_variance16xh_ssse3` on CPUs without AVX2 (e.g. Ivy Bridge Xeon E5 v2). Presets 4-6 and `--asm c` work. Seen in both HQ_converter and ffmpeg_builder 8.1/9.0 builds; not an AVX2 requirement. Not fixed; other CPUs are unaffected.
+- HQ_converter's `libhq_converter.dylib` needs Darwin-underscore exports (`_hqclib_*`); patched in HQ_converter `modules/library`.
+
 ## [Unreleased] — Stage 5.2: Unified Add Track execution pipeline (2026-10-10)
 
 ### Added

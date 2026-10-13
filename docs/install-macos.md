@@ -70,7 +70,7 @@ cmake --install build
 
 ```bash
 # CLI
-./build/src/cli/ffmpeg_converter --help
+./build/bin/ffmpeg_converter --help
 
 # Native GUI app bundle (self-contained)
 open build/install/ffmpeg_converter_gui_macos.app
@@ -125,10 +125,10 @@ The CLI resolves `ffmpeg`/`ffprobe` from PATH by default. Override with environm
 ```bash
 export FFMPEG=/path/to/ffmpeg
 export FFPROBE=/path/to/ffprobe
-./build/src/cli/ffmpeg_converter input.mov
+./build/bin/ffmpeg_converter input.mov
 ```
 
-For C CLI (`build/src/cli/ffmpeg_converter`):
+For C CLI (`build/bin/ffmpeg_converter`):
 - Inputs are positional (`ffmpeg_converter [options] file1 file2 ...`).
 - `-o/--output` sets output directory.
 - `--audio-output` supports `pcm`, `fdk_aac_320`, `fdk_aac_320_ac3_640`.
