@@ -88,6 +88,10 @@ public static class InteractiveMenu
                     {
                         preset = "standard";
                     }
+                    else if (finalCodec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase))
+                    {
+                        preset = presetDb.HqCatalog?.GetDefaultPreset(encoder) ?? "";
+                    }
                     else if (finalCodec.Equals("mux", StringComparison.OrdinalIgnoreCase))
                     {
                         preset = encoder.Equals("mov", StringComparison.OrdinalIgnoreCase) || encoder.Equals("m4v", StringComparison.OrdinalIgnoreCase)
@@ -105,7 +109,9 @@ public static class InteractiveMenu
                     }
                     else
                     {
-                        var availablePresets = new List<string>(presetDb.GetPresets(platform, finalCodec));
+                        var availablePresets = finalCodec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase)
+                            ? new List<string>(presetDb.GetSelectionPresets(platform, group, encoder))
+                            : new List<string>(presetDb.GetPresets(platform, finalCodec));
                         bool needsProfile = availablePresets.Count > 1 || finalCodec.Contains("prores", StringComparison.OrdinalIgnoreCase);
                         step = needsProfile ? 2 : 4;
                     }
@@ -115,7 +121,9 @@ public static class InteractiveMenu
                 // ---- Step 2: Profile / Preset ----
                 case 2:
                 {
-                    var presets = new List<string>(presetDb.GetPresets(platform, finalCodec));
+                    var presets = finalCodec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase)
+                        ? new List<string>(presetDb.GetSelectionPresets(platform, group, encoder))
+                        : new List<string>(presetDb.GetPresets(platform, finalCodec));
                     writer.WriteLine("\n----ffmpeg_converter_simple_gui----");
                     writer.WriteLine($"select profile for {finalCodec}");
                     writer.WriteLine("-----------------------");
@@ -262,6 +270,7 @@ public static class InteractiveMenu
                     writer.WriteLine("  1. pcm (default)");
                     writer.WriteLine("  2. fdk_aac_320");
                     writer.WriteLine("  3. fdk_aac_320_ac3_640");
+                    writer.WriteLine("  4. copy (all audio tracks)");
                     writer.WriteLine("----------------------------------");
                     writer.Write("select: number->choice,Enter->(default),c->cancel,b->back\n> ");
                     string? ch = await reader.ReadLineAsync();
@@ -278,6 +287,7 @@ public static class InteractiveMenu
                     if (string.IsNullOrEmpty(ch) || ch == "1") { audioOutput = "pcm"; step = 7; }
                     else if (ch == "2") { audioOutput = "fdk_aac_320"; step = 7; }
                     else if (ch == "3") { audioOutput = "fdk_aac_320_ac3_640"; step = 7; }
+                    else if (ch == "4") { audioOutput = "copy"; step = 7; }
                     else { writer.WriteLine("Invalid choice"); }
                     break;
                 }

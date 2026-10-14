@@ -126,13 +126,13 @@ public static class CommandLineParser
                 if (i + 1 >= args.Length)
                     return CommandLineParseResult.Error("Error: --audio-output requires an argument");
                 string val = args[++i].ToLowerInvariant();
-                if (val == "pcm" || val == "fdk_aac_320" || val == "fdk_aac_320_ac3_640")
+                if (val == "copy" || val == "pcm" || val == "fdk_aac_320" || val == "fdk_aac_320_ac3_640")
                 {
                     opts.AudioOutputMode = val;
                 }
                 else
                 {
-                    return CommandLineParseResult.Error($"Error: Invalid audio-output mode: '{val}'. Expected: pcm, fdk_aac_320, fdk_aac_320_ac3_640");
+                    return CommandLineParseResult.Error($"Error: Invalid audio-output mode: '{val}'. Expected: copy, pcm, fdk_aac_320, fdk_aac_320_ac3_640");
                 }
                 continue;
             }
@@ -303,6 +303,12 @@ public static class CommandLineParser
             {
                 opts.Preset = "standard";
             }
+            else if (opts.Codec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase))
+            {
+                opts.Preset = presetDb.HqCatalog?.GetDefaultPreset(selectionEncoder) ?? "";
+                if (string.IsNullOrEmpty(opts.Preset))
+                    return CommandLineParseResult.Error($"Error: no HQ default preset is available for encoder '{selectionEncoder}'");
+            }
             else
             {
                 opts.Preset = "default";
@@ -334,7 +340,11 @@ public static class CommandLineParser
         if (presetExplicit)
         {
             bool validPreset = false;
-            if (opts.Codec.Equals("prores_ks_vulkan", StringComparison.OrdinalIgnoreCase))
+            if (opts.Codec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase))
+            {
+                validPreset = presetDb.HqCatalog?.ContainsPreset(selectionEncoder, opts.Preset) ?? false;
+            }
+            else if (opts.Codec.Equals("prores_ks_vulkan", StringComparison.OrdinalIgnoreCase))
             {
                 validPreset = opts.Preset is "lt" or "standard" or "hq" or "4444";
             }
@@ -358,6 +368,14 @@ public static class CommandLineParser
             {
                 return CommandLineParseResult.Error($"Error: preset '{opts.Preset}' is not available for encoder '{opts.Codec}'");
             }
+        }
+
+        if (opts.Codec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
+            presetDb.HqCatalog != null &&
+            HqPresetCatalog.IsProResEncoder(selectionEncoder) &&
+            !opts.AudioOutputMode.Equals("pcm", StringComparison.OrdinalIgnoreCase))
+        {
+            return CommandLineParseResult.Error("HQ ProRes encoders require PCM audio output.");
         }
 
         // Output directory validation

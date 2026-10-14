@@ -109,7 +109,8 @@ public partial class MainWindow : Window
     {
         if (group.Equals("software", StringComparison.OrdinalIgnoreCase) ||
             group.Equals("mux", StringComparison.OrdinalIgnoreCase) ||
-            group.Equals("copy", StringComparison.OrdinalIgnoreCase))
+            group.Equals("copy", StringComparison.OrdinalIgnoreCase) ||
+            group.Equals("hq_converter", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -230,6 +231,12 @@ public partial class MainWindow : Window
                 if (!string.IsNullOrEmpty(prevPreset) && presets.Contains(prevPreset))
                 {
                     PresetComboBox.SelectedItem = prevPreset;
+                }
+                else if (group.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
+                         _presetDb.HqCatalog?.GetDefaultPreset(encoder) is string defaultPreset &&
+                         presets.Contains(defaultPreset))
+                {
+                    PresetComboBox.SelectedItem = defaultPreset;
                 }
                 else if (presets.Contains("standard"))
                 {
@@ -662,6 +669,16 @@ public partial class MainWindow : Window
                 StatusLabel.Text = "Error: mkvmerge not found.";
                 return;
             }
+        }
+
+        if (finalCodec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
+            HqPresetCatalog.IsProResEncoder(selectedEncoder) &&
+            !((AudioModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "pcm")
+                .Equals("pcm", StringComparison.OrdinalIgnoreCase))
+        {
+            AppendLog("Error: HQ ProRes encoders require PCM audio output.");
+            StatusLabel.Text = "Error: HQ ProRes requires PCM audio.";
+            return;
         }
 
         // Validate Apple M4V constraints

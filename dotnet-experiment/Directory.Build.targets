@@ -1,0 +1,9 @@
+<Project>
+  <ItemGroup Condition="'$(OS)' != 'Windows_NT' and ('$(MSBuildProjectName)' == 'FfmpegConverter.Cli' or '$(MSBuildProjectName)' == 'FfmpegConverter.Gui') and Exists('$(MSBuildThisFileDirectory)../third_party/hq_converter')">
+    <Content Include="$(MSBuildThisFileDirectory)../third_party/hq_converter/**/*">
+      <Link>hq_converter/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+</Project>
