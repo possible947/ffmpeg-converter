@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using FfmpegConverter.Cli;
 using FfmpegConverter.Core.Engine;
 using FfmpegConverter.Core.Presets;
@@ -82,12 +83,16 @@ public class HqIntegrationTests
         string sessionPath = Path.Combine(workDir, "job.x264.FullHD.eov2.session.json");
         try
         {
-            File.WriteAllText(sessionPath,
-                $$"""{"artifacts":{"outputs":{"video_track":{"path":"{{trackPath.Replace("\\", "\\\\")}}"}}}}""");
+            File.WriteAllText(sessionPath, JsonSerializer.Serialize(new
+            {
+                artifacts = new { outputs = new { video_track = new { path = trackPath } } }
+            }));
             Assert.Equal(trackPath, HqAdapter.ReadVideoTrackPath(workDir, "x264", "FullHD"));
 
-            File.WriteAllText(sessionPath,
-                """{"artifacts":{"outputs":{"video_track":{"path":"relative.h264"}}}}""");
+            File.WriteAllText(sessionPath, JsonSerializer.Serialize(new
+            {
+                artifacts = new { outputs = new { video_track = new { path = "relative.h264" } } }
+            }));
             Assert.Null(HqAdapter.ReadVideoTrackPath(workDir, "x264", "FullHD"));
         }
         finally
@@ -111,9 +116,12 @@ public class HqIntegrationTests
                 : "libhq_converter.so";
             string libraryDir = Path.Combine(Root, "modules", "library", "bin");
             string catalogDir = Path.Combine(Root, "modules", "encoder_orchestrator_v2", "config", "presets");
+            string toolchainDir = Path.Combine(Root, "modules", "segmentator", "config");
             Directory.CreateDirectory(libraryDir);
             Directory.CreateDirectory(catalogDir);
+            Directory.CreateDirectory(toolchainDir);
             File.WriteAllText(Path.Combine(libraryDir, libraryName), "");
+            File.WriteAllText(Path.Combine(toolchainDir, "toolchain_runtime.ini"), "");
             File.WriteAllText(Path.Combine(catalogDir, "encoder_presets_v2.json"),
                 """
                 {

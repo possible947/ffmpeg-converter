@@ -232,15 +232,15 @@ public partial class MainWindow : Window
                 {
                     PresetComboBox.SelectedItem = prevPreset;
                 }
-                else if (presets.Contains("standard"))
-                {
-                    PresetComboBox.SelectedItem = "standard";
-                }
                 else if (group.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
                          _presetDb.HqCatalog?.GetDefaultPreset(encoder) is string defaultPreset &&
                          presets.Contains(defaultPreset))
                 {
                     PresetComboBox.SelectedItem = defaultPreset;
+                }
+                else if (presets.Contains("standard"))
+                {
+                    PresetComboBox.SelectedItem = "standard";
                 }
                 else if (presets.Contains("default"))
                 {
@@ -656,16 +656,6 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (finalCodec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
-                HqPresetCatalog.IsProResEncoder(selectedEncoder) &&
-                !((AudioModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "pcm")
-                    .Equals("pcm", StringComparison.OrdinalIgnoreCase))
-            {
-                AppendLog("Error: HQ ProRes encoders require PCM audio output.");
-                StatusLabel.Text = "Error: HQ ProRes requires PCM audio.";
-                return;
-            }
-
             if (string.IsNullOrEmpty(_videoTrackPath) || !File.Exists(_videoTrackPath))
             {
                 AppendLog("Error: Mux mode requires a valid replacement video track.");
@@ -679,6 +669,16 @@ public partial class MainWindow : Window
                 StatusLabel.Text = "Error: mkvmerge not found.";
                 return;
             }
+        }
+
+        if (finalCodec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
+            HqPresetCatalog.IsProResEncoder(selectedEncoder) &&
+            !((AudioModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "pcm")
+                .Equals("pcm", StringComparison.OrdinalIgnoreCase))
+        {
+            AppendLog("Error: HQ ProRes encoders require PCM audio output.");
+            StatusLabel.Text = "Error: HQ ProRes requires PCM audio.";
+            return;
         }
 
         // Validate Apple M4V constraints

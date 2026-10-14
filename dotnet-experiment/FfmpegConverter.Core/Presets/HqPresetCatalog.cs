@@ -33,7 +33,8 @@ public sealed class HqPresetCatalog
         string libraryPath = Path.Combine(root, "modules", "library", "bin", libraryName);
         string catalogPath = Path.Combine(root, "modules", "encoder_orchestrator_v2",
             "config", "presets", "encoder_presets_v2.json");
-        if (!File.Exists(libraryPath) || !File.Exists(catalogPath))
+        string toolchainPath = Path.Combine(root, "modules", "segmentator", "config", "toolchain_runtime.ini");
+        if (!File.Exists(libraryPath) || !File.Exists(catalogPath) || !File.Exists(toolchainPath))
             return null;
 
         try
@@ -112,7 +113,11 @@ public sealed class HqPresetCatalog
             Path.Combine(executableDirectory, "hq_converter"),
             Path.GetFullPath(Path.Combine(executableDirectory, "..", "Resources", "hq_converter"))
         };
-        return candidates.FirstOrDefault(Directory.Exists);
+        string libraryName = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+            ? "libhq_converter.dylib"
+            : "libhq_converter.so";
+        return candidates.FirstOrDefault(candidate =>
+            File.Exists(Path.Combine(candidate, "modules", "library", "bin", libraryName)));
     }
 
     private sealed record HqEncoder(string DefaultPreset, string[] Presets);

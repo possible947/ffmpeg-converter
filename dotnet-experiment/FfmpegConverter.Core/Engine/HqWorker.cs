@@ -79,6 +79,7 @@ public static class HqWorker
         RequestStop? requestStop = null;
         object handleLock = new();
         CancellationTokenSource stopReaderCancellation = new();
+        Task? stopTask = null;
 
         try
         {
@@ -95,7 +96,7 @@ public static class HqWorker
 
             IntPtr jobHandle = handle;
             RequestStop stopFunction = requestStop;
-            Task stopTask = Task.Run(async () =>
+            stopTask = Task.Run(async () =>
             {
                 try
                 {
@@ -142,14 +143,16 @@ public static class HqWorker
         }
         catch (Exception ex)
         {
-            lock (handleLock)
-                handle = IntPtr.Zero;
             Send(new { type = "result", result = 2, error = ex.Message });
             return 0;
         }
         finally
         {
             stopReaderCancellation.Cancel();
+            if (stopTask != null)
+            {
+                try { await stopTask; } catch { }
+            }
             if (handle != IntPtr.Zero && library != IntPtr.Zero)
             {
                 try
