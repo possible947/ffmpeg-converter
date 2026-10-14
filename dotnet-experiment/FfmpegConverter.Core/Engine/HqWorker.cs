@@ -29,6 +29,9 @@ public static class HqWorker
     private delegate int RequestStop(IntPtr handle);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int RequestKill(IntPtr handle);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int GetLastError(IntPtr handle, out IntPtr messageUtf8, out long messageLength);
 
     public static async Task<int> RunAsync(string[] args)
@@ -56,7 +59,7 @@ public static class HqWorker
             System.IO.Pipes.PipeOptions.Asynchronous);
         try
         {
-            await pipe.ConnectAsync(TimeSpan.FromSeconds(20));
+            await pipe.ConnectAsync(20_000);
         }
         catch
         {
@@ -84,6 +87,7 @@ public static class HqWorker
             var destroyHandle = Load<DestroyHandle>(library, "hqclib_destroy_handle");
             var runJob = Load<RunJob>(library, "hqclib_run_job");
             requestStop = Load<RequestStop>(library, "hqclib_request_stop");
+            _ = Load<RequestKill>(library, "hqclib_request_kill");
             var getLastError = Load<GetLastError>(library, "hqclib_get_last_error");
             handle = createHandle();
             if (handle == IntPtr.Zero)

@@ -213,71 +213,122 @@ public class Converter
                     continue;
                 }
 
-                // Intermediate conversion with video codec = copy
-                var intermediateOpts = new ConvertOptions
-                {
-                    Codec = "copy",
-                    Preset = "default",
-                    Deblock = 1,
-                    AudioNorm = opts.AudioNorm,
-                    AudioOutputMode = opts.AudioOutputMode,
-                    Genre = opts.Genre,
-                    Gain = opts.Gain,
-                    ITarget = opts.ITarget,
-                    TpTarget = opts.TpTarget,
-                    LraTarget = opts.LraTarget,
-                    OutputDir = effectiveOutputDir,
-                    Overwrite = true
-                };
+                var muxErr = await RunAddTrackAsync(
+                    input, opts.VideoTrackPath, output, effectiveOutputDir,
+                    opts, opts, platform, cancellationToken);
+                FileEnd?.Invoke(this, new FileEndEventArgs(input, muxErr));
+                continue;
+            }
 
-                string intermediateFile = Path.Combine(effectiveOutputDir, $"{Path.GetFileNameWithoutExtension(input)}_intermediate_{Guid.NewGuid():N}.mkv");
-
-                // Step 1. Two-Pass Audio Analysis if needed for intermediate
-                string aNorm = intermediateOpts.AudioNorm.ToLowerInvariant();
-                double inDuration = await GetDurationAsync(input);
-                if (aNorm == "peak2" || aNorm == "peak_norm_2pass")
+            if (opts.Codec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase))
+            {
+                HqPresetCatalog? catalog = _presetDb.HqCatalog;
+                string encoder = opts.SelectionEncoder;
+                if (catalog == null || !catalog.ContainsEncoder(encoder) ||
+                    !catalog.ContainsPreset(encoder, opts.Preset))
                 {
-                    StageChanged?.Invoke(this, "peak_analysis");
-                    double? gain = await RunPeakAnalysisAsync(input, inDuration, cancellationToken);
-                    if (gain != null) intermediateOpts.Gain = gain.Value;
-                }
-                else if (aNorm == "loudnorm2" || aNorm == "loudness_norm_2pass")
-                {
-                    StageChanged?.Invoke(this, "loudness_analysis_pass1");
-                    intermediateOpts.ApplyGenreTargets();
-                    var aRes = await RunLoudnormAnalysisAsync(input, intermediateOpts.ITarget, intermediateOpts.TpTarget, intermediateOpts.LraTarget, inDuration, cancellationToken);
-                    if (aRes != null)
-                    {
-                        intermediateOpts.MeasuredI = aRes.InputI;
-                        intermediateOpts.MeasuredTp = aRes.InputTp;
-                        intermediateOpts.MeasuredLra = aRes.InputLra;
-                        intermediateOpts.MeasuredThresh = aRes.InputThresh;
-                        intermediateOpts.MeasuredOffset = aRes.TargetOffset;
-                    }
-                }
-
-                // Encode intermediate file
-                StageChanged?.Invoke(this, "encoding intermediate");
-                string intermediateArgs = CommandBuilder.BuildFfmpegArgs(input, intermediateFile, intermediateOpts, platform, _presetDb, null, _probeResult);
-                var interErr = await RunFfmpegEncodeAsync(intermediateArgs, inDuration, cancellationToken);
-                if (interErr != ConverterError.Ok)
-                {
-                    try { if (File.Exists(intermediateFile)) File.Delete(intermediateFile); } catch { }
-                    FileEnd?.Invoke(this, new FileEndEventArgs(input, interErr));
+                    RaiseError("HQ Converter runtime or selected encoder/preset is unavailable.", ConverterError.InvalidOptions);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
                     continue;
                 }
 
-                // Step 2. Mux post-process
-                var muxPipe = new MuxPipeline();
-                muxPipe.StageChanged += (s, ev) => StageChanged?.Invoke(this, ev);
-                muxPipe.MessageLogged += (s, ev) => RaiseMessage(ev);
-                muxPipe.ErrorOccurred += (s, ev) => RaiseError(ev.Text, ev.Code);
+                bool isProRes = HqPresetCatalog.IsProResEncoder(encoder);
+                if (isProRes && !opts.AudioOutputMode.Equals("pcm", StringComparison.OrdinalIgnoreCase))
+                {
+                    RaiseError("HQ ProRes encoders require PCM audio output.", ConverterError.InvalidOptions);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
+                    continue;
+                }
 
-                var muxErr = await muxPipe.RunMuxPostprocessAsync(intermediateFile, opts.VideoTrackPath, output, opts, _tools, _probeResult, cancellationToken);
+                if (string.IsNullOrEmpty(_tools.Mkvmerge) || !File.Exists(_tools.Mkvmerge))
+                {
+                    RaiseError("HQ Converter requires mkvmerge for final assembly.", ConverterError.InvalidOptions);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
+                    continue;
+                }
 
-                try { if (File.Exists(intermediateFile)) File.Delete(intermediateFile); } catch { }
+                if (opts.DryRun)
+                {
+                    RaiseMessage($"[DRY RUN] [hq_converter] {input} -> {output} ({encoder}/{opts.Preset})");
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.Ok));
+                    continue;
+                }
 
-                FileEnd?.Invoke(this, new FileEndEventArgs(input, muxErr));
+                string taskDir = Path.Combine(effectiveOutputDir, $"task_{index}");
+                if (Directory.Exists(taskDir) || File.Exists(taskDir))
+                {
+                    RaiseError($"HQ task directory already exists: {taskDir}", ConverterError.InvalidOptions);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
+                    continue;
+                }
+
+                ConverterError hqError = ConverterError.Ok;
+                try
+                {
+                    Directory.CreateDirectory(taskDir);
+                    string absoluteInput = Path.GetFullPath(input);
+                    var hq = new HqAdapter();
+                    hq.StageChanged += (s, stage) => StageChanged?.Invoke(this, stage);
+                    hq.MessageLogged += (s, message) => RaiseMessage(message);
+                    hq.ProgressEncode += (s, progress) => ProgressEncode?.Invoke(this, progress);
+                    hq.ProgressAnalysis += (s, progress) => ProgressAnalysis?.Invoke(this, progress);
+                    hq.ErrorOccurred += (s, error) => RaiseError(error.Text, error.Code);
+
+                    StageChanged?.Invoke(this, "HQ encoding");
+                    var hqResult = await hq.RunJobAsync(catalog.RuntimeRoot, absoluteInput,
+                        taskDir, encoder, opts.Preset, cancellationToken);
+                    if (hqResult.Result == 1 || cancellationToken.IsCancellationRequested)
+                    {
+                        hqError = ConverterError.SkipFile;
+                    }
+                    else if (hqResult.Result != 0)
+                    {
+                        RaiseError($"HQ failed: {hqResult.Error}", ConverterError.FfmpegFailed);
+                        hqError = ConverterError.FfmpegFailed;
+                    }
+                    else
+                    {
+                        string? videoTrack = HqAdapter.ReadVideoTrackPath(taskDir, encoder, opts.Preset);
+                        if (string.IsNullOrEmpty(videoTrack) || !File.Exists(videoTrack))
+                        {
+                            RaiseError("HQ succeeded but its result session has no readable video track.", ConverterError.InputNotFound);
+                            hqError = ConverterError.InputNotFound;
+                        }
+                        else if (cancellationToken.IsCancellationRequested)
+                        {
+                            hqError = ConverterError.SkipFile;
+                        }
+                        else
+                        {
+                            var muxOptions = new ConvertOptions
+                            {
+                                Codec = "mux",
+                                Preset = isProRes ? "mov" : "mkv",
+                                Overwrite = opts.Overwrite,
+                                OutputDir = effectiveOutputDir,
+                                VideoTrackPath = videoTrack
+                            };
+                            hqError = await RunAddTrackAsync(input, videoTrack, output,
+                                effectiveOutputDir, opts, muxOptions, platform, cancellationToken);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    hqError = ConverterError.SkipFile;
+                }
+                catch (Exception ex)
+                {
+                    RaiseError($"HQ processing failed: {ex.Message}", ConverterError.FfmpegFailed);
+                    hqError = ConverterError.FfmpegFailed;
+                }
+                finally
+                {
+                    try { RemoveTaskDirectory(taskDir); }
+                    catch (Exception ex) { RaiseMessage($"HQ task cleanup failed: {ex.Message}"); }
+                }
+
+                FileEnd?.Invoke(this, new FileEndEventArgs(input, hqError));
                 continue;
             }
 
@@ -291,7 +342,8 @@ public class Converter
 
             // Step 2. Two-Pass Audio Analysis (Peak norm or Loudness norm)
             string audioNorm = opts.AudioNorm.ToLowerInvariant();
-            if (audioNorm == "peak2" || audioNorm == "peak_norm_2pass")
+            if (!opts.AudioOutputMode.Equals("copy", StringComparison.OrdinalIgnoreCase) &&
+                (audioNorm == "peak2" || audioNorm == "peak_norm_2pass"))
             {
                 StageChanged?.Invoke(this, "peak_analysis");
                 double? gain = await RunPeakAnalysisAsync(input, duration, cancellationToken);
@@ -305,7 +357,8 @@ public class Converter
                 opts.Gain = gain.Value;
                 RaiseMessage($"Peak analysis complete. Target gain: {opts.Gain:F2} dB");
             }
-            else if (audioNorm == "loudnorm2" || audioNorm == "loudness_norm_2pass")
+            else if (!opts.AudioOutputMode.Equals("copy", StringComparison.OrdinalIgnoreCase) &&
+                     (audioNorm == "loudnorm2" || audioNorm == "loudness_norm_2pass"))
             {
                 StageChanged?.Invoke(this, "loudness_analysis_pass1");
                 opts.ApplyGenreTargets();
@@ -346,6 +399,114 @@ public class Converter
 
         Completed?.Invoke(this, EventArgs.Empty);
         return ConverterError.Ok;
+    }
+
+    private async Task<ConverterError> RunAddTrackAsync(
+        string input,
+        string videoTrack,
+        string output,
+        string effectiveOutputDir,
+        ConvertOptions audioOptions,
+        ConvertOptions muxOptions,
+        string platform,
+        CancellationToken cancellationToken)
+    {
+        var intermediateOptions = new ConvertOptions
+        {
+            Codec = "copy",
+            Preset = "default",
+            Deblock = 1,
+            AudioNorm = audioOptions.AudioNorm,
+            AudioOutputMode = audioOptions.AudioOutputMode,
+            Genre = audioOptions.Genre,
+            Gain = audioOptions.Gain,
+            ITarget = audioOptions.ITarget,
+            TpTarget = audioOptions.TpTarget,
+            LraTarget = audioOptions.LraTarget,
+            MeasuredI = audioOptions.MeasuredI,
+            MeasuredTp = audioOptions.MeasuredTp,
+            MeasuredLra = audioOptions.MeasuredLra,
+            MeasuredThresh = audioOptions.MeasuredThresh,
+            MeasuredOffset = audioOptions.MeasuredOffset,
+            OutputDir = effectiveOutputDir,
+            Overwrite = true
+        };
+        string intermediateFile = Path.Combine(effectiveOutputDir,
+            $"{Path.GetFileNameWithoutExtension(input)}_intermediate_{Guid.NewGuid():N}.mkv");
+
+        try
+        {
+            double duration = await GetDurationAsync(input);
+            string norm = intermediateOptions.AudioNorm.ToLowerInvariant();
+            bool copyAudio = intermediateOptions.AudioOutputMode.Equals("copy", StringComparison.OrdinalIgnoreCase);
+            if (!copyAudio && (norm == "peak2" || norm == "peak_norm_2pass"))
+            {
+                StageChanged?.Invoke(this, "peak_analysis");
+                double? gain = await RunPeakAnalysisAsync(input, duration, cancellationToken);
+                if (gain.HasValue)
+                    intermediateOptions.Gain = gain.Value;
+            }
+            else if (!copyAudio && (norm == "loudnorm2" || norm == "loudness_norm_2pass"))
+            {
+                StageChanged?.Invoke(this, "loudness_analysis_pass1");
+                intermediateOptions.ApplyGenreTargets();
+                LoudnormResult? analysis = await RunLoudnormAnalysisAsync(input,
+                    intermediateOptions.ITarget, intermediateOptions.TpTarget,
+                    intermediateOptions.LraTarget, duration, cancellationToken);
+                if (analysis != null)
+                {
+                    intermediateOptions.MeasuredI = analysis.InputI;
+                    intermediateOptions.MeasuredTp = analysis.InputTp;
+                    intermediateOptions.MeasuredLra = analysis.InputLra;
+                    intermediateOptions.MeasuredThresh = analysis.InputThresh;
+                    intermediateOptions.MeasuredOffset = analysis.TargetOffset;
+                }
+            }
+
+            StageChanged?.Invoke(this, "encoding intermediate");
+            string arguments = CommandBuilder.BuildFfmpegArgs(input, intermediateFile,
+                intermediateOptions, platform, _presetDb, null, _probeResult);
+            ConverterError conversionError = await RunFfmpegEncodeAsync(arguments, duration, cancellationToken);
+            if (conversionError != ConverterError.Ok)
+                return conversionError;
+
+            var mux = new MuxPipeline();
+            mux.StageChanged += (s, stage) => StageChanged?.Invoke(this, stage);
+            mux.MessageLogged += (s, message) => RaiseMessage(message);
+            mux.ErrorOccurred += (s, error) => RaiseError(error.Text, error.Code);
+            return await mux.RunMuxPostprocessAsync(intermediateFile, videoTrack,
+                output, muxOptions, _tools, _probeResult, cancellationToken);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(intermediateFile))
+                    File.Delete(intermediateFile);
+            }
+            catch { }
+        }
+    }
+
+    private static void RemoveTaskDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+            return;
+
+        foreach (string entry in Directory.EnumerateFileSystemEntries(path))
+        {
+            FileAttributes attributes = File.GetAttributes(entry);
+            bool isDirectory = (attributes & FileAttributes.Directory) != 0;
+            bool isLink = (attributes & FileAttributes.ReparsePoint) != 0;
+            if (isDirectory && !isLink)
+                RemoveTaskDirectory(entry);
+            else if (isDirectory)
+                Directory.Delete(entry);
+            else
+                File.Delete(entry);
+        }
+
+        Directory.Delete(path);
     }
 
     public async Task<double?> RunPeakAnalysisAsync(string inputPath, double duration, CancellationToken cancellationToken = default)

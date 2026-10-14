@@ -125,7 +125,7 @@ public class PresetDb
     public string Description { get; private set; } = "";
     public string LoadedPath { get; private set; } = "builtin";
 
-    public static PresetDb Load(string? explicitPath = null)
+    public static PresetDb Load(string? explicitPath = null, string? hqRuntimeRoot = null)
     {
         var db = new PresetDb();
         string path = db.ResolvePresetsPath(explicitPath);
@@ -206,13 +206,13 @@ public class PresetDb
             db.Selection = new SelectionCatalog();
         }
 
-        db.LoadHqCatalog();
+        db.LoadHqCatalog(hqRuntimeRoot);
         return db;
     }
 
-    private void LoadHqCatalog()
+    private void LoadHqCatalog(string? runtimeRoot)
     {
-        HqCatalog = HqPresetCatalog.LoadAvailable();
+        HqCatalog = HqPresetCatalog.LoadAvailable(runtimeRoot);
         Features["hq_converter"] = HqCatalog != null;
         if (HqCatalog == null)
             return;
@@ -428,6 +428,14 @@ public class PresetDb
         if (string.IsNullOrEmpty(group))
             return false;
 
+        if (string.Equals(group, "hq_converter", StringComparison.OrdinalIgnoreCase))
+        {
+            if (HqCatalog == null || !HqCatalog.ContainsEncoder(encoder))
+                return false;
+            finalCodec = "hq_converter";
+            return true;
+        }
+
         // Terminal stream-copy mode
         if (string.Equals(group, "copy", StringComparison.OrdinalIgnoreCase))
         {
@@ -624,6 +632,9 @@ public class PresetDb
     {
         var result = new List<string>();
 
+        if (string.Equals(group, "hq_converter", StringComparison.OrdinalIgnoreCase))
+            return HqCatalog?.Encoders ?? result;
+
         if (string.Equals(group, "mux", StringComparison.OrdinalIgnoreCase))
         {
             result.Add("copy");
@@ -670,6 +681,9 @@ public class PresetDb
 
     public IReadOnlyList<string> GetSelectionPresets(string platform, string group, string encoder)
     {
+        if (string.Equals(group, "hq_converter", StringComparison.OrdinalIgnoreCase))
+            return HqCatalog?.GetPresets(encoder) ?? Array.Empty<string>();
+
         if (!ResolveSelection(platform, group, encoder, out string finalCodec))
             return Array.Empty<string>();
 

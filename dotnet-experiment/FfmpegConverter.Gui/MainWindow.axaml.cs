@@ -109,7 +109,8 @@ public partial class MainWindow : Window
     {
         if (group.Equals("software", StringComparison.OrdinalIgnoreCase) ||
             group.Equals("mux", StringComparison.OrdinalIgnoreCase) ||
-            group.Equals("copy", StringComparison.OrdinalIgnoreCase))
+            group.Equals("copy", StringComparison.OrdinalIgnoreCase) ||
+            group.Equals("hq_converter", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -234,6 +235,12 @@ public partial class MainWindow : Window
                 else if (presets.Contains("standard"))
                 {
                     PresetComboBox.SelectedItem = "standard";
+                }
+                else if (group.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
+                         _presetDb.HqCatalog?.GetDefaultPreset(encoder) is string defaultPreset &&
+                         presets.Contains(defaultPreset))
+                {
+                    PresetComboBox.SelectedItem = defaultPreset;
                 }
                 else if (presets.Contains("default"))
                 {
@@ -646,6 +653,16 @@ public partial class MainWindow : Window
             {
                 AppendLog("Error: Mux mode requires exactly one source file.");
                 StatusLabel.Text = "Error: Mux mode requires exactly 1 file.";
+                return;
+            }
+
+            if (finalCodec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
+                HqPresetCatalog.IsProResEncoder(selectedEncoder) &&
+                !((AudioModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "pcm")
+                    .Equals("pcm", StringComparison.OrdinalIgnoreCase))
+            {
+                AppendLog("Error: HQ ProRes encoders require PCM audio output.");
+                StatusLabel.Text = "Error: HQ ProRes requires PCM audio.";
                 return;
             }
 
