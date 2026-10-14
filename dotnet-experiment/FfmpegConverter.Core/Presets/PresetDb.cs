@@ -120,6 +120,7 @@ public class PresetDb
     public Dictionary<string, Dictionary<string, Dictionary<string, PresetInfo>>> Platforms { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
     public SelectionCatalog Selection { get; private set; } = new();
     public Dictionary<string, bool> Features { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+    public HqPresetCatalog? HqCatalog { get; private set; }
     public string Version { get; private set; } = "1.0";
     public string Description { get; private set; } = "";
     public string LoadedPath { get; private set; } = "builtin";
@@ -205,7 +206,35 @@ public class PresetDb
             db.Selection = new SelectionCatalog();
         }
 
+        db.LoadHqCatalog();
         return db;
+    }
+
+    private void LoadHqCatalog()
+    {
+        HqCatalog = HqPresetCatalog.LoadAvailable();
+        Features["hq_converter"] = HqCatalog != null;
+        if (HqCatalog == null)
+            return;
+
+        if (!Selection.Common.TryGetValue("hq_converter", out SelectionGroup? group))
+        {
+            group = new SelectionGroup { Name = "hq_converter", Kind = "external_encoder_group" };
+            Selection.Common["hq_converter"] = group;
+        }
+
+        group.Enabled = true;
+        group.FeatureGate = "hq_converter";
+        group.Encoders.Clear();
+        foreach (string encoderName in HqCatalog.Encoders)
+        {
+            group.Encoders[encoderName] = new SelectionEncoder
+            {
+                Name = encoderName,
+                FinalCodec = "hq_converter",
+                Presets = HqCatalog.GetPresets(encoderName).ToList()
+            };
+        }
     }
 
     private void ParseSelectionCatalog(JsonElement selProp)
