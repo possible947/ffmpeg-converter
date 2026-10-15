@@ -82,31 +82,23 @@ typedef enum {
     MUX_POLICY_RESOLVE_OK = 1
 } MuxPolicyResolveResult;
 
-static MuxPolicyResolveResult resolve_mux_output_policy(
-    const char *input,
+static MuxPolicyResolveResult resolve_mux_policy_for_codec(
     const ConvertOptions *opts,
+    MuxVideoCodec source_codec,
     MuxPolicy *policy)
 {
     MuxBuildProfile profile;
     MuxMode mode;
-    MuxVideoCodec source_codec = MUX_VIDEO_UNKNOWN;
     const char *audio_mode;
     char error[128];
 
-    if (!input || !opts || !policy || !mux_build_profile_default(&profile))
-        return 0;
+    if (!opts || !policy || !mux_build_profile_default(&profile))
+        return MUX_POLICY_RESOLVE_FAILED;
 
     if (strcmp(opts->codec, "copy") == 0) {
-        InputVideoInfo info;
-        if (!input_video_info_probe(input, &info))
-            return MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED;
-        source_codec = mux_video_codec_parse(info.codec_name);
-        if (opts->preset[0] == '\0' || strcmp(opts->preset, "default") == 0)
-            mode = MUX_MODE_COPY;
-        else
-            mode = mux_mode_parse(opts->preset);
-        if (mode == MUX_MODE_INVALID)
-            return MUX_POLICY_RESOLVE_FAILED;
+        mode = opts->preset[0] == '\0' || strcmp(opts->preset, "default") == 0
+                   ? MUX_MODE_COPY
+                   : mux_mode_parse(opts->preset);
     } else if (strcmp(opts->codec, "mux") == 0) {
         mode = mux_mode_parse(opts->preset[0] ? opts->preset : "mkv");
     } else {
@@ -118,6 +110,29 @@ static MuxPolicyResolveResult resolve_mux_output_policy(
                               MUX_VIDEO_UNKNOWN, policy, error, sizeof(error))
                ? MUX_POLICY_RESOLVE_OK
                : MUX_POLICY_RESOLVE_FAILED;
+}
+
+static MuxPolicyResolveResult resolve_mux_output_policy(
+    const char *input,
+    const ConvertOptions *opts,
+    MuxPolicy *policy)
+{
+    MuxPolicyResolveResult result;
+    InputVideoInfo info;
+
+    if (!input || !opts || !policy)
+        return MUX_POLICY_RESOLVE_FAILED;
+
+    result = resolve_mux_policy_for_codec(opts, MUX_VIDEO_UNKNOWN, policy);
+    if (result != MUX_POLICY_RESOLVE_OK ||
+        strcmp(opts->codec, "copy") != 0)
+        return result;
+
+    if (!input_video_info_probe(input, &info))
+        return MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED;
+
+    return resolve_mux_policy_for_codec(
+        opts, mux_video_codec_parse(info.codec_name), policy);
 }
 
 static int input_has_attachment_stream(const char *input)
@@ -1094,6 +1109,15 @@ ConverterError converter_process_files(
         return ERR_INVALID_OPTIONS;
 
     if (strcmp(c->opts.codec, "copy") == 0) {
+        MuxPolicy validation_policy;
+        if (resolve_mux_policy_for_codec(&c->opts, MUX_VIDEO_UNKNOWN,
+                                          &validation_policy) !=
+            MUX_POLICY_RESOLVE_OK) {
+            if (c->cb.on_error)
+                c->cb.on_error("Copy mode policy validation failed",
+                               ERR_INVALID_OPTIONS);
+            return ERR_INVALID_OPTIONS;
+        }
         int i;
         for (i = 0; i < file_count; ++i) {
             MuxPolicy policy;
