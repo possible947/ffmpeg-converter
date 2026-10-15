@@ -76,9 +76,16 @@ static int codec_uses_mov_container(const char* codec) {
             strcmp(codec, "prores_ks_vulkan") == 0);
 }
 
-static int resolve_mux_output_policy(const char *input,
-                                     const ConvertOptions *opts,
-                                     MuxPolicy *policy)
+typedef enum {
+    MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED = -1,
+    MUX_POLICY_RESOLVE_FAILED = 0,
+    MUX_POLICY_RESOLVE_OK = 1
+} MuxPolicyResolveResult;
+
+static MuxPolicyResolveResult resolve_mux_output_policy(
+    const char *input,
+    const ConvertOptions *opts,
+    MuxPolicy *policy)
 {
     MuxBuildProfile profile;
     MuxMode mode;
@@ -92,23 +99,25 @@ static int resolve_mux_output_policy(const char *input,
     if (strcmp(opts->codec, "copy") == 0) {
         InputVideoInfo info;
         if (!input_video_info_probe(input, &info))
-            return 0;
+            return MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED;
         source_codec = mux_video_codec_parse(info.codec_name);
         if (opts->preset[0] == '\0' || strcmp(opts->preset, "default") == 0)
             mode = MUX_MODE_COPY;
         else
             mode = mux_mode_parse(opts->preset);
         if (mode == MUX_MODE_INVALID)
-            return 0;
+            return MUX_POLICY_RESOLVE_FAILED;
     } else if (strcmp(opts->codec, "mux") == 0) {
         mode = mux_mode_parse(opts->preset[0] ? opts->preset : "mkv");
     } else {
-        return 0;
+        return MUX_POLICY_RESOLVE_FAILED;
     }
 
     audio_mode = opts->audio_output_mode[0] ? opts->audio_output_mode : NULL;
     return mux_policy_resolve(&profile, mode, audio_mode, source_codec,
-                              MUX_VIDEO_UNKNOWN, policy, error, sizeof(error));
+                              MUX_VIDEO_UNKNOWN, policy, error, sizeof(error))
+               ? MUX_POLICY_RESOLVE_OK
+               : MUX_POLICY_RESOLVE_FAILED;
 }
 
 static int input_has_attachment_stream(const char *input)
@@ -490,7 +499,8 @@ static void make_output_name(
     const char *ext;
     if (strcmp(opts->codec, "copy") == 0 || strcmp(opts->codec, "mux") == 0) {
         MuxPolicy policy;
-        ext = resolve_mux_output_policy(input, opts, &policy)
+        ext = resolve_mux_output_policy(input, opts, &policy) ==
+                      MUX_POLICY_RESOLVE_OK
                   ? mux_container_extension(policy.container) : NULL;
         if (!ext)
             ext = "mkv";
@@ -583,7 +593,8 @@ static void build_ffmpeg_cmd(
     if (audio_mode == AUDIO_MODE_INVALID)
         audio_mode = AUDIO_MODE_PCM; /* default fallback */
     if (strcmp(opts->codec, "copy") == 0) {
-        if (!resolve_mux_output_policy(input, opts, &copy_policy)) {
+        if (resolve_mux_output_policy(input, opts, &copy_policy) !=
+            MUX_POLICY_RESOLVE_OK) {
             if (c->cb.on_error)
                 c->cb.on_error("Copy mode policy resolution failed", ERR_INVALID_OPTIONS);
             cmd_out[0] = '\0';
@@ -1090,7 +1101,11 @@ ConverterError converter_process_files(
                 !platform_stat_is_regular_file(files[i]) ||
                 !platform_is_file_readable(files[i]))
                 continue;
-            if (!resolve_mux_output_policy(files[i], &c->opts, &policy)) {
+            MuxPolicyResolveResult result =
+                resolve_mux_output_policy(files[i], &c->opts, &policy);
+            if (result == MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED)
+                continue;
+            if (result != MUX_POLICY_RESOLVE_OK) {
                 if (c->cb.on_error)
                     c->cb.on_error("Copy mode policy validation failed",
                                    ERR_INVALID_OPTIONS);
