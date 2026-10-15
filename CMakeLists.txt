@@ -7,6 +7,14 @@ enable_testing()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+set(FFMPEG_CONVERTER_FFMPEG_PROFILE "8.1" CACHE STRING
+    "FFmpeg version profile used by the mux policy (8.1 or 9.0)")
+set_property(CACHE FFMPEG_CONVERTER_FFMPEG_PROFILE PROPERTY STRINGS "8.1" "9.0")
+if (NOT FFMPEG_CONVERTER_FFMPEG_PROFILE STREQUAL "8.1" AND
+    NOT FFMPEG_CONVERTER_FFMPEG_PROFILE STREQUAL "9.0")
+  message(FATAL_ERROR "FFMPEG_CONVERTER_FFMPEG_PROFILE must be 8.1 or 9.0")
+endif()
+
 set(SRC_DIR "${CMAKE_SOURCE_DIR}/src")
 
 # HQ_converter is an external, prebuilt Linux/macOS dependency.  This step
@@ -17,7 +25,7 @@ set(HQ_CONVERTER_RELEASE_DIR "${CMAKE_SOURCE_DIR}/third_party/hq_converter")
 set(HQ_CONVERTER_PRESET_FILE
     "${HQ_CONVERTER_RELEASE_DIR}/modules/encoder_orchestrator_v2/config/presets/encoder_presets_v2.json")
 
-if (UNIX AND NOT WIN32)
+if (UNIX)
   find_package(Python3 COMPONENTS Interpreter QUIET)
   set(HQ_CONVERTER_REQUIRED_PATHS
     "${HQ_CONVERTER_RELEASE_DIR}/bin/ffmpeg"
@@ -71,28 +79,27 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
   string(REPLACE "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": true"
      "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": false"
    PRESETS_CONTENT "${PRESETS_CONTENT}")
-  string(REPLACE "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_CONTENT "${PRESETS_CONTENT}")
 elseif (APPLE)
   string(REPLACE "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": true"
      "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_CONTENT "${PRESETS_CONTENT}")
-  string(REPLACE "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"windows\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_CONTENT "${PRESETS_CONTENT}")
-else()
-  string(REPLACE "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"linux\": {\n        \"hwaccel\": {\n          \"enabled\": false"
-   PRESETS_CONTENT "${PRESETS_CONTENT}")
-  string(REPLACE "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": true"
-     "\"macos\": {\n        \"hwaccel\": {\n          \"enabled\": false"
    PRESETS_CONTENT "${PRESETS_CONTENT}")
 endif()
 file(WRITE "${GENERATED_PRESETS_DIR}/presets.json" "${PRESETS_CONTENT}")
 
 if (HQ_CONVERTER_ENABLED)
   message(STATUS "HQ_converter runtime feature: enabled")
+
+  # Copy the complete prepared HQ release to the build output.
+  # The full directory tree must be preserved — the HQ library resolves
+  # preset paths by walking up from its own location.
+  # Destination is next to the CLI binary so runtime root resolution works.
+  set(HQ_RUNTIME_DEST "${CMAKE_BINARY_DIR}/bin/hq_converter")
+  add_custom_target(hq_runtime_copy ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${HQ_CONVERTER_RELEASE_DIR}"
+      "${HQ_RUNTIME_DEST}"
+    COMMENT "Copying HQ_converter runtime tree"
+  )
 else()
   message(STATUS "HQ_converter runtime feature: disabled")
 endif()
@@ -100,40 +107,15 @@ endif()
 # --- JANSSON VENDORED HEADERS ---
 add_subdirectory(third_party/jansson)
 
+# Always copy HQ release unconditionally
+if (EXISTS "${HQ_CONVERTER_RELEASE_DIR}")
+    set(HQ_RUNTIME_DEST "${CMAKE_BINARY_DIR}/bin/hq_converter")
+    add_custom_target(copy_hq_release ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${HQ_CONVERTER_RELEASE_DIR}"
+            "${HQ_RUNTIME_DEST}"
+        COMMENT Copying HQ_converter runtime tree (unconditional)
+    )
+endif()
 # --- МОДУЛЬНАЯ СТРУКТУРА ---
 add_subdirectory(src)
-
-# --- Windows CLI build (FPC) ---
-if(WIN32)
-  add_custom_target(fpc_converter_windows
-    COMMAND fpc
-      -Fu${CMAKE_CURRENT_SOURCE_DIR}/fpc/converter
-      -Fu${CMAKE_CURRENT_SOURCE_DIR}/fpc/common
-      -Fu${CMAKE_CURRENT_SOURCE_DIR}/fpc/json
-      -Fu${CMAKE_CURRENT_SOURCE_DIR}/fpc/platform
-      -Fu${CMAKE_CURRENT_SOURCE_DIR}/fpc/cli
-      -Ww
-      -Werror
-      ${CMAKE_CURRENT_SOURCE_DIR}/fpc/cli/ffmpeg_converter_windows.lpr
-      -offmpeg_converter_windows.exe
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Building Windows CLI (ffmpeg_converter_windows.exe)"
-  )
-
-  # --- Windows GUI build (Lazarus / lazbuild) ---
-  find_program(LAZBUILD_EXE lazbuild)
-  if(LAZBUILD_EXE)
-    add_custom_target(fpc_gui_windows
-      COMMAND ${LAZBUILD_EXE}
-        --build-mode=default
-        ${CMAKE_CURRENT_SOURCE_DIR}/fpc/gui/form.lpi
-      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/fpc/gui
-      COMMENT "Building Windows GUI (ffmpeg_converter_gui.exe) via Lazarus"
-    )
-  else()
-    message(STATUS
-      "lazbuild not found -- fpc_gui_windows target skipped. "
-      "Install Lazarus IDE to enable the GUI build.")
-  endif()
-endif()
-

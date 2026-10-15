@@ -33,6 +33,7 @@ add_executable(macos_gui_native MACOSX_BUNDLE
 
 set_target_properties(macos_gui_native PROPERTIES
     OUTPUT_NAME "ffmpeg_converter_gui_macos"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
 )
 
@@ -46,6 +47,8 @@ target_include_directories(macos_gui_native
 target_link_libraries(macos_gui_native
     PRIVATE converter
     PRIVATE mux
+    PRIVATE add_track
+    PRIVATE hq_adapter
     PRIVATE jansson
     PRIVATE "-framework Cocoa"
 )
@@ -90,6 +93,26 @@ if (EXISTS "${BUNDLE_MKVMERGE_SCRIPT}")
     )
 else()
     message(WARNING "bundle_mkvmerge_deps.sh not found; mkvmerge will not be bundled into app.")
+endif()
+
+if (HQ_CONVERTER_ENABLED)
+    add_custom_command(TARGET macos_gui_native POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/hq_converter"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${HQ_CONVERTER_RELEASE_DIR}" "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/hq_converter"
+        COMMENT "Bundling HQ_converter runtime tree into app Resources"
+    )
+endif()
+
+# hq_worker is the dedicated helper binary hq_adapter.c exec()'s right
+# after fork() to run a single HQ job in a fresh process image (see
+# hq_adapter.c's file header comment). resolve_exe_dir() looks for it
+# next to the running binary, i.e. Contents/MacOS/ for an app bundle.
+if (TARGET hq_worker)
+    add_dependencies(macos_gui_native hq_worker)
+    add_custom_command(TARGET macos_gui_native POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:hq_worker>" "$<TARGET_FILE_DIR:macos_gui_native>/hq_worker"
+        COMMENT "Copying hq_worker helper into app bundle MacOS dir"
+    )
 endif()
 
 install(TARGETS macos_gui_native

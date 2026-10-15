@@ -1,6 +1,7 @@
 ﻿using Avalonia;
 using System;
 using System.Linq;
+using FfmpegConverter.Core.Engine;
 
 namespace FfmpegConverter.Gui;
 
@@ -10,8 +11,16 @@ class Program
     // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
     // yet and stuff might break.
     [STAThread]
-    public static void Main(string[] args) => BuildAvaloniaApp()
-        .StartWithClassicDesktopLifetime(args);
+    public static void Main(string[] args)
+    {
+        if (args.Length > 0 && args[0] == "--hq-worker")
+        {
+            Environment.ExitCode = HqWorker.RunAsync(args).GetAwaiter().GetResult();
+            return;
+        }
+
+        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    }
 
     // Avalonia configuration, don't remove; also used by visual designer.
     public static AppBuilder BuildAvaloniaApp()

@@ -4,13 +4,17 @@
 
 #include "gui_window.h"
 #include "gui_codec_utils.h"
-#include "mux.h"
+#include "add_track.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
 #include <glib.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <limits.h>
 
 /* Forward declarations of helper functions */
 static gboolean update_log_idle(gpointer data);
@@ -89,39 +93,6 @@ static void resolve_effective_output_dir(const ConvertOptions *opts, char *out_d
         home = ".";
 
     g_snprintf(out_dir, out_dir_sz, "%s/ffmpeg_converter", home);
-}
-
-static ConverterError run_gui_mux_postprocess(const ConvertOptions *opts,
-                                              const ConverterCallbacks *cb,
-                                              const char *input_file)
-{
-    ConvertOptions file_opts;
-    ConvertOptions final_name_opts;
-    MuxOptions mux_opts;
-    char effective_output_dir[1024];
-    char final_output_file[1200];
-
-    memset(&file_opts, 0, sizeof(file_opts));
-    file_opts = *opts;
-    strcpy(file_opts.codec, "copy");
-    resolve_effective_output_dir(opts, effective_output_dir, sizeof(effective_output_dir));
-    strncpy(file_opts.output_dir, effective_output_dir, sizeof(file_opts.output_dir) - 1);
-    file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = '\0';
-
-    memset(&mux_opts, 0, sizeof(mux_opts));
-    converter_make_output_name(input_file, &file_opts, mux_opts.intermediate_file, sizeof(mux_opts.intermediate_file));
-    strncpy(mux_opts.video_track_file, opts->video_track_path, sizeof(mux_opts.video_track_file) - 1);
-    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
-    mux_opts.overwrite = opts->overwrite;
-
-    /* Final container/extension depends on opts->preset (mkv/mov/m4v);
-     * keep codec="mux" here so converter_make_output_name() picks it up. */
-    final_name_opts = *opts;
-    strncpy(final_name_opts.output_dir, effective_output_dir, sizeof(final_name_opts.output_dir) - 1);
-    final_name_opts.output_dir[sizeof(final_name_opts.output_dir) - 1] = '\0';
-    converter_make_output_name(input_file, &final_name_opts, final_output_file, sizeof(final_output_file));
-
-    return mux_run_postprocess_for_preset(&mux_opts, opts, final_output_file, cb);
 }
 
 static ConverterError run_gui_m4v_job(AppWidgets *w,
@@ -620,23 +591,177 @@ static gpointer run_converter(gpointer user_data)
     }
 
     converter_set_callbacks(c, &cb);
-    {
-        ConvertOptions work_opts = opts;
 
-        if (codec_is_mux(opts.codec)) {
-            strcpy(work_opts.codec, "copy");
-            strcpy(work_opts.preset, "default");
-            work_opts.deblock = 0;
+    if (codec_is_hq(opts.codec)) {
+        /* HQ Converter execution path — queue iteration per spec Section 19. */
+        HqAdapter *hq_adapter = NULL;
+        const char *hq_encoder = opts.hw_device[0] != '\0' ? opts.hw_device : NULL;
+        const char *hq_preset = opts.preset[0] != '\0' ? opts.preset : NULL;
+        char video_track[1024];
+        char effective_output_dir[1024];
+        int fi;
+
+        if (!hq_encoder) {
+            LogUpdateData *data = g_new0(LogUpdateData, 1);
+            data->w = w;
+            data->msg = g_strdup("HQ: no encoder selected\n");
+            g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+            err = ERR_INVALID_OPTIONS;
+            goto cleanup;
         }
+
+        if (!hq_preset) {
+            hq_preset = hq_catalog_default_preset(hq_encoder);
+            if (!hq_preset) {
+                LogUpdateData *data = g_new0(LogUpdateData, 1);
+                data->w = w;
+                data->msg = g_strdup("HQ: no preset selected\n");
+                g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+                err = ERR_INVALID_OPTIONS;
+                goto cleanup;
+            }
+        }
+
+        /* Resolve output directory */
+        resolve_effective_output_dir(&opts, effective_output_dir, sizeof(effective_output_dir));
+
+        /* Create HQ adapter once — reused across all queue items (each
+         * hq_run_job() call is internally process-isolated per job; see
+         * hq_adapter.c). */
+        hq_adapter = hq_adapter_create();
+        if (!hq_adapter) {
+            LogUpdateData *data = g_new0(LogUpdateData, 1);
+            data->w = w;
+            data->msg = g_strdup("Failed to create HQ adapter\n");
+            g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+            err = ERR_FFMPEG_FAILED;
+            goto cleanup;
+        }
+
+        g_mutex_lock(&w->thread_lock);
+        w->current_hq_adapter = hq_adapter;
+        g_mutex_unlock(&w->thread_lock);
+
+        err = ERR_OK;
+
+        for (fi = 0; fi < file_count; fi++) {
+            char task_dir[1024];
+            ConverterError ferr = ERR_OK;
+            ConvertOptions hq_opts;
+            AddTrackRequest req;
+            AddTrackResult track_result;
+
+            on_file_begin(file_list[fi], fi + 1, file_count);
+
+            /* Create task_N directory */
+            snprintf(task_dir, sizeof(task_dir), "%s/task_%d",
+                     effective_output_dir, fi + 1);
+            if (mkdir(task_dir, 0755) != 0 && errno != EEXIST) {
+                LogUpdateData *data = g_new0(LogUpdateData, 1);
+                data->w = w;
+                data->msg = g_strdup_printf("Failed to create task directory: %s\n", task_dir);
+                g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+                ferr = ERR_OUTPUT_EXISTS;
+                on_file_end(file_list[fi], ferr);
+                if (err == ERR_OK) err = ferr;
+                continue;
+            }
+
+            HqResult hq_rc;
+            char abs_input_path[PATH_MAX];
+
+            /* HQ requires an absolute input path (see CLI's equivalent
+             * fix in main.c for the documented §26.5 rationale). */
+            if (realpath(file_list[fi], abs_input_path) == NULL) {
+                char cwd[PATH_MAX];
+                if (getcwd(cwd, sizeof(cwd)))
+                    snprintf(abs_input_path, sizeof(abs_input_path),
+                             "%s/%s", cwd, file_list[fi]);
+                else
+                    strncpy(abs_input_path, file_list[fi],
+                            sizeof(abs_input_path) - 1);
+                abs_input_path[sizeof(abs_input_path) - 1] = '\0';
+            }
+
+            hq_rc = hq_run_job(hq_adapter,
+                                abs_input_path,
+                                task_dir,
+                                hq_encoder,
+                                hq_preset,
+                                c);
+
+            if (hq_rc == HQ_RESULT_OK) {
+                if (hq_read_video_track_path(task_dir,
+                                             hq_encoder,
+                                             hq_preset,
+                                             video_track,
+                                             sizeof(video_track)) != 0) {
+                    LogUpdateData *data = g_new0(LogUpdateData, 1);
+                    data->w = w;
+                    data->msg = g_strdup("HQ: failed to read session result\n");
+                    g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+                    ferr = ERR_FFMPEG_FAILED;
+                } else if (!file_is_regular_readable(video_track)) {
+                    LogUpdateData *data = g_new0(LogUpdateData, 1);
+                    data->w = w;
+                    data->msg = g_strdup_printf("HQ: video track not found: %s\n", video_track);
+                    g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+                    ferr = ERR_INPUT_NOT_FOUND;
+                } else if (converter_is_stopped(c)) {
+                    ferr = ERR_SKIP_FILE;
+                } else {
+                    /* Handoff to add_track_execute() */
+                    hq_opts = opts;
+                    g_strlcpy(hq_opts.video_track_path, video_track,
+                              sizeof(hq_opts.video_track_path));
+                    req.source_file = file_list[fi];
+                    req.convert_options = &hq_opts;
+                    ferr = add_track_execute(c, &req, &track_result);
+                }
+            } else if (hq_rc == HQ_RESULT_CANCELLED) {
+                ferr = ERR_SKIP_FILE;
+            } else {
+                char hq_err[512];
+                if (hq_adapter_get_last_error(hq_adapter, hq_err, sizeof(hq_err)) == 0
+                        && hq_err[0] != '\0') {
+                    LogUpdateData *data = g_new0(LogUpdateData, 1);
+                    data->w = w;
+                    data->msg = g_strdup_printf("HQ failed: %s\n", hq_err);
+                    g_idle_add_full(G_PRIORITY_HIGH_IDLE, update_log_idle, data, log_update_data_free);
+                }
+                ferr = ERR_FFMPEG_FAILED;
+            }
+
+            on_file_end(file_list[fi], ferr);
+            if (err == ERR_OK) err = ferr;
+
+            /* Remove task_N directory */
+            hq_remove_directory_tree(task_dir);
+        }
+
+        g_mutex_lock(&w->thread_lock);
+        w->current_hq_adapter = NULL;
+        g_mutex_unlock(&w->thread_lock);
+
+        hq_adapter_destroy(hq_adapter);
+        hq_adapter = NULL;
+
+    } else if (codec_is_mux(opts.codec)) {
+        AddTrackRequest req = {
+            .source_file      = file_list[0],
+            .convert_options  = &opts,
+        };
+        AddTrackResult result;
+        err = add_track_execute(c, &req, &result);
+    } else {
+        ConvertOptions work_opts = opts;
 
         err = converter_set_options(c, &work_opts);
         if (err != ERR_OK)
             goto cleanup;
-    }
 
-    err = converter_process_files(c, (const char**)file_list, file_count);
-    if (err == ERR_OK && codec_is_mux(opts.codec))
-        err = run_gui_mux_postprocess(&opts, &cb, file_list[0]);
+        err = converter_process_files(c, (const char**)file_list, file_count);
+    }
 
     if (err == ERR_SKIP_FILE) {
         LogUpdateData *data = g_new0(LogUpdateData, 1);
@@ -772,6 +897,8 @@ void stop_conversion(AppWidgets *w)
     g_mutex_lock(&w->thread_lock);
     if (w->current_converter)
         converter_stop(w->current_converter);
+    if (w->current_hq_adapter)
+        hq_request_stop_from_converter(w->current_hq_adapter);
     w->stop_requested = 1;
     g_mutex_unlock(&w->thread_lock);
 
@@ -796,6 +923,8 @@ void shutdown_conversion(AppWidgets *w)
 
     if (w->current_converter)
         converter_stop(w->current_converter);
+    if (w->current_hq_adapter)
+        hq_request_stop_from_converter(w->current_hq_adapter);
 
     GThread *thread = w->worker_thread;
     w->worker_thread = NULL;

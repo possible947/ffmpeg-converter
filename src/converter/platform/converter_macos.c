@@ -43,20 +43,27 @@ static const char* macos_get_exe_dir(void) {
  * builds; canonical location that also holds ffmpeg's @rpath dylib deps),
  * (2) <exe_dir>, (3) <exe_dir>/../Resources/bin (app bundle). */
 static const char* macos_resolve_bundled_bin(const char* name) {
-    static char path[4096];
+    /* One buffer per tool: callers keep the returned pointer while resolving
+     * other tools, so a single shared buffer would alias ffmpeg/ffprobe/mkvmerge. */
+    static char paths[4][4096];
+    static const char* const names[4] = { "ffmpeg", "ffprobe", "mkvmerge", "MP4Box" };
+    char* path = paths[0];
+    for (int i = 0; i < 4; i++) {
+        if (!strcmp(name, names[i])) { path = paths[i]; break; }
+    }
 
 #ifdef FFMPEG_CONVERTER_SOURCE_DIR
-    snprintf(path, sizeof(path), FFMPEG_CONVERTER_SOURCE_DIR "/src/platform/macos/bin/%s", name);
+    snprintf(path, sizeof(paths[0]), FFMPEG_CONVERTER_SOURCE_DIR "/src/platform/macos/bin/%s", name);
     if (access(path, X_OK) == 0) return path;
 #endif
 
     const char* exe_dir = macos_get_exe_dir();
     if (!exe_dir || exe_dir[0] == '\0') return NULL;
 
-    snprintf(path, sizeof(path), "%s/%s", exe_dir, name);
+    snprintf(path, sizeof(paths[0]), "%s/%s", exe_dir, name);
     if (access(path, X_OK) == 0) return path;
 
-    snprintf(path, sizeof(path), "%s/../Resources/bin/%s", exe_dir, name);
+    snprintf(path, sizeof(paths[0]), "%s/../Resources/bin/%s", exe_dir, name);
     if (access(path, X_OK) == 0) return path;
 
     return NULL;
@@ -396,7 +403,7 @@ int platform_supports_codec(const char* codec) {
         strcmp(codec, "prores_videotoolbox") == 0)
         return 1;
 
-    /* Linux / Windows platform-specific codecs are not supported on macOS */
+    /* Linux platform-specific codecs are not supported on macOS */
     return 0;
 }
 

@@ -3,11 +3,23 @@
 #include "preset_loader.h"
 #include "macos/runtime_probe.h"
 #include "selection_catalog.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
+#include "input_video_info.h"
+#include "mux_policy.h"
 #include <string.h>
 
 typedef void (^DropPathsHandler)(NSArray<NSString *> *paths);
 static PresetDb *gPresetDb = NULL;
 static SelectionCatalog *gSelectionCatalog = NULL;
+
+static BOOL macGuiIsHqGroup(NSString *group) {
+    return [group isEqualToString:@"hq_converter"];
+}
+
+static BOOL macGuiHqCatalogReady(void) {
+    return hq_catalog_is_loaded() || (hq_is_available() && hq_catalog_load(NULL) == 0);
+}
 
 @interface DropWindow : NSWindow
 @property (copy, nonatomic) DropPathsHandler dropHandler;
@@ -101,12 +113,14 @@ static SelectionCatalog *gSelectionCatalog = NULL;
 @property (assign, nonatomic) BOOL terminateAfterStop;
  - (void)addInputPaths:(NSArray<NSString *> *)paths;
  - (void)onAddTrackClicked:(id)sender;
+ - (void)onAudioOutputChanged:(id)sender;
  - (BOOL)promptAppleM4VOptions:(AppleM4VOptions *)options;
  - (void)populateCodecPopup;
  - (void)populateEncoderPopup;
  - (void)populatePresetPopup;
  - (NSString *)resolvedCodecForCurrentSelection;
  - (void)resolveCodec:(NSString **)outCodec preset:(NSString **)outPreset;
+- (void)applyHqEncoderToOptions:(ConvertOptions *)opts;
 @end
 
 @implementation AppDelegate
@@ -382,8 +396,10 @@ static int macSelectionCapability(void *context,
     [content addSubview:audioOutLabel];
 
     self.audioOutputPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(380, 486, 200, 28) pullsDown:NO];
-    [self.audioOutputPopup addItemsWithTitles:@[@"pcm", @"fdk_aac_320", @"fdk_aac_320_ac3_640"]];
+    [self.audioOutputPopup addItemsWithTitles:@[@"pcm", @"copy", @"fdk_aac_320", @"fdk_aac_320_ac3_640"]];
     [self.audioOutputPopup selectItemAtIndex:0];
+    [self.audioOutputPopup setTarget:self];
+    [self.audioOutputPopup setAction:@selector(onAudioOutputChanged:)];
     [content addSubview:self.audioOutputPopup];
 
     NSTextField *genreLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(300, 522, 80, 24)];
@@ -596,6 +612,7 @@ static int macSelectionCapability(void *context,
                                                       genre:genre
                                                   overwrite:overwrite
                                                   outputDir:outputDir];
+    [self applyHqEncoderToOptions:&opts];
 
     [self setRunningUIState:YES];
     [self.progress setDoubleValue:0.0];
@@ -721,6 +738,7 @@ static int macSelectionCapability(void *context,
                                                                  genre:genre
                                                              overwrite:overwrite
                                                              outputDir:outputDir];
+    [self applyHqEncoderToOptions:&convertOptions];
 
     [self setAppleM4VUIState:YES];
     [self.progress setDoubleValue:0.0];
@@ -974,6 +992,11 @@ static int macSelectionCapability(void *context,
     [self updateDependentControls];
 }
 
+- (void)onAudioOutputChanged:(id)sender {
+    (void)sender;
+    [self updateDependentControls];
+}
+
 - (void)populateCodecPopup {
     NSString *selectedGroup = self.codecPopup.titleOfSelectedItem;
     const char **groups = NULL;
@@ -986,6 +1009,9 @@ static int macSelectionCapability(void *context,
         gSelectionCatalog, macSelectionCapability, &support, &groups) : 0;
     for (int index = 0; index < count; index++) {
         [self.codecPopup addItemWithTitle:[NSString stringWithUTF8String:groups[index]]];
+    }
+    if (macGuiHqCatalogReady()) {
+        [self.codecPopup addItemWithTitle:@"hq_converter"];
     }
     if (self.codecPopup.numberOfItems == 0) {
         [self.codecPopup addItemWithTitle:@"copy"];
@@ -1006,6 +1032,15 @@ static int macSelectionCapability(void *context,
     memset(&support, 0, sizeof(support));
     macos_probe_codec_support(&support);
     [self.encoderPopup removeAllItems];
+    if (macGuiIsHqGroup(group)) {
+        if (macGuiHqCatalogReady()) {
+            for (size_t index = 0; index < hq_catalog_codec_count(); index++)
+                [self.encoderPopup addItemWithTitle:[NSString stringWithUTF8String:hq_catalog_codec_name(index)]];
+        }
+        if (self.encoderPopup.numberOfItems > 0)
+            [self.encoderPopup selectItemAtIndex:0];
+        return;
+    }
     int count = gSelectionCatalog ? selection_catalog_list_encoders(
         gSelectionCatalog, group.UTF8String, macSelectionCapability, &support, &encoders) : 0;
     for (int index = 0; index < count; index++)
@@ -1025,6 +1060,19 @@ static int macSelectionCapability(void *context,
     if ([group isEqualToString:@"mux"]) {
         [self.profilePopup removeAllItems];
         [self.profilePopup addItemWithTitle:@"default"];
+        [self.profilePopup selectItemAtIndex:0];
+        return;
+    }
+
+    if (macGuiIsHqGroup(group)) {
+        [self.profilePopup removeAllItems];
+        if (encoder.length > 0 && macGuiHqCatalogReady()) {
+            size_t presetCount = hq_catalog_preset_count(encoder.UTF8String);
+            for (size_t index = 0; index < presetCount; index++)
+                [self.profilePopup addItemWithTitle:[NSString stringWithUTF8String:hq_catalog_preset_name(encoder.UTF8String, index)]];
+        }
+        if (self.profilePopup.numberOfItems == 0)
+            [self.profilePopup addItemWithTitle:@"default"];
         [self.profilePopup selectItemAtIndex:0];
         return;
     }
@@ -1056,7 +1104,104 @@ static int macSelectionCapability(void *context,
     /* The mux group is identified by the top-level selection itself, not by
      * the resolved execution codec (which differs per encoder: copy/mux/m4v). */
     BOOL isMux = [codec isEqualToString:@"mux"];
-    BOOL muxNeedsTrack = isMux && ![encoder isEqualToString:@"copy"];
+    BOOL muxNeedsTrack = NO;
+    BOOL muxPolicyValid = YES;
+    BOOL muxCopy = NO;
+    if (isMux) {
+        MuxBuildProfile profile;
+        MuxPolicy policy;
+        MuxMode mode = mux_mode_parse(encoder.UTF8String);
+        MuxVideoCodec *sources = NULL;
+        size_t sourceCount = 0;
+        NSString *currentAudio = self.audioOutputPopup.titleOfSelectedItem ?: @"pcm";
+        MuxAudioMode audioModes[4];
+        size_t audioModeCount = 0;
+        muxCopy = mode == MUX_MODE_COPY;
+        muxPolicyValid = mux_build_profile_default(&profile) &&
+                         mode != MUX_MODE_INVALID;
+        if (muxPolicyValid && muxCopy && self.filePaths.count > 0) {
+            sourceCount = self.filePaths.count;
+            sources = calloc(sourceCount, sizeof(*sources));
+            if (!sources) {
+                muxPolicyValid = NO;
+            } else {
+                for (NSUInteger index = 0; index < self.filePaths.count; index++) {
+                    InputVideoInfo info;
+                    NSString *path = self.filePaths[index];
+                    if (!input_video_info_probe(path.UTF8String, &info)) {
+                        muxPolicyValid = NO;
+                        break;
+                    }
+                    sources[index] = mux_video_codec_parse(info.codec_name);
+                }
+            }
+        }
+        if (muxPolicyValid)
+            audioModeCount = mux_policy_list_audio_modes(
+                &profile, mode, sources, sourceCount, MUX_VIDEO_UNKNOWN,
+                audioModes, sizeof(audioModes) / sizeof(audioModes[0]));
+        if (audioModeCount == 0) {
+            muxPolicyValid = NO;
+        } else {
+            NSMutableArray<NSString *> *titles =
+                [NSMutableArray arrayWithCapacity:audioModeCount];
+            NSUInteger selectedIndex = NSNotFound;
+            for (size_t index = 0; index < audioModeCount; index++) {
+                NSString *title = [NSString stringWithUTF8String:
+                    mux_audio_mode_name(audioModes[index])];
+                [titles addObject:title];
+                if ([title isEqualToString:currentAudio])
+                    selectedIndex = index;
+            }
+            if (![self.audioOutputPopup.itemTitles isEqualToArray:titles]) {
+                [self.audioOutputPopup removeAllItems];
+                [self.audioOutputPopup addItemsWithTitles:titles];
+            }
+            if (selectedIndex == NSNotFound)
+                selectedIndex = 0;
+            [self.audioOutputPopup selectItemAtIndex:(NSInteger)selectedIndex];
+            MuxVideoCodec source =
+                muxCopy && sourceCount ? sources[0] : MUX_VIDEO_UNKNOWN;
+            if (!mux_policy_resolve(&profile, mode,
+                                    self.audioOutputPopup.titleOfSelectedItem.UTF8String,
+                                    source, MUX_VIDEO_UNKNOWN,
+                                    &policy, NULL, 0)) {
+                muxPolicyValid = NO;
+            } else {
+                muxNeedsTrack = policy.requires_add_track;
+                if (muxNeedsTrack && self.videoTrackPath.length == 0)
+                    muxPolicyValid = NO;
+            }
+        }
+        free(sources);
+    }
+    if (!isMux) {
+        MuxBuildProfile profile;
+        MuxAudioMode audioModes[4];
+        if (mux_build_profile_default(&profile)) {
+            size_t count = mux_policy_list_audio_modes(
+                &profile, MUX_MODE_MKV, NULL, 0, MUX_VIDEO_UNKNOWN,
+                audioModes, sizeof(audioModes) / sizeof(audioModes[0]));
+            if (count > 0) {
+                NSMutableArray<NSString *> *titles =
+                    [NSMutableArray arrayWithCapacity:count];
+                for (size_t index = 0; index < count; index++) {
+                    [titles addObject:[NSString stringWithUTF8String:
+                        mux_audio_mode_name(audioModes[index])]];
+                }
+                if (![self.audioOutputPopup.itemTitles isEqualToArray:titles]) {
+                    NSString *current = self.audioOutputPopup.titleOfSelectedItem;
+                    [self.audioOutputPopup removeAllItems];
+                    [self.audioOutputPopup addItemsWithTitles:titles];
+                    if (current.length > 0 &&
+                        [titles containsObject:current])
+                        [self.audioOutputPopup selectItemWithTitle:current];
+                    else
+                        [self.audioOutputPopup selectItemAtIndex:0];
+                }
+            }
+        }
+    }
     [self populatePresetPopup];
     BOOL profileEnabled = !isMux && self.profilePopup.numberOfItems > 1;
     // Deblock: software prores encoders only; hardware encoders skip
@@ -1064,8 +1209,9 @@ static int macSelectionCapability(void *context,
                            [resolvedCodec isEqualToString:@"prores_ks"]);
     [self.profilePopup setEnabled:profileEnabled];
     [self.deblockPopup setEnabled:deblockEnabled];
-    [self.addFilesButton setEnabled:!isMux];
+    [self.addFilesButton setEnabled:!isMux || muxCopy];
     [self.addTrackButton setEnabled:muxNeedsTrack && self.filePaths.count == 1];
+    [self.startButton setEnabled:muxPolicyValid];
 
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     BOOL genreEnabled = [audioNorm isEqualToString:@"loudness_norm_2pass"];
@@ -1081,6 +1227,17 @@ static int macSelectionCapability(void *context,
             resolved, sizeof(resolved)))
         return [NSString stringWithUTF8String:resolved];
     return group;
+}
+
+/* HQ jobs carry the selected HQ encoder in hw_device (same as the Linux GUI). */
+- (void)applyHqEncoderToOptions:(ConvertOptions *)opts {
+    NSString *group = self.codecPopup.titleOfSelectedItem ?: @"";
+    NSString *encoder = self.encoderPopup.titleOfSelectedItem ?: @"";
+    if (!opts || !macGuiIsHqGroup(group)) return;
+    strncpy(opts->codec, "hq_converter", sizeof(opts->codec) - 1);
+    opts->codec[sizeof(opts->codec) - 1] = '\0';
+    strncpy(opts->hw_device, encoder.UTF8String, sizeof(opts->hw_device) - 1);
+    opts->hw_device[sizeof(opts->hw_device) - 1] = '\0';
 }
 
 /* Codec/preset to submit for conversion. For the mux group the encoder

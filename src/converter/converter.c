@@ -1,11 +1,13 @@
 #include "converter.h"
+#include "subtitle_preservation.h"
+#include "audio_orchestrator.h"
 #include "converter_platform.h"
 #include "input_video_info.h"
 #include "converter_common.h"
+#include "mux_policy.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <jansson.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <errno.h>
@@ -74,6 +76,107 @@ static int codec_uses_mov_container(const char* codec) {
             strcmp(codec, "prores_ks_vulkan") == 0);
 }
 
+typedef enum {
+    MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED = -1,
+    MUX_POLICY_RESOLVE_FAILED = 0,
+    MUX_POLICY_RESOLVE_OK = 1
+} MuxPolicyResolveResult;
+
+static MuxPolicyResolveResult resolve_mux_policy_for_codec(
+    const ConvertOptions *opts,
+    MuxVideoCodec source_codec,
+    MuxPolicy *policy)
+{
+    MuxBuildProfile profile;
+    MuxMode mode;
+    const char *audio_mode;
+    char error[128];
+
+    if (!opts || !policy || !mux_build_profile_default(&profile))
+        return MUX_POLICY_RESOLVE_FAILED;
+
+    if (strcmp(opts->codec, "copy") == 0) {
+        mode = opts->preset[0] == '\0' || strcmp(opts->preset, "default") == 0
+                   ? MUX_MODE_COPY
+                   : mux_mode_parse(opts->preset);
+    } else if (strcmp(opts->codec, "mux") == 0) {
+        mode = mux_mode_parse(opts->preset[0] ? opts->preset : "mkv");
+    } else {
+        return MUX_POLICY_RESOLVE_FAILED;
+    }
+
+    audio_mode = opts->audio_output_mode[0] ? opts->audio_output_mode : NULL;
+    return mux_policy_resolve(&profile, mode, audio_mode, source_codec,
+                              MUX_VIDEO_UNKNOWN, policy, error, sizeof(error))
+               ? MUX_POLICY_RESOLVE_OK
+               : MUX_POLICY_RESOLVE_FAILED;
+}
+
+static MuxPolicyResolveResult resolve_mux_output_policy(
+    const char *input,
+    const ConvertOptions *opts,
+    MuxPolicy *policy)
+{
+    MuxPolicyResolveResult result;
+    InputVideoInfo info;
+
+    if (!input || !opts || !policy)
+        return MUX_POLICY_RESOLVE_FAILED;
+
+    result = resolve_mux_policy_for_codec(opts, MUX_VIDEO_UNKNOWN, policy);
+    if (result != MUX_POLICY_RESOLVE_OK ||
+        strcmp(opts->codec, "copy") != 0)
+        return result;
+
+    if (!input_video_info_probe(input, &info))
+        return MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED;
+
+    return resolve_mux_policy_for_codec(
+        opts, mux_video_codec_parse(info.codec_name), policy);
+}
+
+static int input_has_attachment_stream(const char *input)
+{
+    const char *ffprobe = platform_get_ffprobe_bin();
+    char *quoted_tool;
+    char *quoted_input;
+    char command[8192];
+    char line[128];
+    FILE *pipe;
+    int found = 0;
+    int status;
+
+    if (!input || !ffprobe || !ffprobe[0])
+        return -1;
+    quoted_tool = platform_escape_path_for_command(ffprobe);
+    quoted_input = platform_escape_path_for_command(input);
+    if (!quoted_tool || !quoted_input) {
+        free(quoted_tool);
+        free(quoted_input);
+        return -1;
+    }
+    status = snprintf(command, sizeof(command),
+                      "%s -v error -select_streams t -show_entries stream=index "
+                      "-of csv=p=0 %s 2>%s",
+                      quoted_tool, quoted_input, platform_get_null_device());
+    free(quoted_tool);
+    free(quoted_input);
+    if (status < 0 || (size_t)status >= sizeof(command))
+        return -1;
+
+    pipe = platform_popen(command, "r");
+    if (!pipe)
+        return -1;
+    while (fgets(line, sizeof(line), pipe)) {
+        if (line[0] != '\0' && strspn(line, "\r\n") != strlen(line)) {
+            found = 1;
+            break;
+        }
+    }
+    status = platform_pclose(pipe);
+    return status == 0 ? found : -1;
+}
+
 /* Convert preset string ("lt", "standard", "hq", "4444", "default") to ffmpeg profile number */
 static int preset_to_profile_num(const char* preset) {
     if (!preset || preset[0] == '\0') {
@@ -89,19 +192,6 @@ static int preset_to_profile_num(const char* preset) {
         return 4;
     }
     return 2;  /* standard or default */
-}
-
-static int audio_output_mode_is(const char* mode, const char* expected) {
-    return mode && expected && strcmp(mode, expected) == 0;
-}
-
-static int audio_output_mode_valid(const char* mode) {
-    return mode[0] == '\0' ||
-           audio_output_mode_is(mode, "pcm") ||
-           audio_output_mode_is(mode, "fdk_aac_320") ||
-           audio_output_mode_is(mode, "fdk_aac_320_ac3_640") ||
-           audio_output_mode_is(mode, "fdk_aac_320") ||
-           audio_output_mode_is(mode, "fdk_aac_320_ac3_640");
 }
 
 static int cmd_cat(char* buf, size_t buf_sz, size_t* pos, const char* s);
@@ -132,107 +222,9 @@ static int append_color_metadata(char *cmd, size_t cmd_size, size_t *pos,
     return 0;
 }
 
-static void build_audio_filter_expr(const ConvertOptions* opts, char* filter, size_t filter_sz) {
-    if (!filter || filter_sz == 0) {
-        return;
-    }
-
-    if (strcmp(opts->audio_norm, "none") == 0) {
-        snprintf(filter, filter_sz, "aresample=resampler=soxr:precision=28:cheby=1");
-    }
-    else if (strcmp(opts->audio_norm, "peak_norm") == 0) {
-        snprintf(filter, filter_sz,
-                 "aresample=resampler=soxr:precision=28:cheby=1,volume=-3dB");
-    }
-    else if (strcmp(opts->audio_norm, "peak_norm_2pass") == 0) {
-        snprintf(filter, filter_sz,
-                 "aresample=resampler=soxr:precision=28:cheby=1,volume=%.2fdB",
-                 opts->gain);
-    }
-    else if (strcmp(opts->audio_norm, "loudness_norm") == 0) {
-        snprintf(filter, filter_sz,
-                 "aresample=resampler=soxr:precision=28:cheby=1,"
-                 "loudnorm=I=-11:TP=-1.5:LRA=7");
-    }
-    else if (strcmp(opts->audio_norm, "loudness_norm_2pass") == 0) {
-        snprintf(filter, filter_sz,
-                 "aresample=resampler=soxr:precision=28:cheby=1,"
-                 "loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:"
-                 "measured_I=%.2f:measured_TP=%.2f:measured_LRA=%.2f:"
-                 "measured_thresh=%.2f:offset=%.2f:linear=true",
-                 opts->I_target,
-                 opts->TP_target,
-                 opts->LRA_target,
-                 opts->measured_I,
-                 opts->measured_TP,
-                 opts->measured_LRA,
-                 opts->measured_thresh,
-                 opts->measured_offset);
-    }
-    else {
-        snprintf(filter, filter_sz, "aresample=resampler=soxr:precision=28:cheby=1");
-    }
-}
-
 static int codec_uses_aac_audio(const char* codec) {
     return codec &&
            (strcmp(codec, "hevc_videotoolbox") == 0);
-}
-
-static const char* get_ffmpeg_bin(void);
-
-static int ffmpeg_encoder_available(const char* encoder_name) {
-    static int initialized = 0;
-    static int has_aac_at = 0;
-    static int has_libfdk_aac = 0;
-    static int has_aac = 0;
-
-    if (!encoder_name || encoder_name[0] == '\0') {
-        return 0;
-    }
-
-    if (!initialized) {
-        const char* ffmpeg_bin = platform_get_ffmpeg_bin();
-        char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
-        if (esc_ffmpeg) {
-            char cmd[4096];
-            snprintf(cmd, sizeof(cmd),
-                     "%s -hide_banner -v error -encoders 2>%s",
-                     esc_ffmpeg, platform_get_null_device());
-            free(esc_ffmpeg);
-
-            FILE* fp = platform_popen(cmd, "r");
-            if (fp) {
-                char line[1024];
-                while (fgets(line, sizeof(line), fp)) {
-                    if (!has_aac_at && strstr(line, " aac_at")) {
-                        has_aac_at = 1;
-                    }
-                    if (!has_libfdk_aac && strstr(line, " libfdk_aac")) {
-                        has_libfdk_aac = 1;
-                    }
-                    if (!has_aac && strstr(line, " aac ")) {
-                        has_aac = 1;
-                    }
-                }
-                platform_pclose(fp);
-            }
-        }
-
-        initialized = 1;
-    }
-
-    if (strcmp(encoder_name, "aac_at") == 0) {
-        return has_aac_at;
-    }
-    if (strcmp(encoder_name, "libfdk_aac") == 0) {
-        return has_libfdk_aac;
-    }
-    if (strcmp(encoder_name, "aac") == 0) {
-        return has_aac;
-    }
-
-    return 0;
 }
 
 static const char* get_ffmpeg_bin(void) {
@@ -291,15 +283,19 @@ ConverterError converter_set_options(
 
     c->opts = *opts;
 
-    if (!audio_output_mode_valid(c->opts.audio_output_mode))
+    if (!audio_output_mode_is_valid(c->opts.audio_output_mode))
         return ERR_INVALID_OPTIONS;
 
-    /* Validate required audio filters */
-    if (!platform_validate_audio_filters()) {
-        if (c->cb.on_error)
-            c->cb.on_error("required FFmpeg audio filters not available",
-                           ERR_AUDIO_FILTER_VALIDATION_FAILED);
-        return ERR_AUDIO_FILTER_VALIDATION_FAILED;
+    /* COPY mode does no audio encoding or filtering; skip validation. */
+    AudioOutputMode audio_mode = audio_output_mode_parse(c->opts.audio_output_mode);
+    if (audio_mode != AUDIO_MODE_COPY) {
+        /* Validate required audio filters */
+        if (!platform_validate_audio_filters()) {
+            if (c->cb.on_error)
+                c->cb.on_error("required FFmpeg audio filters not available",
+                               ERR_AUDIO_FILTER_VALIDATION_FAILED);
+            return ERR_AUDIO_FILTER_VALIDATION_FAILED;
+        }
     }
 
     /* Platform-specific codec validation */
@@ -332,6 +328,16 @@ void converter_stop(Converter* c) {
     c->stop_flag = 1;
 }
 
+int converter_is_stopped(Converter* c) {
+    if (!c) return 1;
+    return c->stop_flag;
+}
+
+const ConverterCallbacks* converter_get_callbacks(Converter* c) {
+    if (!c) return NULL;
+    return &c->cb;
+}
+
 // ------------------------------------------------------------
 //  Error String
 // ------------------------------------------------------------
@@ -357,18 +363,6 @@ const char* converter_error_string(ConverterError err) {
         case ERR_HOME_DIR_NOT_FOUND: return "user home directory not found";
         default: return "unknown error";
     }
-}
-
-// ------------------------------------------------------------
-//  Helpers: time parsing (retained for immutable audio functions)
-// ------------------------------------------------------------
-static double parse_time_hms(const char *s) {
-    int h = 0, m = 0;
-    double sec = 0.0;
-    if (sscanf(s, "%d:%d:%lf", &h, &m, &sec) == 3) {
-        return h * 3600.0 + m * 60.0 + sec;
-    }
-    return 0.0;
 }
 
 // ------------------------------------------------------------
@@ -518,14 +512,12 @@ static void make_output_name(
     }
 
     const char *ext;
-    if (strcmp(opts->codec, "copy") == 0)
-        ext = "mkv";
-    else if (strcmp(opts->codec, "mux") == 0) {
-        if (!strcmp(opts->preset, "mov"))
-            ext = "mov";
-        else if (!strcmp(opts->preset, "m4v"))
-            ext = "m4v";
-        else
+    if (strcmp(opts->codec, "copy") == 0 || strcmp(opts->codec, "mux") == 0) {
+        MuxPolicy policy;
+        ext = resolve_mux_output_policy(input, opts, &policy) ==
+                      MUX_POLICY_RESOLVE_OK
+                  ? mux_container_extension(policy.container) : NULL;
+        if (!ext)
             ext = "mkv";
     }
     else if (strcmp(opts->codec, "hevc_videotoolbox") == 0 ||
@@ -586,235 +578,6 @@ static ConverterError check_output_exists(
 }
 
 // ------------------------------------------------------------
-//  Peak 2-pass analysis
-// ------------------------------------------------------------
-static ConverterError peak_two_pass(
-    Converter* c,
-    const char* input,
-    double* out_gain
-) {
-    if (c->cb.on_stage)
-        c->cb.on_stage("peak analysis");
-
-    const char *ffmpeg_bin = get_ffmpeg_bin();
-    int filter_threads = get_filter_threads();
-
-    char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
-    char* esc_input  = platform_escape_path_for_command(input);
-    if (!esc_ffmpeg || !esc_input) {
-        free(esc_ffmpeg);
-        free(esc_input);
-        if (c->cb.on_error)
-            c->cb.on_error("out of memory", ERR_UNKNOWN);
-        return ERR_UNKNOWN;
-    }
-
-    char cmd[4096];
-    snprintf(cmd, sizeof(cmd),
-        "%s -hwaccel none -filter_threads %d -vn -i %s -af volumedetect -f null - 2>&1",
-        esc_ffmpeg, filter_threads, esc_input);
-
-    free(esc_ffmpeg);
-    free(esc_input);
-
-    double duration = get_duration(input);
-    FILE* fp = platform_popen(cmd, "r");
-    if (!fp) {
-        if (c->cb.on_error)
-            c->cb.on_error("popen failed", ERR_POPEN_FAILED);
-        return ERR_POPEN_FAILED;
-    }
-
-    char line[512];
-    double maxv = 0.0;
-    double last_time = 0.0;
-    double start_ts = (double)time(NULL);
-
-    while (fgets(line, sizeof(line), fp)) {
-
-        // --- progress ---
-        if (duration > 0) {
-            char* tpos = strstr(line, "time=");
-            if (tpos) {
-                tpos += 5;
-                double cur = parse_time_hms(tpos);
-                if (cur >= last_time) last_time = cur;
-
-                double percent = (cur / duration) * 100.0;
-                double elapsed = (double)time(NULL) - start_ts;
-                double eta = (percent > 0)
-                    ? elapsed * (100.0 - percent) / percent
-                    : 0.0;
-
-                if (c->cb.on_progress_analysis)
-                    c->cb.on_progress_analysis((float)percent, (float)eta);
-            }
-        }
-
-        // --- max_volume ---
-        if (strstr(line, "max_volume:")) {
-            char* p = strstr(line, "max_volume:");
-            if (p) {
-                p += strlen("max_volume:");
-                maxv = strtod(p, NULL);
-            }
-        }
-
-        if (c->stop_flag) {
-            platform_pclose(fp);
-            return ERR_SKIP_FILE;
-        }
-    }
-
-    int status = platform_pclose(fp);
-    if (status != 0) {
-        if (c->cb.on_error)
-            c->cb.on_error("peak analysis failed", ERR_PEAK_ANALYSIS_FAILED);
-        return ERR_PEAK_ANALYSIS_FAILED;
-    }
-
-    // target = -3 dB
-    double target = -3.0;
-    *out_gain = target - maxv;
-
-    return ERR_OK;
-}
-
-// ------------------------------------------------------------
-//  Loudnorm 2-pass analysis
-// ------------------------------------------------------------
-static double json_number_or_string_value(const json_t *v) {
-    if (!v) return 0.0;
-    if (json_is_number(v)) return json_number_value(v);
-    if (json_is_string(v)) return atof(json_string_value(v));
-    return 0.0;
-}
-
-static ConverterError loudnorm_two_pass(
-    Converter* c,
-    const char* input,
-    double I_target,
-    double TP_target,
-    double LRA_target,
-    double* I,
-    double* TP,
-    double* LRA,
-    double* thresh,
-    double* offset
-) {
-    if (c->cb.on_stage)
-        c->cb.on_stage("loudnorm analysis");
-
-    const char *ffmpeg_bin = get_ffmpeg_bin();
-    int filter_threads = get_filter_threads();
-
-    char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
-    char* esc_input  = platform_escape_path_for_command(input);
-    if (!esc_ffmpeg || !esc_input) {
-        free(esc_ffmpeg);
-        free(esc_input);
-        if (c->cb.on_error)
-            c->cb.on_error("out of memory", ERR_UNKNOWN);
-        return ERR_UNKNOWN;
-    }
-
-    char cmd[4096];
-    snprintf(cmd, sizeof(cmd),
-        "%s -hwaccel none -filter_threads %d -vn -i %s -af "
-        "\"loudnorm=I=%.1f:TP=%.1f:LRA=%.1f:linear=true:print_format=json\" "
-        "-f null - 2>&1",
-        esc_ffmpeg, filter_threads, esc_input, I_target, TP_target, LRA_target);
-
-    free(esc_ffmpeg);
-    free(esc_input);
-
-    double duration = get_duration(input);
-    FILE* fp = platform_popen(cmd, "r");
-    if (!fp) {
-        if (c->cb.on_error)
-            c->cb.on_error("popen failed", ERR_POPEN_FAILED);
-        return ERR_POPEN_FAILED;
-    }
-
-    char buf[131072];
-    size_t pos = 0;
-    char line[1024];
-    double last_time = 0.0;
-    double start_ts = (double)time(NULL);
-
-    while (fgets(line, sizeof(line), fp)) {
-
-        // --- progress ---
-        if (duration > 0) {
-            char* tpos = strstr(line, "time=");
-            if (tpos) {
-                tpos += 5;
-                double cur = parse_time_hms(tpos);
-                if (cur >= last_time) last_time = cur;
-
-                double percent = (cur / duration) * 100.0;
-                double elapsed = (double)time(NULL) - start_ts;
-                double eta = (percent > 0)
-                    ? elapsed * (100.0 - percent) / percent
-                    : 0.0;
-
-                if (c->cb.on_progress_analysis)
-                    c->cb.on_progress_analysis((float)percent, (float)eta);
-            }
-        }
-
-        // --- collect JSON ---
-        size_t len = strlen(line);
-        if (pos + len < sizeof(buf) - 1) {
-            memcpy(buf + pos, line, len);
-            pos += len;
-        }
-
-        if (c->stop_flag) {
-            platform_pclose(fp);
-            return ERR_SKIP_FILE;
-        }
-    }
-
-    buf[pos] = 0;
-    int status = platform_pclose(fp);
-    if (status != 0) {
-        if (c->cb.on_error)
-            c->cb.on_error("loudnorm analysis failed", ERR_LOUDNORM_ANALYSIS_FAILED);
-        return ERR_LOUDNORM_ANALYSIS_FAILED;
-    }
-
-    // --- extract JSON ---
-    char* start = strrchr(buf, '{');
-    char* end   = strrchr(buf, '}');
-
-    if (!start || !end || end < start) {
-        if (c->cb.on_error)
-            c->cb.on_error("invalid loudnorm JSON", ERR_LOUDNORM_ANALYSIS_FAILED);
-        return ERR_LOUDNORM_ANALYSIS_FAILED;
-    }
-
-    end[1] = 0;
-
-    json_error_t err;
-    json_t* root = json_loads(start, 0, &err);
-    if (!root) {
-        if (c->cb.on_error)
-            c->cb.on_error("JSON parse failed", ERR_LOUDNORM_ANALYSIS_FAILED);
-        return ERR_LOUDNORM_ANALYSIS_FAILED;
-    }
-
-    *I      = json_number_or_string_value(json_object_get(root, "input_i"));
-    *TP     = json_number_or_string_value(json_object_get(root, "input_tp"));
-    *LRA    = json_number_or_string_value(json_object_get(root, "input_lra"));
-    *thresh = json_number_or_string_value(json_object_get(root, "input_thresh"));
-    *offset = json_number_or_string_value(json_object_get(root, "target_offset"));
-
-    json_decref(root);
-    return ERR_OK;
-}
-
-// ------------------------------------------------------------
 //  Build ffmpeg command (strictly same logic as CLI)
 // ------------------------------------------------------------
 
@@ -837,19 +600,75 @@ static void build_ffmpeg_cmd(
 ) {
     const ConvertOptions* opts = &c->opts;
     const char* ffmpeg_bin = get_ffmpeg_bin();
-    int is_dual_audio_output =
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320_ac3_640") ||
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320_ac3_640");
+    MuxPolicy copy_policy;
+    int have_copy_policy = 0;
+
+    /* Resolve audio mode and encoder capabilities via the audio module */
+    AudioOutputMode audio_mode = audio_output_mode_parse(opts->audio_output_mode);
+    if (audio_mode == AUDIO_MODE_INVALID)
+        audio_mode = AUDIO_MODE_PCM; /* default fallback */
+    if (strcmp(opts->codec, "copy") == 0) {
+        if (resolve_mux_output_policy(input, opts, &copy_policy) !=
+            MUX_POLICY_RESOLVE_OK) {
+            if (c->cb.on_error)
+                c->cb.on_error("Copy mode policy resolution failed", ERR_INVALID_OPTIONS);
+            cmd_out[0] = '\0';
+            return;
+        }
+        have_copy_policy = 1;
+    }
+
+    AudioEncoderCaps caps;
+    audio_probe_encoders(&caps);
+
+    AudioConfiguration audio_cfg;
+    int cfg_ok = audio_resolve_configuration(audio_mode, &caps, &audio_cfg) == 0;
+
+    /* Track selection policy from configuration */
+    AudioTrackPolicy track_policy = AUDIO_TRACK_POLICY_FIRST;
+    if (cfg_ok)
+        track_policy = audio_cfg.track_policy;
+    if (have_copy_policy)
+        track_policy = copy_policy.audio_track_policy == MUX_AUDIO_TRACK_ALL
+                           ? AUDIO_TRACK_POLICY_ALL : AUDIO_TRACK_POLICY_FIRST;
+
+    /* For use_aac_for_h265 path: resolve separately */
+    int is_dual_audio_output = cfg_ok && audio_cfg.is_dual_output;
     int is_fdk_single_audio_output =
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320") ||
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320");
-    int prefer_fdk_q2 =
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320") ||
-        audio_output_mode_is(opts->audio_output_mode, "fdk_aac_320_ac3_640");
-    int fdk_vbr = prefer_fdk_q2 ? 2 : 5;
-    int has_aac_at = ffmpeg_encoder_available("aac_at");
-    int has_libfdk_aac = ffmpeg_encoder_available("libfdk_aac");
+        audio_mode == AUDIO_MODE_FDK_AAC_320;
+    int is_copy_audio_output =
+        audio_mode == AUDIO_MODE_COPY;
+    int has_aac_at = caps.has_aac_at;
+    int has_libfdk_aac = caps.has_libfdk_aac;
+    int has_aac_native = caps.has_aac_native;
+
+    /* Build the filter expression via the audio module */
     char audio_filter[1024];
+    AudioNormalizationMode norm_mode =
+        audio_normalization_mode_parse(opts->audio_norm);
+    if (norm_mode == AUDIO_NORM_INVALID)
+        norm_mode = AUDIO_NORM_NONE;
+
+    PeakAnalysisResult peak_res = {0};
+    LoudnormAnalysisResult loudnorm_res = {0};
+    if (norm_mode == AUDIO_NORM_PEAK_2PASS) {
+        peak_res.gain = opts->gain;
+        peak_res.valid = 1;
+    }
+    if (norm_mode == AUDIO_NORM_LOUDNESS_2PASS) {
+        loudnorm_res.I_target = opts->I_target;
+        loudnorm_res.TP_target = opts->TP_target;
+        loudnorm_res.LRA_target = opts->LRA_target;
+        loudnorm_res.measured_I = opts->measured_I;
+        loudnorm_res.measured_TP = opts->measured_TP;
+        loudnorm_res.measured_LRA = opts->measured_LRA;
+        loudnorm_res.measured_thresh = opts->measured_thresh;
+        loudnorm_res.target_offset = opts->measured_offset;
+        loudnorm_res.valid = 1;
+    }
+    audio_build_filter_expression(norm_mode, &peak_res, &loudnorm_res,
+                                  audio_filter, sizeof(audio_filter));
+
     InputVideoInfo input_info;
     int have_input_info = input_video_info_probe(input, &input_info);
     int selected_10bit = codec_is_10bit(opts->codec);
@@ -865,6 +684,22 @@ static void build_ffmpeg_cmd(
     }
     if (have_input_info && output_hw && input_info.bit_depth == 0 && c->cb.on_message)
         c->cb.on_message("Input video bit depth is unknown; using the selected encoder format.");
+    if (strcmp(opts->codec, "copy") == 0) {
+        int has_attachments;
+        has_attachments = input_has_attachment_stream(input);
+        if (copy_policy.attachment_action == MUX_STREAM_DROP &&
+            has_attachments < 0) {
+            if (c->cb.on_error)
+                c->cb.on_error("Cannot verify attachment compatibility for Copy mode",
+                               ERR_INVALID_OPTIONS);
+            cmd_out[0] = '\0';
+            return;
+        }
+        if (copy_policy.attachment_action == MUX_STREAM_DROP && has_attachments &&
+            c->cb.on_message)
+            c->cb.on_message(
+                "Warning: input attachments are dropped by the selected output container.");
+    }
 
     /* Shell-safe escaped versions of all user-provided paths */
     char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
@@ -884,8 +719,6 @@ static void build_ffmpeg_cmd(
     char cmd[65536];
     size_t pos = 0;
     cmd[0] = '\0';
-
-    build_audio_filter_expr(opts, audio_filter, sizeof(audio_filter));
 
     /* ffmpeg binary */
     if (cmd_cat(cmd, sizeof(cmd), &pos, esc_ffmpeg) < 0) goto overflow;
@@ -978,10 +811,34 @@ static void build_ffmpeg_cmd(
             cmd_cat(cmd, sizeof(cmd), &pos, audio_filter) < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos, ",asplit=2[aout0][aout1]\" ") < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos, "-map [aout0] -map [aout1] ") < 0) goto overflow;
+    } else if (track_policy == AUDIO_TRACK_POLICY_ALL) {
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:a ") < 0) goto overflow;
     } else {
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:a:0 ") < 0) goto overflow;
     }
-    if (cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0) goto overflow;
+    if (strcmp(opts->codec, "copy") == 0) {
+        char subtitle_args[8192];
+        if (!subtitle_preservation_build(input, copy_policy.container,
+                                         subtitle_args, sizeof(subtitle_args), &c->cb)) {
+            if (c->cb.on_message)
+                c->cb.on_message("Cannot resolve subtitle preservation policy.");
+            free(esc_ffmpeg);
+            free(esc_input);
+            free(esc_output);
+            cmd_out[0] = '\0';
+            return;
+        }
+        if (cmd_cat(cmd, sizeof(cmd), &pos, subtitle_args) < 0)
+            goto overflow;
+    }
+    if ((!have_copy_policy ||
+         copy_policy.metadata_action == MUX_STREAM_PRESERVE) &&
+        cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0)
+        goto overflow;
+    if (have_copy_policy && copy_policy.chapter_action == MUX_STREAM_PRESERVE &&
+        cmd_cat(cmd, sizeof(cmd), &pos, "-map_chapters 0 ") < 0) goto overflow;
+    if (have_copy_policy && copy_policy.attachment_action == MUX_STREAM_PRESERVE &&
+        cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:t? ") < 0) goto overflow;
     if (append_color_metadata(cmd, sizeof(cmd), &pos,
                               have_input_info ? &input_info : NULL) < 0)
         goto overflow;
@@ -1096,7 +953,9 @@ static void build_ffmpeg_cmd(
             cmd_out[0] = '\0';
             return;
         }
-    } else if (audio_output_mode_is(opts->audio_output_mode, "pcm")) {
+    } else if (is_copy_audio_output) {
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a copy ") < 0) goto overflow;
+    } else if (audio_mode == AUDIO_MODE_PCM) {
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a pcm_s16le -ar 48000 ") < 0) goto overflow;
     } else if (c->opts.use_aac_for_h265) {
         if (has_aac_at) {
@@ -1113,7 +972,7 @@ static void build_ffmpeg_cmd(
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-c:a pcm_s16le -ar 48000 ") < 0) goto overflow;
     }
 
-    if (!is_dual_audio_output) {
+    if (!is_dual_audio_output && !is_copy_audio_output) {
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-af \"") < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos, audio_filter) < 0 ||
             cmd_cat(cmd, sizeof(cmd), &pos, "\" ") < 0) goto overflow;
@@ -1249,6 +1108,36 @@ ConverterError converter_process_files(
     if (!c || !files || file_count <= 0)
         return ERR_INVALID_OPTIONS;
 
+    if (strcmp(c->opts.codec, "copy") == 0) {
+        MuxPolicy validation_policy;
+        if (resolve_mux_policy_for_codec(&c->opts, MUX_VIDEO_UNKNOWN,
+                                          &validation_policy) !=
+            MUX_POLICY_RESOLVE_OK) {
+            if (c->cb.on_error)
+                c->cb.on_error("Copy mode policy validation failed",
+                               ERR_INVALID_OPTIONS);
+            return ERR_INVALID_OPTIONS;
+        }
+        int i;
+        for (i = 0; i < file_count; ++i) {
+            MuxPolicy policy;
+            if (!files[i] ||
+                !platform_stat_is_regular_file(files[i]) ||
+                !platform_is_file_readable(files[i]))
+                continue;
+            MuxPolicyResolveResult result =
+                resolve_mux_output_policy(files[i], &c->opts, &policy);
+            if (result == MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED)
+                continue;
+            if (result != MUX_POLICY_RESOLVE_OK) {
+                if (c->cb.on_error)
+                    c->cb.on_error("Copy mode policy validation failed",
+                                   ERR_INVALID_OPTIONS);
+                return ERR_INVALID_OPTIONS;
+            }
+        }
+    }
+
     c->stop_flag = 0;
 
     char effective_output_dir[1024];
@@ -1301,70 +1190,44 @@ ConverterError converter_process_files(
             return ERR_SKIP_FILE;
 
         // ----------------------------------------------------
-        //  Peak 2-pass
+        //  Peak 2-pass (skip for COPY mode — no audio encoding)
         // ----------------------------------------------------
-        if (strcmp(c->opts.audio_norm, "peak_norm_2pass") == 0) {
-            double gain = 0.0;
-            err = peak_two_pass(c, input, &gain);
+        if (strcmp(c->opts.audio_norm, "peak_norm_2pass") == 0 &&
+            strcmp(c->opts.audio_output_mode, "copy") != 0) {
+            PeakAnalysisResult peak_result;
+            err = audio_peak_analyze(input, &c->cb, &c->stop_flag, &peak_result);
             if (err != ERR_OK) {
                 if (c->cb.on_file_end)
                     c->cb.on_file_end(input, err);
                 continue;
             }
-            c->opts.gain = gain;
+            c->opts.gain = peak_result.gain;
         }
 
         // ----------------------------------------------------
-        //  Loudnorm 2-pass
+        //  Loudnorm 2-pass (skip for COPY mode — no audio encoding)
         // ----------------------------------------------------
-        if (strcmp(c->opts.audio_norm, "loudness_norm_2pass") == 0) {
-
-            double I = 0, TP = 0, LRA = 0, thresh = 0, offset = 0;
-
-            // ----------------------------------------------------
-            //  Loudnorm 2-pass genre selection (fixed logic)
-            // ----------------------------------------------------
-            double I_target  = -11;
-            double TP_target = -1.5;
-            double LRA_target = 7;
-
-            if (c->opts.genre != 0) {
-                switch (c->opts.genre) {
-                case 1: I_target = -11; TP_target = -1.5; LRA_target = 6;  break; // EDM
-                case 2: I_target = -11; TP_target = -1.0; LRA_target = 7;  break; // Rock
-                case 3: I_target = -12; TP_target = -1.0; LRA_target = 6;  break; // Hip-Hop
-                case 4: I_target = -16; TP_target = -2.0; LRA_target = 12; break; // Classical
-                case 5: I_target = -16; TP_target = -1.5; LRA_target = 7;  break; // Podcast
-                default:
-                    I_target  = -11;
-                    TP_target = -1.5;
-                    LRA_target = 7;
-                    break;
-                }
-            }
-
-            err = loudnorm_two_pass(
-                c,
-                input,
-                I_target, TP_target, LRA_target,
-                &I, &TP, &LRA, &thresh, &offset
-            );
-
+        if (strcmp(c->opts.audio_norm, "loudness_norm_2pass") == 0 &&
+            strcmp(c->opts.audio_output_mode, "copy") != 0) {
+            AudioGenre genre = audio_genre_parse(c->opts.genre);
+            LoudnormAnalysisResult ln_result;
+            err = audio_loudnorm_analyze(input, genre, &c->cb,
+                                         &c->stop_flag, &ln_result);
             if (err != ERR_OK) {
                 if (c->cb.on_file_end)
                     c->cb.on_file_end(input, err);
                 continue;
             }
 
-            // store results
-            c->opts.I_target = I_target;
-            c->opts.TP_target = TP_target;
-            c->opts.LRA_target = LRA_target;
-            c->opts.measured_I = I;
-            c->opts.measured_TP = TP;
-            c->opts.measured_LRA = LRA;
-            c->opts.measured_thresh = thresh;
-            c->opts.measured_offset = offset;
+            /* store results */
+            c->opts.I_target = ln_result.I_target;
+            c->opts.TP_target = ln_result.TP_target;
+            c->opts.LRA_target = ln_result.LRA_target;
+            c->opts.measured_I = ln_result.measured_I;
+            c->opts.measured_TP = ln_result.measured_TP;
+            c->opts.measured_LRA = ln_result.measured_LRA;
+            c->opts.measured_thresh = ln_result.measured_thresh;
+            c->opts.measured_offset = ln_result.target_offset;
         }
 
         // stop requested?

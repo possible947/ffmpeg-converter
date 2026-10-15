@@ -13,6 +13,233 @@ hardware/input metadata work. GUI migration is unfinished, and macOS/Windows
 build, runtime, and hardware debugging remain required before Version 3 can be
 considered complete.
 
+## [Unreleased] — macOS build/runtime fixes (2026-10-13)
+
+### Fixed
+- **macOS CLI build**: `macos_cli` now links `mux` and `add_track` and includes `src/mux` (missing `add_track.h`).
+- **`src/cli/main.c`**: added `;` after the `cleanup:` label before `}`.
+- **macOS output location**: `macos_cli` and `macos_gui_native` are written to `build/bin/`.
+- **macOS mux audio always PCM**: `macos_resolve_bundled_bin()` returned one shared static buffer for ffmpeg, ffprobe and mkvmerge, so tool paths overwrote each other. Each tool now has its own buffer.
+- **macOS CLI**: `platform_mux_is_supported()` returns 1 (`--video-track` was rejected); `mux` is always available; VideoToolbox availability uses probe results.
+- **macOS GUI**: added the `hq_converter` codec group with its encoders and presets.
+
+### Known issues
+- Bundled SVT-AV1 4.2.0 (macOS x86_64) segfaults at preset 7+ in `svt_aom_sub_pixel_variance16xh_ssse3` on CPUs without AVX2 (e.g. Ivy Bridge Xeon E5 v2). Presets 4-6 and `--asm c` work. Seen in both HQ_converter and ffmpeg_builder 8.1/9.0 builds; not an AVX2 requirement. Not fixed; other CPUs are unaffected.
+- HQ_converter's `libhq_converter.dylib` needs Darwin-underscore exports (`_hqclib_*`); patched in HQ_converter `modules/library`.
+
+## [Unreleased] — Stage 5.2: Unified Add Track execution pipeline (2026-10-10)
+
+### Added
+- **`src/add_track/add_track.h`**: public header for the Manual Add Track (mux codec mode)
+  pipeline.  Exports `AddTrackRequest`, `AddTrackResult`, and the single entry point
+  `add_track_execute()`.
+- **`src/add_track/add_track.c`**: shared C implementation of the Add Track pipeline.
+  Validates inputs, runs the converter with `codec="copy"`, resolves the effective
+  output directory, computes intermediate and final output paths via
+  `converter_make_output_name()`, and dispatches to
+  `mux_run_postprocess_for_preset()` for the final mkv/mov/m4v assembly.
+- **`src/add_track/CMakeLists.txt`**: STATIC library linked against `converter` and
+  `mux`.
+- **`converter_is_stopped()`** and **`converter_get_callbacks()`** accessors in
+  `converter.h`/`converter.c` — required by the pipeline to check cancellation
+  between sub-steps and to pass callbacks to mux without exposing the opaque
+  `Converter` struct.
+
+### Changed
+- **`src/cli/main.c`**: mux dispatch block replaced with a single
+  `add_track_execute()` call.  CLI-specific preflight (mux support, file count,
+  video-track readability) and error reporting remain unchanged.
+- **`src/gui/gui_callbacks.c`**: mux dispatch in `run_converter()` replaced with
+  `add_track_execute()`.  `run_gui_mux_postprocess()` deleted.  Threading,
+  callbacks, and UI state updates remain unchanged.
+
+---
+
+## [Unreleased] — Phase 3.1: HQ Converter integration (2026-10-10)
+
+### Added
+- **`src/hq/`**: new HQ adapter and catalog modules.
+  - `hq_adapter.h` / `hq_adapter.c`: thin wrapper around the HQ Converter
+    Library public ABI. Resolves packaged HQ runtime root (executable-relative
+    on Linux, bundle-relative on macOS), dynamically loads `libhq_converter.so`
+    / `.dylib`, resolves public ABI symbols, manages HQ handle lifecycle,
+    executes synchronous HQ jobs with status callback forwarding, reads
+    eov2 result sessions for `video_track.path`, forwards Stop through the
+    public library control API, and provides recursive `task_N` cleanup.
+  - `hq_catalog.h` / `hq_catalog.c`: shared HQ preset catalog provider.
+    Loads `encoder_presets_v2.json` from the packaged HQ runtime tree,
+    exposes codec identifiers, preset identifiers per codec, default
+    preset per codec, validates codec/preset pairs, and detects ProRes
+    HQ encoders.
+  - `CMakeLists.txt`: STATIC library linked against `jansson` and `dl`.
+- **`hq_runtime_copy`** CMake target: copies the complete prepared HQ
+  release from `third_party/hq_converter/` to the build output next to
+  the CLI binary. Full directory tree preserved intact.
+- **CLI HQ integration** (`src/cli/main.c`): `-c hq_converter --encoder
+  <codec> --preset <preset>` selects HQ mode. The HQ adapter runs the
+  job, reads the eov2 session, and hands off the video track to
+  `add_track_execute()`.
+- **Linux GTK GUI HQ integration** (`src/gui/gui_window.c`,
+  `src/gui/gui_callbacks.c`): `hq_converter` appears as a codec group
+  when available. HQ encoders and presets are populated from the HQ
+  catalog. The worker thread runs HQ, reads the session, calls
+  `add_track_execute()`, and cleans up `task_N`.
+- **macOS native GUI HQ source integration** (`src/gui_macos_native/converter_bridge.m`):
+  HQ execution path added. Objective-C to C callback bridging preserved.
+  Bundle-relative runtime root resolution. HQ runtime tree bundled into
+  `Resources/hq_converter/` when `HQ_CONVERTER_ENABLED`.
+- **`hq_codec_is_available()`** in CLI and platform layers. HQ exposed
+  only when the runtime library loads and symbols resolve.
+- **`codec_is_hq()`** predicate in `gui_codec_utils.h`.
+- **`hq_remove_directory_tree()`**: recursive directory removal for
+  `task_N` cleanup. Does not follow symbolic links.
+
+### Changed
+- **`src/cli/cli_common.c`**: HQ group added to `cli_resolve_selection`.
+  HQ encoder name passed through `hw_device` field. HQ presets validated
+  at runtime from the HQ catalog. HQ codec listing shows encoders from
+  the shared catalog.
+- **`src/cli/cli_platform.h`** and platform implementations: new
+  `platform_hq_is_available()` function.
+- **`CMakeLists.txt`**: `hq_runtime_copy` target copies HQ tree to
+  `build/bin/hq_converter/` when `HQ_CONVERTER_ENABLED`.
+- **`src/cli/CMakeLists.txt`**: `hq_adapter` linked to `linux_cli` and
+  `macos_cli`.
+- **`src/gui/CMakeLists.txt`**: `hq_adapter` linked to `gui_lib`.
+- **`src/gui_macos_native/CMakeLists.txt`**: `hq_adapter` linked to
+  `macos_gui_native`. HQ runtime bundled into app Resources.
+- **Runtime path resolution**: `HQ_PROJECT_ROOT` and
+  `HQ_SEGMENTATOR_TOOLCHAIN_INI` set before dlopen to ensure the
+  Pascal HQ runtime reads correct paths. `FFC_HQ_ROOT` development
+  override supported.
+
+### Verified
+- End-to-end test x264/fullhd: HQ encoding, session read, Add Track,
+  audio processing (PCM), mkvmerge post-mux, `task_N` cleanup. Final
+  output contains H.264 video + PCM audio in MKV container.
+- End-to-end test x265/Medium: HQ encoding, session read, Add Track,
+  audio processing (PCM), mkvmerge post-mux, `task_N` cleanup. Final
+  output contains HEVC video + PCM audio in MKV container.
+- HQ runtime missing: explicit unavailability error, no fallback.
+- HQ codec/preset validation: invalid preset rejected before execution.
+- No HQ-specific audio or mux pipeline created.
+- Existing Audio Orchestrator and mux behavior preserved.
+- macOS runtime testing not performed (Linux build host).
+
+### No Changes
+- `src/converter/converter.c` / `converter.h`
+- `src/add_track/add_track.c` / `add_track.h`
+- `src/audio/audio_orchestrator.c` / `audio_orchestrator.h`
+- `src/mux/mux.c` / `mux.h`
+- FPC, Pascal, Delphi, .NET, C#, and managed implementations
+- **`src/gui_macos_native/converter_bridge.m`**: mux dispatch in
+  `startConversionWithOptions:` replaced with `add_track_execute()`.
+  `run_bridge_mux_postprocess()` and `resolve_effective_output_dir()` deleted.
+  ObjC bridge lifecycle, GCD dispatch, and callback blocks remain unchanged.
+
+### Removed
+- **`platform_run_mux_postprocess()`** from `src/cli/platform/cli_linux.c` and
+  `src/cli/platform/cli_macos.c` — duplicated ~50-line mux orchestration replaced
+  by the shared pipeline.
+- **`platform_run_mux_postprocess` declaration** from `src/cli/cli_platform.h`.
+- **`run_gui_mux_postprocess()`** from `src/gui/gui_callbacks.c`.
+- **`run_bridge_mux_postprocess()`** and its helper
+  `resolve_effective_output_dir()` from `src/gui_macos_native/converter_bridge.m`.
+
+### Result
+- **−136 net lines** across 12 modified files (3 new files added, 4 duplicated
+  functions deleted, 3 call sites simplified).
+- Linux CLI (`linux_cli`) and Linux GUI (`linux_gui`) build cleanly with no
+  warnings.
+- macOS Cocoa GUI source compiles (native build requires macOS host).
+- No user-visible behavior changes: same output paths, same mux pipeline, same
+  error codes, same cancellation semantics.  macOS CLI still rejects mux mode
+  (`platform_mux_is_supported() == 0`).
+
+## [Unreleased] — HQ + mux integration review: multi-file queue and GUI fork hang fixes (2026-10-12)
+
+Follow-up code review and bug-fix pass on the Phase 3.1 HQ Converter
+integration above, triggered by a bug report: with HQ + mux, the first queued
+file converted correctly, but the second file's HQ job completed encoding and
+then the program exited (CLI) or hung (GUI) before the mux step, leaving a
+stray `task_N` directory on disk. Full analysis and rationale in
+`docs/v3.0-Phase3.1.md` Section 28.
+
+### Fixed
+- **`src/add_track/add_track.c`**: ProRes HQ jobs now resolve to the correct
+  `.mov` container/preset in `converter_make_output_name()` and
+  `mux_run_postprocess_for_preset()` (previously mismatched because HQ's
+  `hw_device`/`preset` fields carry encoder id / encoder preset, not a
+  container keyword). The HQ-encoded intermediate (`*_converted.mkv`) is now
+  removed after a successful ProRes HQ + mux run, when it differs from the
+  final output path (non-ProRes case is unaffected — mkvmerge already
+  overwrites the intermediate path in place there).
+- **`src/cli/main.c`**: removed a leftover `file_count != 1` guard that
+  rejected multi-file HQ queues outright, and changed a per-file directory
+  error from `goto cleanup` (aborts the whole queue) to `continue` (skips
+  just that file), matching the non-HQ CLI paths.
+- **`src/gui/gui_callbacks.c`, `src/gui_macos_native/converter_bridge.m`**:
+  both GUIs' HQ execution paths only ever handled a single file
+  (`file_list[0]`/`cFiles[0]`) with an explicit "exactly one file" rejection
+  — there was no architecture for HQ queues of more than one file. Rewrote
+  both to loop over the full queue, creating a `task_N` directory and running
+  `hq_run_job()` → `add_track_execute()` → cleanup per file, reusing one
+  `HqAdapter` across the whole run.
+- **`src/gui/gui_window.h`, `src/gui/gui_callbacks.c`,
+  `src/gui_macos_native/converter_bridge.m`**: Stop/Cancel previously only
+  called `converter_stop()`, which the HQ worker process does not observe.
+  Added a mutex/`@synchronized`-guarded `current_hq_adapter`/`_hqAdapter`
+  field (alongside the existing `current_converter` field) and call
+  `hq_request_stop_from_converter()` on it from both GUIs' stop/shutdown
+  paths.
+- **GUI-only hang after the fixes above (`src/hq/hq_adapter.c`,
+  `src/hq/hq_adapter.h`, new `src/hq/hq_worker_main.c`)**: even with queue
+  support restored, the GTK GUI still hung on a 2-file HQ+mux run — root
+  cause was `fork()` from a multi-threaded process (the GUI always has a
+  main thread plus at least one worker thread) risking an inherited,
+  permanently-locked glibc malloc-arena lock in the forked child if another
+  thread held it at fork time, deadlocking the child's first `malloc()`
+  (CLI is single-threaded, so unaffected — matches the original "CLI OK, GUI
+  hangs" report exactly). Fixed by having the forked child immediately
+  `execve()` a new dedicated `hq_worker` helper binary before doing any
+  further `malloc()`/`dlopen()`/`pthread_create()`, so the worker always
+  starts from a fresh, single-threaded process image regardless of the
+  parent's thread state at fork time.
+
+### Added
+- **`src/hq/hq_worker_main.c`**: minimal `main()` for the new `hq_worker`
+  helper executable; parses pipe fds and job parameters from argv and calls
+  the new `hq_worker_main_entry()`.
+- **`hq_worker` CMake target** (`src/hq/CMakeLists.txt`): built alongside
+  `linux_cli`/`linux_gui` (shared `bin/` output dir) and
+  `macos_cli`/`macos_gui_native` (explicit `POST_BUILD` copy next to each
+  target, since macOS targets don't share `hq_worker`'s output directory).
+
+### Verified
+- CLI: real 2-file ProRes HQ + mux queue — both files completed, correct
+  `.mov` outputs, no leftover `task_N` directories, exit code 0.
+- GUI hang fix: a standalone harness reproducing the GUI's threading model
+  (a thread continuously allocating/freeing memory concurrently with a
+  second thread driving `hq_run_job()` through a real 2-file ProRes HQ+mux
+  queue, linked against the actual built static libraries) completed
+  successfully 5/5 consecutive runs.
+- Maintainer-run manual tests (see `docs/v3.0-Phase3.1.md` §28.4): 2-file
+  `x264`/`fullhd` queue (copy audio) — completed; 2-file ProRes HQ + mux
+  queue — completed; Stop/Cancel against a running HQ job — confirmed
+  working. A 2-file `x265`/`Medium` + `peak_norm_2pass` + `aac320_ac3_640`
+  queue completed but was reported as very slow, attributed to HQ
+  Converter's own internal segmentator analysis pass rather than a defect in
+  this integration layer.
+- Full Linux rebuild (`cmake --build build`) clean, no warnings.
+
+### Not Verified in This Pass
+- macOS build/runtime of the `hq_worker` re-exec fix (no macOS toolchain
+  available in this environment — code-reviewed only).
+- The general-purpose mux pipeline (`-c mux --video-track`) as a standalone
+  feature independent of the HQ hand-off path.
+- The HQ Converter Library's own internal behavior (treated as a black box
+  per the governing invariants in `docs/v3.0-Phase3.1.md` §25).
+
 ## [Unreleased] — Linux VAAPI hardware-probe crash fix (2026-10-02)
 
 ### Fixed
@@ -59,6 +286,136 @@ considered complete.
   `VAEntrypointVLD` (decode), not `VAEntrypointEncSlice` (encode) — the
   hardware genuinely does not support encoding those 10-bit profiles via
   VAAPI.
+
+## [Unreleased] — Phase 3A+B: Audio Orchestrator extraction
+
+### Added
+- **`src/audio/audio_orchestrator.h`** (228 lines): public header for the
+  procedural audio policy and analysis module.  Exports enums
+  (`AudioOutputMode`, `AudioNormalizationMode`, `AudioGenre`,
+  `AudioEncoder`), data structs (`AudioEncoderCaps`, `PeakAnalysisResult`,
+  `LoudnormAnalysisResult`, `AudioConfiguration`), and 12 public functions
+  covering mode parsing, genre-to-target mapping, AAC encoder capability
+  probing with process-wide lazy cache, audio configuration resolution,
+  filter-expression generation, and peak/loudnorm two-pass analysis.
+- **`src/audio/audio_orchestrator.c`** (631 lines): implementation of all
+  audio logic previously embedded in `converter.c`.  Uses the existing
+  `ConverterCallbacks` interface for progress and error reporting; no new
+  callback abstraction introduced.  Private static helpers
+  (`parse_time_hms`, `json_number_or_string_value`) for analysis
+  functions.
+
+### Changed
+- **`src/converter/converter.c`** (−476 lines net): removed audio mode
+  validation, genre target switch, AAC encoder probing
+  (`ffmpeg_encoder_available`), filter-expression generation
+  (`build_audio_filter_expr`), peak two-pass (`peak_two_pass`), and
+  loudnorm two-pass (`loudnorm_two_pass`) along with their static helpers.
+  Replaced inline calls with audio module API: `audio_peak_analyze()`,
+  `audio_loudnorm_analyze()`, `audio_build_filter_expression()`,
+  `audio_resolve_configuration()`.  Removed now-unused
+  `#include <jansson.h>`.  `build_ffmpeg_cmd()` remains the sole complete
+  FFmpeg command builder; `converter_process_files()` remains the owner of
+  the per-file workflow orchestration.
+- **`src/converter/CMakeLists.txt`**: added `audio_orchestrator.c` to the
+  converter library source list and `src/audio` to include directories.
+
+### Single-owner boundaries established
+- **Track-selection policy** (`-map`, `-filter_complex`, `asplit`):
+  `build_ffmpeg_cmd()` in `converter.c` — reads `is_dual_output` flag from
+  the audio module but assembles all stream-mapping fragments itself.
+- **Normalization policy** (filter chain per mode): `audio_build_filter_expression()` in the audio module.
+- **Audio-codec selection** (encoder priority, mode→encoder, bitrate,
+  sample rate): `audio_resolve_configuration()` +
+  `audio_select_preferred_encoder()` in the audio module.
+- **Audio-filter policy** (soxr params, loudnorm targets, peak gain
+  formula): `audio_build_filter_expression()` and
+  `audio_peak_analyze()` in the audio module.
+- **FFmpeg command construction**: exclusively `build_ffmpeg_cmd()` in
+  `converter.c` — the audio module contains only analysis-only FFmpeg
+  invocations (`-vn -f null -`), never a complete encode command.
+
+### Result
+- **Net −247 lines** in `converter.c`; audio logic consolidated into a
+  dedicated single-module procedural API.
+- Linux CLI and Linux GUI targets build cleanly; no warnings.
+- 40/40 audio mode × normalization × genre combinations verified with
+  identical output stream codecs, sample rates, and bitrates.
+- No user-visible behavior changes; no new audio modes; no
+  `audio_orchestrator_create/destroy` lifecycle; no second command builder.
+- M4V, mux, CLI, GUI, preset, and platform layers untouched.
+
+## [Unreleased] — Phase 2: Remove Windows platform support
+
+### Removed
+- **Entire Windows C codebase**: `src/cli/platform/cli_windows.c`,
+  `src/converter/platform/converter_windows.c`,
+  `src/mux/platform/mux_platform_windows.c`,
+  `src/m4v/platform/m4v_platform_windows.c`, and
+  `src/platform/windows/` (runtime_probe.c/h, progress.c).
+- **Windows FPC build targets** from root `CMakeLists.txt`
+  (`fpc_converter_windows`, `fpc_gui_windows`).
+- **Windows CLI target** (`windows_cli`) from `src/cli/CMakeLists.txt`.
+- **Windows CMake branches** from all `src/*/CMakeLists.txt` files.
+- **Windows preset catalog data** from `presets.json.in` and
+  `BUILTIN_PRESETS_JSON` in `preset_loader.c`.
+- **Windows `#ifdef _WIN32` conditionals** across the C codebase
+  (strtok_s shim, file API, process ID, path resolution, UTF-16 argv).
+- **Windows `platform_utf8_argv()` declaration** from `cli_platform.h` and
+  its call/cleanup logic from `main.c`.
+- **Windows-specific capability flags** comments and platform name references
+  in all header files.
+- **Windows strings** from `presets.json.in` selection catalog and
+  `platform_names` arrays in preset/loader code.
+
+### Changed
+- `src/platform/CMakeLists.txt` always builds the Linux progress module.
+- `src/converter/CMakeLists.txt` uses Linux or macOS branches only.
+- `src/mux/CMakeLists.txt` and `src/m4v/CMakeLists.txt` use POSIX platform
+  sources unconditionally.
+- Platform comments in headers updated to reference Linux/macOS only.
+- Test fixtures (`test_preset_loader.c`, `test_runtime_probe_catalog.c`)
+  updated to use Linux/macOS platform names.
+
+### Result
+- **~500 lines removed** across platform sources and build files.
+- Linux CLI builds: `cmake --build build --target linux_cli`.
+- Linux GUI builds: `cmake --build build --target linux_gui`.
+- macOS CLI/GUI targets unaffected.
+- No functional changes to converter, audio, mux, or M4V behavior on Linux/macOS.
+
+## [Unreleased] — Phase 1: Remove interactive CLI menu system
+
+### Removed
+- **Entire interactive CLI menu** (`run_menu()`, `~600 lines`): step-by-step
+  codec/profile/deblock/audio-normalization/audio-output/overwrite/output-dir
+  wizard, including drag-and-drop file collection and M4V stream-option
+  prompts.
+- **All interactive input helpers** (`~140 lines`): `clear_screen()`,
+  `read_choice()`, `process_input_path()`, `read_input_list()`,
+  `read_output_dir()`, `read_single_file_path()`.
+- **Interactive preset chooser** (`cli_choose_preset_for_codec()`): numbered
+  preset list with `scanf` selection.
+- **PlatformCodecEntry infrastructure**: `PlatformCodecEntry` struct,
+  `PlatformCodecEntry entries[]` arrays, `codec_count` fields, and
+  `platform_get_codec_count()` / `platform_get_codec_entries()` from all
+  three platform files (Linux, macOS, Windows).
+- **Obsolete backup file**: `src/cli/cli_common.c.backup`.
+
+### Changed
+- `src/cli/main.c` no longer dispatches `run_menu()` when `argc == 1`;
+  instead it calls `parse_args()` and prints usage when no files are given.
+- `cli_common.h`: removed all interactive-menu declarations; M4V options
+  comment updated to reflect `parse_args`-only population.
+- `cli_platform.h`: removed `PlatformCodecEntry` struct and
+  `platform_get_codec_count()` / `platform_get_codec_entries()` declarations.
+
+### Result
+- **−1,445 lines** across 7 files.
+- CLI is now argument-only: `ffmpeg_converter --help`, `--version`, and
+  `ffmpeg_converter file.mp4 [options]` continue to work exactly as before.
+- No audio, converter, mux, M4V, GUI, preset, catalog, or runtime logic
+  was modified.
 
 ## [Unreleased] — Unified preset catalog & architecture cleanup (2026-09-12)
 

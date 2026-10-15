@@ -27,15 +27,10 @@
  *  Private platform handle definition
  * --------------------------------------------------------------- */
 
-/* Maximum codec entries: copy + prores + prores_ks +
- *                        prores_videotoolbox + hevc_videotoolbox +
- *                        h264_videotoolbox + m4v */
-#define MACOS_MAX_CODECS 7
+/* Maximum codec support flags. */
 
 struct CliPlatformHandle {
     MacosCodecSupport   support;
-    PlatformCodecEntry  entries[MACOS_MAX_CODECS];
-    int                 codec_count;
 };
 
 /* ---------------------------------------------------------------
@@ -51,45 +46,6 @@ CliPlatformHandle* cli_platform_init(void) {
 
     macos_probe_codec_support(&h->support);
 
-    /* Build codec list */
-    h->entries[h->codec_count].name          = "copy";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "prores";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 1;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "prores_ks";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 1;
-    h->codec_count++;
-
-    /* prores_videotoolbox: has profile selection but no deblock */
-    h->entries[h->codec_count].name          = "prores_videotoolbox";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "hevc_videotoolbox";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "h264_videotoolbox";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    if (platform_m4v_is_supported()) {
-        h->entries[h->codec_count].name          = "m4v";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
     return h;
 }
 
@@ -102,31 +58,34 @@ void cli_platform_cleanup(CliPlatformHandle* h) {
  * --------------------------------------------------------------- */
 
 int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
-    (void)h;
-
     if (!codec)
         return 0;
+
+    if (!strcmp(codec, "prores_videotoolbox"))
+        return h && h->support.has_prores_videotoolbox;
+    if (!strcmp(codec, "hevc_videotoolbox"))
+        return h && h->support.has_hevc_videotoolbox;
+    if (!strcmp(codec, "h264_videotoolbox"))
+        return h && h->support.has_h264_videotoolbox;
 
     return !strcmp(codec, "copy")                 ||
            !strcmp(codec, "prores")               ||
            !strcmp(codec, "prores_ks")            ||
-           !strcmp(codec, "prores_videotoolbox")  ||
-           !strcmp(codec, "hevc_videotoolbox")    ||
-           !strcmp(codec, "h264_videotoolbox")    ||
-           (!strcmp(codec, "m4v") && platform_m4v_is_supported());
+           !strcmp(codec, "mux")                  ||
+           (!strcmp(codec, "m4v") && platform_m4v_is_supported()) ||
+           (!strcmp(codec, "hq_converter") && platform_hq_is_available());
 }
 
 int platform_audio_mode_is_available(const char* mode) {
     return mode &&
-           (!strcmp(mode, "pcm")                 ||
-            !strcmp(mode, "fdk_aac_320")           ||
-            !strcmp(mode, "fdk_aac_320_ac3_640")   ||
+           (!strcmp(mode, "copy")                    ||
+            !strcmp(mode, "pcm")                 ||
             !strcmp(mode, "fdk_aac_320")           ||
             !strcmp(mode, "fdk_aac_320_ac3_640"));
 }
 
 int platform_mux_is_supported(void) {
-    return 0;
+    return 1;
 }
 
 int platform_m4v_is_supported(void) {
@@ -135,16 +94,11 @@ int platform_m4v_is_supported(void) {
     return bin && (strchr(bin, '/') != NULL);
 }
 
-/* ---------------------------------------------------------------
- *  Codec list
- * --------------------------------------------------------------- */
-
-int platform_get_codec_count(const CliPlatformHandle* h) {
-    return h ? h->codec_count : 0;
-}
-
-const PlatformCodecEntry* platform_get_codec_entries(const CliPlatformHandle* h) {
-    return h ? h->entries : NULL;
+int platform_hq_is_available(void) {
+    /* HQ availability is determined by the adapter module — it checks
+     * both library load and catalog access. */
+    extern int hq_is_available(void);
+    return hq_is_available();
 }
 
 /* ---------------------------------------------------------------
@@ -253,20 +207,6 @@ int platform_ensure_output_dir(const char* path) {
     }
 
     return 1;
-}
-
-/* ---------------------------------------------------------------
- *  Mux post-processing (not supported on macOS)
- * --------------------------------------------------------------- */
-
-ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
-                                            const ConverterCallbacks* cb,
-                                            const char* input_file)
-{
-    (void)opts;
-    (void)cb;
-    (void)input_file;
-    return ERR_INVALID_OPTIONS;
 }
 
 char** platform_utf8_argv(int argc, char** argv, int* needs_free)

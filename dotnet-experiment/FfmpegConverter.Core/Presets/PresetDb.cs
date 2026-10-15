@@ -120,11 +120,12 @@ public class PresetDb
     public Dictionary<string, Dictionary<string, Dictionary<string, PresetInfo>>> Platforms { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
     public SelectionCatalog Selection { get; private set; } = new();
     public Dictionary<string, bool> Features { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+    public HqPresetCatalog? HqCatalog { get; private set; }
     public string Version { get; private set; } = "1.0";
     public string Description { get; private set; } = "";
     public string LoadedPath { get; private set; } = "builtin";
 
-    public static PresetDb Load(string? explicitPath = null)
+    public static PresetDb Load(string? explicitPath = null, string? hqRuntimeRoot = null)
     {
         var db = new PresetDb();
         string path = db.ResolvePresetsPath(explicitPath);
@@ -205,7 +206,35 @@ public class PresetDb
             db.Selection = new SelectionCatalog();
         }
 
+        db.LoadHqCatalog(hqRuntimeRoot);
         return db;
+    }
+
+    private void LoadHqCatalog(string? runtimeRoot)
+    {
+        HqCatalog = HqPresetCatalog.LoadAvailable(runtimeRoot);
+        Features["hq_converter"] = HqCatalog != null;
+        if (HqCatalog == null)
+            return;
+
+        if (!Selection.Common.TryGetValue("hq_converter", out SelectionGroup? group))
+        {
+            group = new SelectionGroup { Name = "hq_converter", Kind = "external_encoder_group" };
+            Selection.Common["hq_converter"] = group;
+        }
+
+        group.Enabled = true;
+        group.FeatureGate = "hq_converter";
+        group.Encoders.Clear();
+        foreach (string encoderName in HqCatalog.Encoders)
+        {
+            group.Encoders[encoderName] = new SelectionEncoder
+            {
+                Name = encoderName,
+                FinalCodec = "hq_converter",
+                Presets = HqCatalog.GetPresets(encoderName).ToList()
+            };
+        }
     }
 
     private void ParseSelectionCatalog(JsonElement selProp)
@@ -398,6 +427,14 @@ public class PresetDb
 
         if (string.IsNullOrEmpty(group))
             return false;
+
+        if (string.Equals(group, "hq_converter", StringComparison.OrdinalIgnoreCase))
+        {
+            if (HqCatalog == null || !HqCatalog.ContainsEncoder(encoder))
+                return false;
+            finalCodec = "hq_converter";
+            return true;
+        }
 
         // Terminal stream-copy mode
         if (string.Equals(group, "copy", StringComparison.OrdinalIgnoreCase))
@@ -595,6 +632,9 @@ public class PresetDb
     {
         var result = new List<string>();
 
+        if (string.Equals(group, "hq_converter", StringComparison.OrdinalIgnoreCase))
+            return HqCatalog?.Encoders ?? result;
+
         if (string.Equals(group, "mux", StringComparison.OrdinalIgnoreCase))
         {
             result.Add("copy");
@@ -641,6 +681,9 @@ public class PresetDb
 
     public IReadOnlyList<string> GetSelectionPresets(string platform, string group, string encoder)
     {
+        if (string.Equals(group, "hq_converter", StringComparison.OrdinalIgnoreCase))
+            return HqCatalog?.GetPresets(encoder) ?? Array.Empty<string>();
+
         if (!ResolveSelection(platform, group, encoder, out string finalCodec))
             return Array.Empty<string>();
 

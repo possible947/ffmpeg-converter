@@ -6,17 +6,12 @@
 #include <stdarg.h>
 #include <jansson.h>
 
-#ifdef _WIN32
-    #include <windows.h>
-    #include <shlobj.h>
-#else
-    #include <unistd.h>
-    #include <libgen.h>
-#endif
+#include <unistd.h>
+#include <libgen.h>
 
 #define MAX_PRESETS_PER_CODEC 10
 #define MAX_CODECS_PER_PLATFORM 64
-#define MAX_PLATFORMS 3
+#define MAX_PLATFORMS 2
 #define MAX_ERROR_MSG 512
 
 static char g_error_msg[MAX_ERROR_MSG] = "No error";
@@ -63,35 +58,16 @@ static const char *BUILTIN_PRESETS_JSON =
     "\"copy\":{\"default\":{\"ffmpeg_args\":\"-c:v copy \",\"container\":\"mkv\"}}"
     ",\"prores\":{\"default\":{\"ffmpeg_args\":\"-c:v prores -profile:v 2 \",\"container\":\"mov\"}}"
     ",\"prores_ks\":{\"default\":{\"ffmpeg_args\":\"-c:v prores_ks -profile:v standard \",\"container\":\"mov\"}}"
-    "},"
-    "\"windows\":{"
-    "\"copy\":{\"default\":{\"ffmpeg_args\":\"-c:v copy \",\"container\":\"mkv\"}}"
-    ",\"prores\":{\"default\":{\"ffmpeg_args\":\"-c:v prores -profile:v 2 \",\"container\":\"mov\"}}"
-    ",\"prores_ks\":{\"default\":{\"ffmpeg_args\":\"-c:v prores_ks -profile:v standard \",\"container\":\"mov\"}}"
     "}"
     "}";
 
 static int file_exists(const char *path) {
-#ifdef _WIN32
-    return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
-#else
     return access(path, F_OK) == 0;
-#endif
 }
 
 static char *get_executable_dir(void) {
     static char path[4096];
-    
-#ifdef _WIN32
-    DWORD len = GetModuleFileNameA(NULL, path, sizeof(path) - 1);
-    if (len == 0) return NULL;
-    path[len] = '\0';
-    
-    char *last_slash = strrchr(path, '\\');
-    if (last_slash) {
-        *last_slash = '\0';
-    }
-#else
+
     ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
     if (len == -1) {
         strcpy(path, ".");
@@ -102,25 +78,16 @@ static char *get_executable_dir(void) {
             *last_slash = '\0';
         }
     }
-#endif
-    
+
     return path;
 }
 
 static char *get_config_dir(void) {
     static char path[4096];
-    
-#ifdef _WIN32
-    char appdata[MAX_PATH];
-    if (SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, appdata) == S_OK) {
-        strcpy(path, appdata);
-        return path;
-    }
-    return NULL;
-#else
+
     const char *home = getenv("HOME");
     if (!home) return NULL;
-    
+
     #ifdef __APPLE__
         snprintf(path, sizeof(path), "%s/Library/Preferences", home);
     #else
@@ -131,9 +98,8 @@ static char *get_config_dir(void) {
             snprintf(path, sizeof(path), "%s/.config", home);
         }
     #endif
-    
+
     return path;
-#endif
 }
 
 static json_t *load_presets_json(const char *search_path) {
@@ -263,8 +229,8 @@ static PresetDb *build_preset_db(json_t *root) {
     
     db->root = root;
     
-    const char *platform_names[] = {"linux", "macos", "windows"};
-    for (int p = 0; p < 3; p++) {
+    const char *platform_names[] = {"linux", "macos"};
+    for (int p = 0; p < 2; p++) {
         json_t *platform_obj = json_object_get(root, platform_names[p]);
         if (!platform_obj || !json_is_object(platform_obj)) {
             continue;

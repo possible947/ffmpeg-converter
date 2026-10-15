@@ -5,6 +5,10 @@
 #include "gui_window.h"
 #include "gui_codec_utils.h"
 #include "preset_loader.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
+#include "mux_policy.h"
+#include "input_video_info.h"
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -22,6 +26,7 @@ static void on_codec_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
 static void on_encoder_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
 static void on_filter_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
 static void on_audio_norm_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
+static void on_audio_output_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
 static gboolean update_dependent_widgets_idle(gpointer data);
 static void schedule_update_dependent_widgets(AppWidgets *w);
 static void on_add_files_clicked(GtkButton *button, AppWidgets *w);
@@ -135,8 +140,6 @@ static const char *get_platform_name(void)
 {
 #if defined(__APPLE__)
     return "macos";
-#elif defined(_WIN32)
-    return "windows";
 #else
     return "linux";
 #endif
@@ -349,6 +352,12 @@ static void populate_codec_combo(AppWidgets *w)
         gtk_string_list_append(w->codec_list, groups[i]);
     selection_catalog_free_list(groups);
 
+    /* Add HQ Converter group when available */
+    if (hq_is_available() && hq_catalog_load(NULL) == 0) {
+        gtk_string_list_append(w->codec_list, "hq_converter");
+        /* Keep the catalog loaded for encoder/preset population */
+    }
+
     gtk_drop_down_set_selected(GTK_DROP_DOWN(w->codec_combo), 0);
 }
 
@@ -368,12 +377,22 @@ static void populate_encoder_combo(AppWidgets *w)
                            NULL);
     codec = get_dropdown_text(w->codec_combo);
     if (codec && codec[0] != '\0' && w->selection_catalog) {
-        encoder_count = selection_catalog_list_encoders(
-            w->selection_catalog, codec, linux_selection_capability,
-            &w->linux_codec_support, &encoders);
-        for (i = 0; i < encoder_count; i++)
-            gtk_string_list_append(w->encoder_list, encoders[i]);
-        selection_catalog_free_list(encoders);
+        /* HQ: populate encoders from the HQ catalog */
+        if (g_strcmp0(codec, "hq_converter") == 0) {
+            size_t i;
+            if (hq_catalog_is_loaded()) {
+                for (i = 0; i < hq_catalog_codec_count(); i++)
+                    gtk_string_list_append(w->encoder_list,
+                                           hq_catalog_codec_name(i));
+            }
+        } else {
+            encoder_count = selection_catalog_list_encoders(
+                w->selection_catalog, codec, linux_selection_capability,
+                &w->linux_codec_support, &encoders);
+            for (i = 0; i < encoder_count; i++)
+                gtk_string_list_append(w->encoder_list, encoders[i]);
+            selection_catalog_free_list(encoders);
+        }
     }
     g_free(codec);
     if (previous_encoder && previous_encoder[0] != '\0') {
@@ -432,6 +451,20 @@ static void populate_preset_combo(AppWidgets *w)
         return;
     }
 
+    /* HQ: populate presets from the HQ catalog */
+    if (g_strcmp0(codec, "hq_converter") == 0 && encoder && hq_catalog_is_loaded()) {
+        size_t i;
+        size_t preset_count = hq_catalog_preset_count(encoder);
+        for (i = 0; i < preset_count; i++)
+            gtk_string_list_append(w->preset_list,
+                                   hq_catalog_preset_name(encoder, i));
+        if (preset_count > 0)
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 0);
+        g_free(encoder);
+        g_free(codec);
+        return;
+    }
+
     preset_count = w->selection_catalog && encoder
         ? selection_catalog_list_presets(w->selection_catalog, codec, encoder, &presets)
         : 0;
@@ -472,10 +505,8 @@ static gboolean on_probe_done(gpointer data)
     populate_codec_combo(w);
     g_signal_handlers_unblock_by_func(w->codec_combo, on_codec_changed, w);
 
-    /* Also refresh the Vulkan device list now that probe data is ready. */
-    populate_vulkan_device_combo(w);
-    /* ... and the VAAPI render-node list. */
-    populate_vaapi_device_combo(w);
+    /* Refresh all video selections for the newly populated codec list. */
+    on_codec_changed(NULL, NULL, w);
 
     gtk_label_set_text(GTK_LABEL(w->status_label), "Ready");
     schedule_update_dependent_widgets(w);
@@ -600,6 +631,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         w->profile_combo = gtk_drop_down_new(G_LIST_MODEL(w->preset_list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 0); /* default: first preset */
         gtk_widget_set_hexpand(w->profile_combo, TRUE);
+        populate_preset_combo(w);
     }
     /* Initially disabled for copy and hardware codecs */
     gtk_widget_set_sensitive(w->profile_combo, FALSE);
@@ -611,7 +643,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->filter_combo), 0);
         g_signal_connect(w->filter_combo, "notify::selected",
                          G_CALLBACK(on_filter_changed), w);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->filter_combo, TRUE);
     }
     {
@@ -619,7 +650,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         GtkStringList *list = gtk_string_list_new(filter_preset_items);
         w->filter_preset_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->filter_preset_combo), 0);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->filter_preset_combo, TRUE);
     }
 
@@ -629,7 +659,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         GtkStringList *list = gtk_string_list_new(deblock_items);
         w->deblock_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->deblock_combo), 0);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->deblock_combo, TRUE);
     }
     gtk_widget_set_sensitive(w->deblock_combo, FALSE);
@@ -645,7 +674,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_norm_combo), 0);
         g_signal_connect(w->audio_norm_combo, "notify::selected",
                          G_CALLBACK(on_audio_norm_changed), w);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->audio_norm_combo, TRUE);
     }
 
@@ -657,7 +685,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         GtkStringList *list = gtk_string_list_new(genre_items);
         w->genre_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->genre_combo), 0);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->genre_combo, TRUE);
     }
     gtk_widget_set_sensitive(w->genre_combo, FALSE);
@@ -665,12 +692,13 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     /* ---------- Audio output combo ---------- */
     {
         static const char *output_items[] = {
-            "pcm", "fdk_aac_320", "fdk_aac_320_ac3_640", NULL
+            "pcm", "copy", "fdk_aac_320", "fdk_aac_320_ac3_640", NULL
         };
         GtkStringList *list = gtk_string_list_new(output_items);
         w->audio_output_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo), 0);
-        g_object_unref(list);
+        g_signal_connect(w->audio_output_combo, "notify::selected",
+                         G_CALLBACK(on_audio_output_changed), w);
         gtk_widget_set_hexpand(w->audio_output_combo, TRUE);
     }
 
@@ -776,7 +804,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
     gtk_widget_set_tooltip_text(w->genre_combo,
         "Genre hint used by loudness normalisation to target genre-appropriate loudness.");
     gtk_widget_set_tooltip_text(w->audio_output_combo,
-        "Audio output format: PCM (uncompressed), AAC 320 kbps, or AAC+AC3 dual track.");
+        "Audio output format: COPY (passthrough all tracks), PCM (uncompressed), AAC 320 kbps, or AAC+AC3 dual track.");
     gtk_widget_set_tooltip_text(w->overwrite_check,
         "Overwrite output files if they already exist.");
     gtk_widget_set_tooltip_text(w->output_dir_btn,
@@ -1016,28 +1044,115 @@ static void install_drop_target(AppWidgets *w)
 /* ------------------------------------------------------------------ */
 /* Update visibility / sensitivity of dependent widgets                */
 /* ------------------------------------------------------------------ */
+static void update_audio_output_options(AppWidgets *w,
+                                        const MuxAudioMode *audio_modes,
+                                        size_t audio_mode_count)
+{
+    const char *items[5] = {NULL, NULL, NULL, NULL, NULL};
+    char *current = get_dropdown_text(w->audio_output_combo);
+    guint selected = 0;
+    gboolean selection_found = FALSE;
+    GtkStringList *model = GTK_STRING_LIST(
+        gtk_drop_down_get_model(GTK_DROP_DOWN(w->audio_output_combo)));
+    guint old_count = g_list_model_get_n_items(G_LIST_MODEL(model));
+
+    for (size_t i = 0; i < audio_mode_count; ++i) {
+        items[i] = mux_audio_mode_name(audio_modes[i]);
+        if (current && g_strcmp0(current, items[i]) == 0) {
+            selected = (guint)i;
+            selection_found = TRUE;
+        }
+    }
+    w->updating_selection = TRUE;
+    gtk_string_list_splice(model, 0, old_count, items);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo),
+                               selection_found ? selected : 0);
+    w->updating_selection = FALSE;
+    g_free(current);
+}
+
 static void update_dependent_widgets(AppWidgets *w)
 {
     if (!w || w->shutting_down)
         return;
 
-    char *codec = get_dropdown_text(w->codec_combo);
+    char *codec;
     char *encoder;
     char resolved_codec[sizeof(((ConvertOptions *)0)->codec)] = "";
     gboolean mux_group;
+    gboolean hq_group;
     gboolean mux_needs_track;
+    gboolean mux_policy_valid = TRUE;
 
-    g_free(codec);
     codec = get_dropdown_text(w->codec_combo);
     encoder = get_dropdown_text(w->encoder_combo);
     if (w->selection_catalog && codec && encoder)
         selection_catalog_resolve(w->selection_catalog, codec, encoder,
                                   resolved_codec, sizeof(resolved_codec));
     mux_group = g_strcmp0(codec, "mux") == 0;
-    mux_needs_track = mux_group && g_strcmp0(encoder, "copy") != 0;
-    /* Update preset combo with presets for the selected codec */
-    populate_preset_combo(w);
+    hq_group = g_strcmp0(codec, "hq_converter") == 0;
+    mux_needs_track = FALSE;
 
+    if (mux_group && encoder) {
+        MuxBuildProfile profile;
+        MuxPolicy policy;
+        MuxMode mode = mux_mode_parse(encoder);
+        char *audio_mode = get_dropdown_text(w->audio_output_combo);
+        mux_policy_valid = mux_build_profile_default(&profile) &&
+                           mode != MUX_MODE_INVALID;
+        MuxVideoCodec *sources = NULL;
+        size_t source_count = 0;
+        if (mux_policy_valid && mode == MUX_MODE_COPY && w->file_paths->len) {
+            source_count = w->file_paths->len;
+            sources = g_new(MuxVideoCodec, source_count);
+            for (guint i = 0; i < w->file_paths->len; ++i) {
+                const char *path = g_ptr_array_index(w->file_paths, i);
+                InputVideoInfo info;
+                if (!input_video_info_probe(path, &info)) {
+                    mux_policy_valid = FALSE;
+                    break;
+                }
+                sources[i] = mux_video_codec_parse(info.codec_name);
+            }
+        }
+
+        MuxAudioMode audio_modes[4];
+        size_t audio_mode_count = mux_policy_valid
+            ? mux_policy_list_audio_modes(&profile, mode, sources,
+                                          source_count, MUX_VIDEO_UNKNOWN,
+                                          audio_modes,
+                                          sizeof(audio_modes) / sizeof(audio_modes[0]))
+            : 0;
+        if (audio_mode_count == 0) {
+            mux_policy_valid = FALSE;
+        } else {
+            update_audio_output_options(w, audio_modes, audio_mode_count);
+            char *resolved_audio = get_dropdown_text(w->audio_output_combo);
+            if (mux_policy_resolve(&profile, mode,
+                                   resolved_audio,
+                                   mode == MUX_MODE_COPY && source_count
+                                       ? sources[0] : MUX_VIDEO_UNKNOWN,
+                                   MUX_VIDEO_UNKNOWN, &policy,
+                                   NULL, 0))
+                mux_needs_track = policy.requires_add_track;
+            g_free(resolved_audio);
+        }
+        if (mux_needs_track && (!w->video_track_path || !w->video_track_path[0]))
+            mux_policy_valid = FALSE;
+        g_free(sources);
+        g_free(audio_mode);
+    }
+    if (!mux_group) {
+        MuxBuildProfile profile;
+        MuxAudioMode audio_modes[4];
+        if (mux_build_profile_default(&profile)) {
+            size_t count = mux_policy_list_audio_modes(
+                &profile, MUX_MODE_MKV, NULL, 0, MUX_VIDEO_UNKNOWN,
+                audio_modes, sizeof(audio_modes) / sizeof(audio_modes[0]));
+            if (count > 0)
+                update_audio_output_options(w, audio_modes, count);
+        }
+    }
     /* A codec with one preset has nothing to choose; all multi-preset
      * codecs, including GPU encoders, must expose their preset tiers. */
     gtk_widget_set_sensitive(w->profile_combo,
@@ -1049,9 +1164,10 @@ static void update_dependent_widgets(AppWidgets *w)
                              codec_uses_software_prores(resolved_codec));
 
     gtk_widget_set_sensitive(w->add_files_btn,
-                             !mux_group);
+                             !mux_group || g_strcmp0(encoder, "copy") == 0);
     gtk_widget_set_sensitive(w->add_track_btn,
                              mux_needs_track && w->file_paths->len == 1);
+    gtk_widget_set_sensitive(w->start_btn, mux_policy_valid);
     gtk_widget_set_sensitive(w->apple_m4v_btn,
                              w->file_paths->len > 0);
 
@@ -1119,6 +1235,7 @@ static void on_codec_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
         return;
     w->updating_selection = TRUE;
     populate_encoder_combo(w);
+    populate_preset_combo(w);
     populate_vulkan_device_combo(w);
     populate_vaapi_device_combo(w);
     w->updating_selection = FALSE;
@@ -1132,6 +1249,7 @@ static void on_encoder_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
     if (!w || w->updating_selection)
         return;
     w->updating_selection = TRUE;
+    populate_preset_combo(w);
     populate_vulkan_device_combo(w);
     populate_vaapi_device_combo(w);
     w->updating_selection = FALSE;
@@ -1149,6 +1267,15 @@ static void on_filter_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
 /* Callback: audio_norm combo changed                                  */
 /* ------------------------------------------------------------------ */
 static void on_audio_norm_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
+{
+    (void)obj;
+    (void)pspec;
+    schedule_update_dependent_widgets(w);
+}
+
+static void on_audio_output_changed(GObject *obj,
+                                    GParamSpec *pspec,
+                                    AppWidgets *w)
 {
     (void)obj;
     (void)pspec;
@@ -1500,6 +1627,12 @@ void collect_options_from_gui(AppWidgets *w,
             g_strlcpy(opts->codec, "mux", sizeof(opts->codec));
             g_strlcpy(opts->preset, encoder ? encoder : "mkv", sizeof(opts->preset));
         }
+    } else if (group && g_strcmp0(group, "hq_converter") == 0) {
+        /* HQ: codec is hq_converter, encoder carried in hw_device */
+        g_strlcpy(opts->codec, "hq_converter", sizeof(opts->codec));
+        if (encoder)
+            g_strlcpy(opts->hw_device, encoder, sizeof(opts->hw_device));
+        /* Preset is the HQ preset from the combo */
     }
 
     g_free(encoder);
@@ -1684,4 +1817,3 @@ void setup_keyboard_shortcuts(GtkApplication *app, AppWidgets *w)
         gtk_application_set_accels_for_action(app, detailed, accels);
     }
 }
-

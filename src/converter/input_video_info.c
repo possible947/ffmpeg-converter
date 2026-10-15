@@ -5,11 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef _WIN32
-#define NEXT_TOKEN(value, delimiters, context) strtok_s((value), (delimiters), (context))
-#else
 #define NEXT_TOKEN(value, delimiters, context) strtok_r((value), (delimiters), (context))
-#endif
 
 static void copy_field(char *dst, size_t dst_size, const char *value)
 {

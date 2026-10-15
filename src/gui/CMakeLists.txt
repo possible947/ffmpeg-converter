@@ -70,6 +70,8 @@ target_link_libraries(gui_lib
     PUBLIC converter   # already defined in src/converter/CMakeLists
     PUBLIC m4v
     PUBLIC mux
+    PUBLIC add_track
+    PUBLIC hq_adapter
 )
 
 # Executable for Linux
@@ -84,6 +86,35 @@ target_link_libraries(linux_gui
     PRIVATE converter
     PRIVATE jansson
 )
+
+add_executable(test_gtk_audio_isolation test_gtk_audio_isolation.c)
+target_link_libraries(test_gtk_audio_isolation PRIVATE gui_lib PkgConfig::GTK4)
+target_compile_definitions(test_gtk_audio_isolation PRIVATE
+    FFMPEG_CONVERTER_PRESETS_DIR="${GENERATED_PRESETS_DIR}"
+)
+find_program(XVFB_RUN xvfb-run)
+if (XVFB_RUN)
+    add_test(NAME GtkAudioIsolationTests
+        COMMAND "${XVFB_RUN}" -a
+            --auth-file=${CMAKE_CURRENT_BINARY_DIR}/gtk-test.xauth
+            --error-file=${CMAKE_CURRENT_BINARY_DIR}/gtk-test-xvfb.log
+            $<TARGET_FILE:test_gtk_audio_isolation>)
+else()
+    add_test(NAME GtkAudioIsolationTests COMMAND test_gtk_audio_isolation)
+endif()
+set_tests_properties(GtkAudioIsolationTests PROPERTIES
+    ENVIRONMENT "GSK_RENDERER=cairo;GTK_A11Y=none"
+    SKIP_RETURN_CODE 77
+    TIMEOUT 30
+)
+
+# hq_worker already builds into the same bin/ directory as linux_gui
+# (both set RUNTIME_OUTPUT_DIRECTORY to CMAKE_BINARY_DIR/bin), so no
+# copy step is needed — just make sure it gets built when linux_gui
+# is built as a standalone target.
+if (TARGET hq_worker)
+    add_dependencies(linux_gui hq_worker)
+endif()
 
 if (EXISTS "${LINUX_BUNDLED_FFMPEG}" AND EXISTS "${LINUX_BUNDLED_FFPROBE}")
     add_custom_command(TARGET linux_gui POST_BUILD
@@ -119,6 +150,14 @@ add_custom_command(TARGET linux_gui POST_BUILD
     COMMENT "Copying presets.json next to linux_gui"
 )
 
+# Copy the HQ Converter runtime next to the GUI binary.
+if (EXISTS "${CMAKE_SOURCE_DIR}/third_party/hq_converter")
+    add_custom_command(TARGET linux_gui POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/third_party/hq_converter" "$<TARGET_FILE_DIR:linux_gui>/hq_converter"
+        COMMENT "Copying HQ Converter runtime next to linux_gui"
+    )
+endif()
+
  install(TARGETS linux_gui RUNTIME DESTINATION bin)
 
  # Desktop entry + icon so `make install` also gets correct dock/taskbar
@@ -148,4 +187,3 @@ add_custom_command(TARGET linux_gui POST_BUILD
          message(STATUS "AppImage packaging enabled: run 'cmake --build . --target package_appimage'")
      endif()
  endif()
-

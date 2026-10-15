@@ -118,6 +118,24 @@ public class CommandBuilderTests
     }
 
     [Fact]
+    public void BuildFfmpegArgs_AudioCopyMapsAllOptionalTracksWithoutFiltering()
+    {
+        var opts = new ConvertOptions
+        {
+            Codec = "copy",
+            AudioNorm = "loudness_norm_2pass",
+            AudioOutputMode = "copy"
+        };
+
+        string args = CommandBuilder.BuildFfmpegArgs("input.mkv", "output.mkv", opts, "linux", _presetDb, null, null);
+
+        Assert.Contains("-map 0:a?", args);
+        Assert.Contains("-c:a copy", args);
+        Assert.DoesNotContain("-map 0:a:0", args);
+        Assert.DoesNotContain("-af ", args);
+    }
+
+    [Fact]
     public void BuildFfmpegArgs_ColorMetadata_AppendedWhenAvailable()
     {
         var opts = new ConvertOptions { Codec = "prores_ks", Preset = "standard" };

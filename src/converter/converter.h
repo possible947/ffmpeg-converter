@@ -60,7 +60,7 @@ typedef struct {
     // AUDIO NORMALIZATION
     char audio_norm[32]; // "none", "peak_norm", "peak_norm_2pass",
                          // "loudness_norm", "loudness_norm_2pass"
-    char audio_output_mode[32]; // "pcm", "fdk_aac_320", "fdk_aac_320_ac3_640"
+    char audio_output_mode[32]; // "copy", "pcm", "fdk_aac_320", "fdk_aac_320_ac3_640"
 
     // LOUDNORM 2-PASS GENRE
     int genre;          // 0=none, 1..5
@@ -169,6 +169,19 @@ void converter_make_output_name(
 );
 
 void converter_stop(Converter* c);
+
+/**
+ * Returns 1 if the converter has been told to stop (via converter_stop()),
+ * 0 otherwise.  Used by pipelines that need to check cancellation between
+ * sub-steps that do not run through converter_process_files().
+ */
+int  converter_is_stopped(Converter* c);
+
+/**
+ * Returns a pointer to the callbacks currently registered on the converter,
+ * or NULL if none have been set.
+ */
+const ConverterCallbacks* converter_get_callbacks(Converter* c);
 
 const char* converter_error_string(ConverterError err);
 

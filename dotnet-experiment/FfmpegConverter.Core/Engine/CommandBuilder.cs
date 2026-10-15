@@ -76,7 +76,11 @@ public static class CommandBuilder
         string codec = opts.Codec.ToLowerInvariant();
         string preset = opts.Preset.ToLowerInvariant();
 
-        if (codec == "copy")
+        if (codec == "hq_converter")
+        {
+            ext = HqPresetCatalog.IsProResEncoder(opts.SelectionEncoder) ? "mov" : "mkv";
+        }
+        else if (codec == "copy")
         {
             ext = "mkv";
         }
@@ -188,10 +192,15 @@ public static class CommandBuilder
         // 4. Stream mappings
         sb.Append("-map 0:v:0 ");
 
+        bool isCopyAudio = opts.AudioOutputMode.Equals("copy", StringComparison.OrdinalIgnoreCase);
         bool isDualAudio = opts.AudioOutputMode.Equals("fdk_aac_320_ac3_640", StringComparison.OrdinalIgnoreCase);
-        string audioFilter = BuildAudioFilter(opts);
+        string audioFilter = isCopyAudio ? "" : BuildAudioFilter(opts);
 
-        if (isDualAudio)
+        if (isCopyAudio)
+        {
+            sb.Append("-map 0:a? ");
+        }
+        else if (isDualAudio)
         {
             sb.Append($"-filter_complex \"[0:a:0]{audioFilter},asplit=2[aout0][aout1]\" -map [aout0] -map [aout1] ");
         }
@@ -326,7 +335,11 @@ public static class CommandBuilder
 
         string aacEncoder = hasAacAt ? "aac_at" : (hasLibfdk ? "libfdk_aac" : "aac");
 
-        if (isDualAudio)
+        if (isCopyAudio)
+        {
+            sb.Append("-c:a copy ");
+        }
+        else if (isDualAudio)
         {
             sb.Append($"-c:a:0 {aacEncoder} -b:a:0 320k -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 ");
         }
@@ -349,7 +362,7 @@ public static class CommandBuilder
         }
 
         // Audio filter for single-stream audio
-        if (!isDualAudio)
+        if (!isDualAudio && !isCopyAudio)
         {
             sb.Append($"-af \"{audioFilter}\" ");
         }

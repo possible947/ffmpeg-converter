@@ -83,6 +83,16 @@ public class CommandLineParserTests
     }
 
     [Fact]
+    public void Parse_AudioCopy_IsAccepted()
+    {
+        var result = CommandLineParser.Parse(
+            new[] { "--audio-output", "copy", "input.mkv" }, _presetDb, "linux");
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal("copy", result.Options.AudioOutputMode);
+    }
+
+    [Fact]
     public void Parse_AppleM4vParameters_ParsedAccurately()
     {
         var tools = new ToolPaths { Mp4Box = "mock-mp4box" };

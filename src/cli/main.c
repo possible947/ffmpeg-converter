@@ -8,31 +8,30 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include "converter.h"
+#include "add_track.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
 #include "cli_common.h"
 #include "cli_platform.h"
 #include "m4v.h"
+
+#include <sys/stat.h>
+#include <unistd.h>
+#include <limits.h>
 
 /* Maximum number of files accepted on the command line */
 #define CLI_MAX_ARG_FILES CLI_BUFFER_SIZE
 
 int main(int argc, char** argv) {
-    CliPlatformHandle* h          = NULL;
-    Converter*         c          = NULL;
-    const char**       files      = NULL;
+    CliPlatformHandle* h    = NULL;
+    Converter*         c    = NULL;
+    const char**       files = NULL;
     const char*        arg_files[CLI_MAX_ARG_FILES];
     int                file_count = 0;
     int                result     = 0;
-    char**             utf8_argv  = NULL;
-    int                utf8_needs_free = 0;
-
-    /* Replace argv with properly-encoded UTF-8 strings.
-     * On Windows this uses GetCommandLineW so paths with non-ANSI
-     * characters (Cyrillic, special symbols) survive argument passing. */
-    utf8_argv = platform_utf8_argv(argc, argv, &utf8_needs_free);
-    if (utf8_argv)
-        argv = utf8_argv;
 
     printf("Hardware components detection in progress...\n");
     fflush(stdout);
@@ -88,34 +87,18 @@ int main(int argc, char** argv) {
 
         ConvertOptions  opts;
         CliM4VOptions   m4v_cli_opts;
-        int menu_result = 0;
 
         converter_set_callbacks(c, &cb);
 
-        if (argc == 1) {
-            /* Interactive menu mode */
-            menu_result = run_menu(h, &opts, &m4v_cli_opts, &files, &file_count);
-            if (menu_result < 0) {
-                printf("Menu cancelled by user.\n");
-                result = 1;
-                goto cleanup;
-            }
-            if (file_count == 0) {
-                printf("No files selected.\n");
-                result = 1;
-                goto cleanup;
-            }
-        } else {
-            /* Command-line argument mode */
-            if (!parse_args(argc, argv, h, &opts, &m4v_cli_opts, arg_files, &file_count)) {
-                printf("Invalid options. Use -h for help.\n");
-                result = 1;
-                goto cleanup;
-            }
-            files = arg_files;
-            /* Apply platform hardware defaults (e.g. VAAPI render node) */
-            platform_apply_hw_device(&opts, h);
+        /* Command-line argument mode only */
+        if (!parse_args(argc, argv, h, &opts, &m4v_cli_opts, arg_files, &file_count)) {
+            printf("Invalid options. Use -h for help.\n");
+            result = 1;
+            goto cleanup;
         }
+        files = arg_files;
+        /* Apply platform hardware defaults (e.g. VAAPI render node) */
+        platform_apply_hw_device(&opts, h);
 
         if (file_count == 0) {
             print_usage(h);
@@ -201,6 +184,7 @@ int main(int argc, char** argv) {
                 m4v_opts.video_track_index = m4v_cli_opts.video_track_index;
                 m4v_opts.audio_track_index = m4v_cli_opts.audio_track_index;
                 m4v_opts.ac3_bitrate_kbps  = m4v_cli_opts.ac3_bitrate_kbps;
+                m4v_opts.audio_mode        = m4v_cli_opts.audio_mode;
                 strncpy(m4v_opts.audio_lang, m4v_cli_opts.audio_lang,
                         sizeof(m4v_opts.audio_lang) - 1);
                 m4v_opts.audio_lang[sizeof(m4v_opts.audio_lang) - 1] = '\0';
@@ -248,21 +232,213 @@ int main(int argc, char** argv) {
                 if (err == ERR_OK)
                     cli_on_complete();
 
-            } else if (!strcmp(opts.codec, "mux")) {
-                strcpy(work_opts.codec, "copy");
-                strcpy(work_opts.preset, "default");
-                work_opts.deblock = 0;
+            } else if (!strcmp(opts.codec, "hq_converter")) {
+                /* HQ Converter path */
+                HqAdapter *hq_adapter = NULL;
+                const char *hq_encoder;
+                const char *hq_preset;
+                char task_dir[1024];
+                int fi;
 
-                err = converter_set_options(c, &work_opts);
-                if (err != ERR_OK) {
-                    fprintf(stderr, "Error: invalid options for codec '%s': %s\n",
-                            work_opts.codec, converter_error_string(err));
-                } else {
-                    err = converter_process_files(c, files, file_count);
-
-                    if (err == ERR_OK)
-                        err = platform_run_mux_postprocess(&opts, &cb, files[0]);
+                if (!platform_hq_is_available()) {
+                    fprintf(stderr,
+                            "HQ Converter runtime not available.\n");
+                    result = 1;
+                    goto cleanup;
                 }
+
+                /* Load HQ catalog */
+                if (hq_catalog_load(NULL) != 0) {
+                    fprintf(stderr,
+                            "Failed to load HQ preset catalog.\n");
+                    result = 1;
+                    goto cleanup;
+                }
+
+                /* HQ encoder is carried in hw_device field */
+                hq_encoder = opts.hw_device[0] != '\0'
+                                 ? opts.hw_device
+                                 : NULL;
+                hq_preset = opts.preset[0] != '\0'
+                                ? opts.preset
+                                : NULL;
+
+                /* Validate codec/preset against HQ catalog */
+                if (!hq_encoder || !hq_catalog_codec_exists(hq_encoder)) {
+                    fprintf(stderr,
+                            "HQ encoder '%s' not found in catalog.\n",
+                            hq_encoder ? hq_encoder : "(none)");
+                    result = 1;
+                    goto cleanup;
+                }
+                if (!hq_preset) {
+                    /* Use default preset */
+                    hq_preset = hq_catalog_default_preset(hq_encoder);
+                    if (!hq_preset) {
+                        fprintf(stderr,
+                                "No default preset for HQ encoder '%s'.\n",
+                                hq_encoder);
+                        result = 1;
+                        goto cleanup;
+                    }
+                } else if (!hq_catalog_preset_exists(hq_encoder, hq_preset)) {
+                    fprintf(stderr,
+                            "HQ preset '%s' not found for encoder '%s'.\n",
+                            hq_preset, hq_encoder);
+                    result = 1;
+                    goto cleanup;
+                }
+
+                /* Create HQ adapter (reused across all files) */
+                hq_adapter = hq_adapter_create();
+                if (!hq_adapter) {
+                    fprintf(stderr,
+                            "Failed to create HQ adapter.\n");
+                    result = 1;
+                    goto cleanup;
+                }
+
+                for (fi = 0; fi < file_count; fi++) {
+                    ConverterError ferr = ERR_OK;
+                    char video_track[1024];
+                    ConvertOptions hq_opts;
+                    AddTrackRequest req;
+                    AddTrackResult track_result;
+
+                    cli_on_file_begin(files[fi], fi + 1, file_count);
+
+                    /* Resolve effective output directory */
+                    char effective_output_dir[1024];
+                    if (opts.output_dir[0] != '\0') {
+                        strncpy(effective_output_dir, opts.output_dir,
+                                sizeof(effective_output_dir) - 1);
+                        effective_output_dir[sizeof(effective_output_dir) - 1] = '\0';
+                    } else {
+                        const char *home = getenv("HOME");
+                        if (home) {
+                            snprintf(effective_output_dir,
+                                     sizeof(effective_output_dir),
+                                     "%s/ffmpeg_converter", home);
+                        } else {
+                            strncpy(effective_output_dir, "ffmpeg_converter",
+                                    sizeof(effective_output_dir) - 1);
+                        }
+                    }
+
+                    /* Ensure output directory exists */
+                    if (!platform_ensure_output_dir(effective_output_dir)) {
+                        fprintf(stderr,
+                                "Output directory not writable: %s\n",
+                                effective_output_dir);
+                        ferr = ERR_OUTPUT_EXISTS;
+                        cli_on_file_end(files[fi], ferr);
+                        if (err == ERR_OK) err = ferr;
+                        continue;
+                    }
+
+                    /* Create task_N directory */
+                    snprintf(task_dir, sizeof(task_dir),
+                             "%s/task_%d", effective_output_dir, fi + 1);
+                    if (mkdir(task_dir, 0755) != 0 && errno != EEXIST) {
+                        fprintf(stderr,
+                                "Failed to create task directory: %s\n",
+                                task_dir);
+                        ferr = ERR_OUTPUT_EXISTS;
+                        cli_on_file_end(files[fi], ferr);
+                        if (err == ERR_OK) err = ferr;
+                        continue; /* Cannot continue without task dir */
+                    }
+
+                    /* Run HQ job — HQ requires absolute input path */
+                    char abs_input_path[PATH_MAX];
+                    if (realpath(files[fi], abs_input_path) == NULL) {
+                        /* Fallback: prepend CWD */
+                        char cwd[PATH_MAX];
+                        if (getcwd(cwd, sizeof(cwd)))
+                            snprintf(abs_input_path, sizeof(abs_input_path),
+                                     "%s/%s", cwd, files[fi]);
+                        else
+                            strncpy(abs_input_path, files[fi], sizeof(abs_input_path));
+                    }
+
+                    HqResult hq_rc = hq_run_job(hq_adapter,
+                                                  abs_input_path,
+                                                  task_dir,
+                                                  hq_encoder,
+                                                  hq_preset,
+                                                  c);
+
+                    if (hq_rc == HQ_RESULT_OK) {
+                        /* Read video track path from eov2 session */
+                        if (hq_read_video_track_path(task_dir,
+                                                     hq_encoder,
+                                                     hq_preset,
+                                                     video_track,
+                                                     sizeof(video_track)) != 0) {
+                            fprintf(stderr,
+                                    "Failed to read HQ session result.\n");
+                            ferr = ERR_FFMPEG_FAILED;
+                        } else if (!platform_file_is_regular_readable(
+                                     video_track)) {
+                            fprintf(stderr,
+                                    "HQ video track not found: %s\n",
+                                    video_track);
+                            ferr = ERR_INPUT_NOT_FOUND;
+                        } else {
+                            /* Check stop flag before Add Track */
+                            if (converter_is_stopped(c)) {
+                                ferr = ERR_SKIP_FILE;
+                            } else {
+                                /* Handoff to add_track_execute() */
+                                hq_opts = opts;
+                                strncpy(hq_opts.video_track_path,
+                                        video_track,
+                                        sizeof(hq_opts.video_track_path) - 1);
+                                hq_opts.video_track_path[
+                                    sizeof(hq_opts.video_track_path) - 1] = '\0';
+
+                                req.source_file = files[fi];
+                                req.convert_options = &hq_opts;
+                                ferr = add_track_execute(c, &req,
+                                                         &track_result);
+                            }
+                        }
+                    } else if (hq_rc == HQ_RESULT_CANCELLED) {
+                        ferr = ERR_SKIP_FILE;
+                    } else {
+                        /* HQ failure — get error text */
+                        char hq_err[512];
+                        if (hq_adapter_get_last_error(hq_adapter,
+                                                      hq_err,
+                                                      sizeof(hq_err)) == 0 &&
+                            hq_err[0] != '\0') {
+                            fprintf(stderr,
+                                    "HQ failed: %s\n", hq_err);
+                        } else {
+                            fprintf(stderr,
+                                    "HQ job failed (code %d).\n",
+                                    (int)hq_rc);
+                        }
+                        ferr = ERR_FFMPEG_FAILED;
+                    }
+
+                    cli_on_file_end(files[fi], ferr);
+                    if (err == ERR_OK) err = ferr;
+
+                    /* Remove task_N directory — always cleanup */
+                    hq_remove_directory_tree(task_dir);
+                }
+
+                hq_adapter_destroy(hq_adapter);
+                hq_adapter = NULL;
+
+            } else if (!strcmp(opts.codec, "mux")) {
+                AddTrackRequest req = {
+                    .source_file      = files[0],
+                    .convert_options  = &opts,
+                };
+                AddTrackResult result;
+                err = add_track_execute(c, &req, &result);
 
             } else {
                 err = converter_set_options(c, &work_opts);
@@ -278,23 +454,11 @@ int main(int argc, char** argv) {
         }
 
 cleanup:
-        /* Free memory allocated by run_menu */
-        if (argc == 1 && files) {
-            int i;
-            for (i = 0; i < file_count; i++)
-                free((void*)files[i]);
-            free((void*)files);
-        }
+        ;
     }
 
     converter_destroy(c);
     cli_platform_cleanup(h);
-
-    if (utf8_needs_free && utf8_argv) {
-        int i;
-        for (i = 0; i < argc; i++) free(utf8_argv[i]);
-        free(utf8_argv);
-    }
 
     return result;
 }

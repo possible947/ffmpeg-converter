@@ -1,16 +1,23 @@
 #import "converter_bridge.h"
 #import "apple_m4v_creator.h"
-#include "mux.h"
+#include "add_track.h"
+#include "hq_adapter.h"
+#include "hq_catalog.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 
 static __weak id s_activeBridge;
 
 static int codec_is_mux(const char *codec) {
     return codec && strcmp(codec, "mux") == 0;
+}
+
+static int codec_is_hq(const char *codec) {
+    return codec && strcmp(codec, "hq_converter") == 0;
 }
 
 static int file_is_regular_readable(const char *path) {
@@ -20,65 +27,14 @@ static int file_is_regular_readable(const char *path) {
            path[0] != '\0' &&
            stat(path, &st) == 0 &&
            S_ISREG(st.st_mode) &&
-           access(path, R_OK) == 0;
-}
-
-static void resolve_effective_output_dir(const ConvertOptions *opts, char *out_dir, size_t out_dir_sz) {
-    const char *home;
-
-    if (!opts || !out_dir || out_dir_sz == 0)
-        return;
-
-    if (opts->output_dir[0] != '\0') {
-        strncpy(out_dir, opts->output_dir, out_dir_sz - 1);
-        out_dir[out_dir_sz - 1] = '\0';
-        return;
-    }
-
-    home = getenv("HOME");
-    if (!home || home[0] == '\0')
-        home = ".";
-
-    snprintf(out_dir, out_dir_sz, "%s/ffmpeg_converter", home);
-}
-
-static ConverterError run_bridge_mux_postprocess(const ConvertOptions *opts,
-                                                 const ConverterCallbacks *cb,
-                                                 const char *input_file) {
-    ConvertOptions file_opts;
-    ConvertOptions final_name_opts;
-    MuxOptions mux_opts;
-    char effective_output_dir[1024];
-    char final_output_file[1200];
-
-    if (!opts || !cb || !input_file)
-        return ERR_INVALID_OPTIONS;
-
-    memset(&file_opts, 0, sizeof(file_opts));
-    file_opts = *opts;
-    strcpy(file_opts.codec, "copy");
-    resolve_effective_output_dir(opts, effective_output_dir, sizeof(effective_output_dir));
-    strncpy(file_opts.output_dir, effective_output_dir, sizeof(file_opts.output_dir) - 1);
-    file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = '\0';
-
-    memset(&mux_opts, 0, sizeof(mux_opts));
-    converter_make_output_name(input_file, &file_opts, mux_opts.intermediate_file, sizeof(mux_opts.intermediate_file));
-    strncpy(mux_opts.video_track_file, opts->video_track_path, sizeof(mux_opts.video_track_file) - 1);
-    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
-    mux_opts.overwrite = opts->overwrite;
-
-    /* Final container/extension depends on opts->preset (mkv/mov/m4v);
-     * keep codec="mux" here so converter_make_output_name() picks it up. */
-    final_name_opts = *opts;
-    strncpy(final_name_opts.output_dir, effective_output_dir, sizeof(final_name_opts.output_dir) - 1);
-    final_name_opts.output_dir[sizeof(final_name_opts.output_dir) - 1] = '\0';
-    converter_make_output_name(input_file, &final_name_opts, final_output_file, sizeof(final_output_file));
-
-    return mux_run_postprocess_for_preset(&mux_opts, opts, final_output_file, cb);
+    access(path, R_OK) == 0;
 }
 
 @interface ConverterBridge () {
     Converter *_converter;
+    HqAdapter *_hqAdapter;        /* non-NULL only while an HQ job is
+                                   * actively running; guarded the same
+                                   * way as _converter (@synchronized(self)) */
     BOOL _running;
     BOOL _appleRunning;
     volatile BOOL _appleStopFlag;
@@ -432,7 +388,133 @@ static int locale_is_utf8(const char *value) {
         ConverterError err;
         ConvertOptions workOpts = optsCopy;
 
-        if (codec_is_mux(optsCopy.codec)) {
+        if (codec_is_hq(optsCopy.codec)) {
+            /* HQ Converter execution path — queue iteration per spec Section 19. */
+            HqAdapter *hq_adapter = NULL;
+            const char *hq_encoder = optsCopy.hw_device[0] != '\0' ? optsCopy.hw_device : NULL;
+            const char *hq_preset = optsCopy.preset[0] != '\0' ? optsCopy.preset : NULL;
+            char video_track[1024];
+            char effective_output_dir[1024];
+            int fi;
+
+            if (!hq_encoder) {
+                err = ERR_INVALID_OPTIONS;
+                [self emitLog:@"HQ: no encoder selected."];
+                [self emitStatus:@"HQ: no encoder selected."];
+                goto finish_conversion;
+            }
+
+            if (!hq_preset) {
+                hq_preset = hq_catalog_default_preset(hq_encoder);
+                if (!hq_preset) {
+                    err = ERR_INVALID_OPTIONS;
+                    [self emitLog:@"HQ: no preset selected."];
+                    [self emitStatus:@"HQ: no preset selected."];
+                    goto finish_conversion;
+                }
+            }
+
+            /* Resolve output directory */
+            if (optsCopy.output_dir[0] != '\0') {
+                strncpy(effective_output_dir, optsCopy.output_dir, sizeof(effective_output_dir) - 1);
+            } else {
+                const char *home = getenv("HOME");
+                if (home)
+                    snprintf(effective_output_dir, sizeof(effective_output_dir),
+                             "%s/ffmpeg_converter", home);
+                else
+                    strncpy(effective_output_dir, "ffmpeg_converter", sizeof(effective_output_dir) - 1);
+            }
+            effective_output_dir[sizeof(effective_output_dir) - 1] = '\0';
+
+            /* Create HQ adapter once — reused across all queue items (each
+             * hq_run_job() call is internally process-isolated per job). */
+            hq_adapter = hq_adapter_create();
+            if (!hq_adapter) {
+                err = ERR_FFMPEG_FAILED;
+                [self emitLog:@"Failed to create HQ adapter."];
+                goto finish_conversion;
+            }
+
+            @synchronized (self) { _hqAdapter = hq_adapter; }
+
+            err = ERR_OK;
+
+            for (fi = 0; fi < fileCount; fi++) {
+                char task_dir[1024];
+                ConvertOptions hq_opts;
+                AddTrackRequest req;
+                AddTrackResult track_result;
+                ConverterError ferr = ERR_OK;
+
+                /* Create task_N directory */
+                snprintf(task_dir, sizeof(task_dir), "%s/task_%d",
+                         effective_output_dir, fi + 1);
+                if (mkdir(task_dir, 0755) != 0 && errno != EEXIST) {
+                    ferr = ERR_OUTPUT_EXISTS;
+                    [self emitLog:@"Failed to create task directory."];
+                    cb_on_file_end(cFiles[fi], ferr);
+                    if (err == ERR_OK) err = ferr;
+                    continue;
+                }
+
+                cb_on_file_begin(cFiles[fi], fi + 1, fileCount);
+
+                HqResult hq_rc = hq_run_job(hq_adapter,
+                                             cFiles[fi],
+                                             task_dir,
+                                             hq_encoder,
+                                             hq_preset,
+                                             c);
+
+                if (hq_rc == HQ_RESULT_OK) {
+                    if (hq_read_video_track_path(task_dir,
+                                                 hq_encoder,
+                                                 hq_preset,
+                                                 video_track,
+                                                 sizeof(video_track)) != 0) {
+                        [self emitLog:@"HQ: failed to read session result."];
+                        ferr = ERR_FFMPEG_FAILED;
+                    } else if (!file_is_regular_readable(video_track)) {
+                        [self emitLog:@"HQ: video track not found."];
+                        ferr = ERR_INPUT_NOT_FOUND;
+                    } else if (converter_is_stopped(c)) {
+                        ferr = ERR_SKIP_FILE;
+                    } else {
+                        /* Handoff to add_track_execute() */
+                        hq_opts = optsCopy;
+                        strncpy(hq_opts.video_track_path, video_track,
+                                sizeof(hq_opts.video_track_path) - 1);
+                        hq_opts.video_track_path[sizeof(hq_opts.video_track_path) - 1] = '\0';
+                        req.source_file = cFiles[fi];
+                        req.convert_options = &hq_opts;
+                        ferr = add_track_execute(c, &req, &track_result);
+                    }
+                } else if (hq_rc == HQ_RESULT_CANCELLED) {
+                    ferr = ERR_SKIP_FILE;
+                } else {
+                    char hq_err[512];
+                    if (hq_adapter_get_last_error(hq_adapter, hq_err, sizeof(hq_err)) == 0
+                            && hq_err[0] != '\0') {
+                        NSString *line = [NSString stringWithUTF8String:hq_err];
+                        [self emitLog:[NSString stringWithFormat:@"HQ failed: %@", line]];
+                    }
+                    ferr = ERR_FFMPEG_FAILED;
+                }
+
+                cb_on_file_end(cFiles[fi], ferr);
+                if (err == ERR_OK) err = ferr;
+
+                /* Remove task_N directory */
+                hq_remove_directory_tree(task_dir);
+            }
+
+            @synchronized (self) { _hqAdapter = NULL; }
+
+            hq_adapter_destroy(hq_adapter);
+            hq_adapter = NULL;
+
+        } else if (codec_is_mux(optsCopy.codec)) {
             if (fileCount != 1) {
                 err = ERR_INVALID_OPTIONS;
                 [self emitLog:@"Mux mode requires exactly one source file."];
@@ -447,19 +529,19 @@ static int locale_is_utf8(const char *value) {
                 goto finish_conversion;
             }
 
-            strcpy(workOpts.codec, "copy");
-            strcpy(workOpts.preset, "default");
-            workOpts.deblock = 0;
-        }
+            AddTrackRequest req = {
+                .source_file      = cFiles[0],
+                .convert_options  = &optsCopy,
+            };
+            AddTrackResult result;
+            err = add_track_execute(c, &req, &result);
+        } else {
+            err = converter_set_options(c, &workOpts);
+            if (err != ERR_OK) {
+                goto finish_conversion;
+            }
 
-        err = converter_set_options(c, &workOpts);
-        if (err != ERR_OK) {
-            goto finish_conversion;
-        }
-
-        err = converter_process_files(c, (const char **)cFiles, fileCount);
-        if (err == ERR_OK && codec_is_mux(optsCopy.codec)) {
-            err = run_bridge_mux_postprocess(&optsCopy, &cb, cFiles[0]);
+            err = converter_process_files(c, (const char **)cFiles, fileCount);
         }
 
 finish_conversion:
@@ -809,6 +891,9 @@ finish_conversion:
     @synchronized (self) {
         if (_converter) {
             converter_stop(_converter);
+        }
+        if (_hqAdapter) {
+            hq_request_stop_from_converter(_hqAdapter);
         }
     }
 }

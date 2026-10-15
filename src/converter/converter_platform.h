@@ -1,7 +1,8 @@
 /** converter_platform.h
  * Platform abstraction interface for converter.c
  * All platform-specific operations are declared here and implemented
- * in platform/converter_{linux,macos,windows}.c
+ * in platform/converter_{linux,macos}.c and
+ * platform/converter_posix.c.
  *
  * Rules:
  *  - No platform #ifdef in this file
@@ -71,7 +72,6 @@ const char* platform_get_mp4box_bin(void);
  * a command string passed to popen().
  * Caller must free the returned string.
  * On POSIX: wraps in single quotes and escapes embedded single quotes.
- * On Windows: wraps in double quotes and escapes embedded double quotes.
  */
 char* platform_escape_path_for_command(const char* path);
 
@@ -85,36 +85,30 @@ int platform_mkdir_recursive(const char* path);
 /**
  * Returns the user's home directory path.
  * Linux/macOS: getenv("HOME")
- * Windows: getenv("USERPROFILE") or HOMEDRIVE+HOMEPATH
  * Never returns NULL; falls back to "." if not found.
  */
 const char* platform_get_home_dir(void);
 
 /**
- * Returns the filename component of a path (last component after separator).
- * Does not modify the input.
- * Examples: "/foo/bar.mkv" → "bar.mkv", "C:\\dir\\file.mp4" → "file.mp4"
+ * Returns the filename component of a path (last component after '/').
  */
 const char* platform_get_filename(const char* path);
 
 /**
- * Joins a directory path and filename with the platform separator.
+ * Joins a directory path and filename with '/'.
  * Caller must free the returned string.
  * Returns NULL on allocation failure.
  */
 char* platform_join_paths(const char* dir, const char* file);
 
 /**
- * Returns 1 if path is absolute, 0 if relative.
- * POSIX: starts with '/'
- * Windows: starts with drive letter + ':' or UNC '\\\\'
+ * Returns 1 if path is absolute (starts with '/'), 0 if relative.
  */
 int platform_path_is_absolute(const char* path);
 
 /**
  * Returns the platform-specific null device string for shell redirection.
  * POSIX: "/dev/null"
- * Windows: "nul"
  */
 const char* platform_get_null_device(void);
 
@@ -137,28 +131,24 @@ int platform_is_dir_writable(const char* path);
 /**
  * Returns 1 if path refers to a regular file (exists and is not a directory).
  * POSIX: stat() + S_ISREG
- * Windows: GetFileAttributesA() without FILE_ATTRIBUTE_DIRECTORY
  */
 int platform_stat_is_regular_file(const char *path);
 
 /**
  * Returns 1 if path refers to an existing directory.
  * POSIX: stat() + S_ISDIR
- * Windows: GetFileAttributesA() with FILE_ATTRIBUTE_DIRECTORY
  */
 int platform_stat_is_directory(const char *path);
 
 /**
  * Open a process pipe for reading (replaces popen()).
  * POSIX: popen(cmd, mode)
- * Windows: _popen(cmd, mode)
  */
 FILE *platform_popen(const char *cmd, const char *mode);
 
 /**
  * Close a process pipe and return its raw exit status (replaces pclose()).
  * POSIX: pclose(fp)
- * Windows: _pclose(fp)
  */
 int platform_pclose(FILE *fp);
 
@@ -168,7 +158,6 @@ int platform_pclose(FILE *fp);
 
 /**
  * Normalizes a line read from popen() output.
- * On Windows: strips trailing '\\r' before '\\n'.
  * On POSIX: no-op.
  * Modifies line in-place.
  */
@@ -188,8 +177,7 @@ int platform_validate_audio_filters(void);
 
 /**
  * Returns 1 if the named codec is supported on this platform.
- * Examples: "hevc_vaapi" (Linux), "hevc_videotoolbox" (macOS),
- *           "h264_nvenc" (Windows with NVIDIA GPU).
+ * Examples: "hevc_vaapi" (Linux), "hevc_videotoolbox" (macOS).
  * Cross-platform codecs ("copy", "prores", "prores_ks") always return 1.
  */
 int platform_supports_codec(const char* codec);
@@ -251,12 +239,12 @@ int platform_get_video_info(const char* input_path,
 #define PLAT_CAP_QSV_HEVC        (1 << 6)
 #define PLAT_CAP_LIBFDK_AAC      (1 << 7)
 #define PLAT_CAP_AAC_AT          (1 << 8)  /* macOS only */
-#define PLAT_CAP_AMF_H264        (1 << 9)  /* Windows AMD AMF */
-#define PLAT_CAP_AMF_HEVC        (1 << 10) /* Windows AMD AMF */
+#define PLAT_CAP_AMF_H264        (1 << 9)  /* AMD AMF H.264 */
+#define PLAT_CAP_AMF_HEVC        (1 << 10) /* AMD AMF HEVC */
 #define PLAT_CAP_VULKAN_PRORES   (1 << 11) /* prores_ks_vulkan (GPU-accelerated ProRes via Vulkan) */
 #define PLAT_CAP_AV1_QSV_DEC    (1 << 12) /* av1_qsv decoder available (Intel QSV/D3D11VA AV1 decode) */
 #define PLAT_CAP_LIBDAV1D_DEC   (1 << 13) /* libdav1d decoder available (pure software AV1 decode) */
-#define PLAT_CAP_AMF_AV1        (1 << 14) /* av1_amf (AMD AMF AV1 encode, RDNA3+) */
+#define PLAT_CAP_AMF_AV1        (1 << 14) /* av1_amf (AMD AMF AV1 encode) */
 #define PLAT_CAP_VULKAN_H264    (1 << 15) /* h264_vulkan (hardware Vulkan video encode) */
 #define PLAT_CAP_VULKAN_HEVC    (1 << 16) /* hevc_vulkan (hardware Vulkan video encode) */
 #define PLAT_CAP_VULKAN_AV1     (1 << 17) /* av1_vulkan (hardware Vulkan video encode) */
@@ -270,7 +258,7 @@ int platform_get_video_info(const char* input_path,
 /**
  * Returns pre-input hardware device initialization flags for the given codec.
  * Called once before -i in build_ffmpeg_cmd.
- * Example (Windows Vulkan): "-init_hw_device vulkan=vk:0 -filter_hw_device vk "
+ * Linux: "-init_hw_device vulkan=vk:{vk_device} -filter_hw_device vk "
  * Returns NULL if no pre-input flags are needed for this codec.
  * The returned pointer is valid until the next call from the same thread.
  */
@@ -281,7 +269,6 @@ const char* platform_get_preinput_hw_flags(const char* codec,
  * Returns the hwupload video filter string for hw-accelerated codecs.
  * Used in the -vf option for VAAPI and Vulkan codecs.
  * Example (Linux VAAPI):    "format=nv12,hwupload"
- * Example (Windows Vulkan): "format=yuv422p10le,hwupload"
  * Returns NULL to fall back to the default ("format=nv12,hwupload").
  * The returned pointer is valid until the next call from the same thread.
  */

@@ -4,32 +4,21 @@ add_library(converter STATIC
     converter.c
     converter_common.c
     input_video_info.c
+    subtitle_preservation.c
+    ${CMAKE_SOURCE_DIR}/src/audio/audio_orchestrator.c
     ${CMAKE_SOURCE_DIR}/src/preset/preset_loader.c
     ${CMAKE_SOURCE_DIR}/src/platform/selection_catalog.c
 )
 
 target_include_directories(converter PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/src/audio
     ${CMAKE_SOURCE_DIR}/src/platform
     ${CMAKE_SOURCE_DIR}/src/preset
 )
 
 # Platform-specific source files and settings
-if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    target_sources(converter PRIVATE
-        platform/converter_windows.c
-        ${CMAKE_SOURCE_DIR}/src/platform/runtime_probe_common.c
-        ${CMAKE_SOURCE_DIR}/src/platform/runtime_catalog.c
-        ${CMAKE_SOURCE_DIR}/src/platform/windows/runtime_probe.c
-    )
-    target_include_directories(converter PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/platform/windows
-    )
-    target_link_libraries(converter PRIVATE
-        shlwapi      # PathFindOnPathA, PathFileExistsA
-    )
-
-elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(converter PRIVATE
         platform/converter_linux.c
         platform/converter_posix.c
@@ -40,8 +29,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_compile_definitions(converter PRIVATE
         FFMPEG_CONVERTER_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     )
-
-elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+elseif (APPLE)
     target_sources(converter PRIVATE
         platform/converter_macos.c
         platform/converter_posix.c
@@ -55,7 +43,6 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     target_link_libraries(converter PRIVATE
         "-framework CoreFoundation"
     )
-
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -81,6 +68,11 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     )
     target_link_libraries(test_linux_preset_args PRIVATE converter)
     add_test(NAME LinuxPresetArgsTests COMMAND test_linux_preset_args)
+
+    add_executable(test_subtitle_preservation test_subtitle_preservation.c)
+    target_link_libraries(test_subtitle_preservation PRIVATE converter)
+    add_test(NAME SubtitlePreservationTests COMMAND test_subtitle_preservation)
+    set_tests_properties(SubtitlePreservationTests PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -109,4 +101,4 @@ target_include_directories(converter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(converter PUBLIC jansson)
+target_link_libraries(converter PUBLIC jansson mux_policy)

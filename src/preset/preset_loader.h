@@ -39,7 +39,7 @@ typedef struct PresetDb PresetDb;
  *   1. Executable-adjacent directory (./presets.json)
  *   2. User config directory ($HOME/.config/ffmpeg_converter/presets.json on Linux,
  *      ~/Library/Preferences/ffmpeg_converter/presets.json on macOS,
- *      %APPDATA%\ffmpeg_converter\presets.json on Windows)
+ *      $XDG_CONFIG_HOME/ffmpeg_converter/presets.json on Linux)
  *   3. Built-in fallback (minimal set: copy/prores/prores_ks with default presets)
  *
  * If presets_path is not NULL, search starts from that directory first.
@@ -56,7 +56,7 @@ PresetDb *preset_db_load(const char *presets_path);
  * Performs O(1) lookup by platform, codec, and preset name.
  *
  * @param db            Database handle from preset_db_load()
- * @param os_name       Platform: "linux", "macos", or "windows"
+ * @param os_name       Platform: "linux" or "macos"
  * @param codec_name    Codec name (e.g., "prores_ks", "h264_vaapi")
  * @param preset_name   Preset name (e.g., "hq", "default")
  * @return              Pointer to PresetInfo on success, NULL if not found
@@ -69,7 +69,7 @@ const PresetInfo *preset_db_get(PresetDb *db, const char *os_name,
  * Get list of available codecs for a platform.
  *
  * @param db            Database handle from preset_db_load()
- * @param os_name       Platform: "linux", "macos", or "windows"
+ * @param os_name       Platform: "linux" or "macos"
  * @param out_codecs    Output array of codec name strings (caller does not free)
  * @return              Number of codecs available for the platform
  */
@@ -80,7 +80,7 @@ int preset_db_list_codecs(PresetDb *db, const char *os_name,
  * Get list of available presets for a specific codec.
  *
  * @param db            Database handle from preset_db_load()
- * @param os_name       Platform: "linux", "macos", or "windows"
+ * @param os_name       Platform: "linux" or "macos"
  * @param codec_name    Codec name
  * @param out_presets   Output array of preset name strings (caller does not free)
  * @return              Number of presets available for the codec

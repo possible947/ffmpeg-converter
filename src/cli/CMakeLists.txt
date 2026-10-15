@@ -13,6 +13,21 @@ set(CLI_COMMON_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/cli_common.c
 )
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(test_cli_m4v_policy test_cli_m4v_policy.c cli_common.c)
+    target_include_directories(test_cli_m4v_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(test_cli_m4v_policy PRIVATE
+        CLI_TEST_PRESETS_PATH="${GENERATED_PRESETS_DIR}/presets.json"
+    )
+    target_link_libraries(test_cli_m4v_policy PRIVATE
+        converter hq_adapter mux_policy jansson
+    )
+    add_test(NAME CliM4VPolicyTests COMMAND test_cli_m4v_policy)
+    set_tests_properties(CliM4VPolicyTests PROPERTIES
+        ENVIRONMENT "PRESETS_V2_PATH=${GENERATED_PRESETS_DIR}/presets.json;PRESETS_PATH=${GENERATED_PRESETS_DIR}"
+    )
+endif()
+
 set(LINUX_BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffmpeg")
 set(LINUX_BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffprobe")
 set(LINUX_SYSTEM_MKVMERGE_CANDIDATES
@@ -64,15 +79,26 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         ${CMAKE_SOURCE_DIR}/src/platform/linux
         ${CMAKE_SOURCE_DIR}/src/mux
         ${CMAKE_SOURCE_DIR}/src/m4v
+        ${CMAKE_SOURCE_DIR}/src/hq
     )
 
     target_link_libraries(linux_cli
         PRIVATE converter
         PRIVATE mux
         PRIVATE m4v
+        PRIVATE add_track
+        PRIVATE hq_adapter
         PRIVATE platform
         PRIVATE jansson
     )
+
+    # hq_worker already builds into the same bin/ directory as linux_cli
+    # (both set RUNTIME_OUTPUT_DIRECTORY to CMAKE_BINARY_DIR/bin), so no
+    # copy step is needed — just make sure it gets built when linux_cli
+    # is built as a standalone target.
+    if (TARGET hq_worker)
+        add_dependencies(linux_cli hq_worker)
+    endif()
 
     if (EXISTS "${LINUX_BUNDLED_FFMPEG}" AND EXISTS "${LINUX_BUNDLED_FFPROBE}")
         add_custom_command(TARGET linux_cli POST_BUILD
@@ -107,7 +133,16 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:linux_cli>/presets.json"
         COMMENT "Copying presets.json next to linux_cli"
     )
+
+    # Copy the HQ Converter runtime next to the CLI binary.
+    if (EXISTS "${CMAKE_SOURCE_DIR}/third_party/hq_converter")
+        add_custom_command(TARGET linux_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/third_party/hq_converter" "$<TARGET_FILE_DIR:linux_cli>/hq_converter"
+            COMMENT "Copying HQ Converter runtime next to linux_cli"
+        )
+    endif()
 endif()
+
 
 # --- MACOS CLI ---
 set(MACOS_BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg")
@@ -123,21 +158,40 @@ if (APPLE)
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/cli_macos.c
     )
 
-    set_target_properties(macos_cli PROPERTIES OUTPUT_NAME "ffmpeg_converter")
+    set_target_properties(macos_cli PROPERTIES
+        OUTPUT_NAME "ffmpeg_converter"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
 
     target_include_directories(macos_cli PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/src/platform
         ${CMAKE_SOURCE_DIR}/src/platform/macos
+        ${CMAKE_SOURCE_DIR}/src/mux
         ${CMAKE_SOURCE_DIR}/src/m4v
+        ${CMAKE_SOURCE_DIR}/src/hq
     )
 
     target_link_libraries(macos_cli
         PRIVATE converter
+        PRIVATE mux
         PRIVATE m4v
+        PRIVATE add_track
+        PRIVATE hq_adapter
         PRIVATE platform
         PRIVATE jansson
     )
+
+    # macos_cli does not share hq_worker's RUNTIME_OUTPUT_DIRECTORY, so
+    # explicitly copy the helper binary next to it (resolve_exe_dir()
+    # looks for hq_worker in the same directory as the running binary).
+    if (TARGET hq_worker)
+        add_dependencies(macos_cli hq_worker)
+        add_custom_command(TARGET macos_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:hq_worker>" "$<TARGET_FILE_DIR:macos_cli>/hq_worker"
+            COMMENT "Copying hq_worker helper next to macos_cli"
+        )
+    endif()
 
     # Copy the whole bin/ dir (not just ffmpeg/ffprobe): ffmpeg's @rpath deps
     # (libxcb, libvulkan, etc.) resolve via @loader_path, so they must sit
@@ -152,49 +206,13 @@ if (APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:macos_cli>/presets.json"
         COMMENT "Copying presets.json next to macos_cli"
     )
-endif()
 
-# --- WINDOWS CLI ---
-if (WIN32)
-    set(WINDOWS_BUNDLED_BIN_DIR "${CMAKE_SOURCE_DIR}/src/platform/windows/bin")
-
-    if (NOT EXISTS "${WINDOWS_BUNDLED_BIN_DIR}")
-        message(FATAL_ERROR "src/platform/windows/bin not found. Place bundled ffmpeg/ffprobe and dependencies there before building windows_cli.")
+    # Copy the HQ Converter runtime next to the CLI binary.
+    if (EXISTS "${CMAKE_SOURCE_DIR}/third_party/hq_converter")
+        add_custom_command(TARGET macos_cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/third_party/hq_converter" "$<TARGET_FILE_DIR:macos_cli>/hq_converter"
+            COMMENT "Copying HQ Converter runtime next to macos_cli"
+        )
     endif()
-
-    add_executable(windows_cli
-        ${CLI_COMMON_SOURCES}
-        ${CMAKE_CURRENT_SOURCE_DIR}/platform/cli_windows.c
-    )
-
-    set_target_properties(windows_cli PROPERTIES OUTPUT_NAME "ffmpeg_converter")
-
-    target_include_directories(windows_cli PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/src/platform
-        ${CMAKE_SOURCE_DIR}/src/platform/windows
-        ${CMAKE_SOURCE_DIR}/src/mux
-        ${CMAKE_SOURCE_DIR}/src/m4v
-    )
-
-    target_link_libraries(windows_cli
-        PRIVATE converter
-        PRIVATE mux
-        PRIVATE m4v
-        PRIVATE platform
-        PRIVATE jansson
-        PRIVATE Shell32
-    )
-
-    add_custom_command(TARGET windows_cli POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${WINDOWS_BUNDLED_BIN_DIR}" "$<TARGET_FILE_DIR:windows_cli>"
-        COMMENT "Copying bundled ffmpeg/ffprobe and dependencies next to windows_cli"
-    )
-
-    # Copy the build-generated preset catalog next to the CLI binary.
-    add_custom_command(TARGET windows_cli POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GENERATED_PRESETS_DIR}/presets.json" "$<TARGET_FILE_DIR:windows_cli>/presets.json"
-        COMMENT "Copying presets.json next to windows_cli"
-    )
 endif()
 

@@ -20,27 +20,16 @@
 #include "converter.h"
 #include "cli_platform.h"
 #include "linux/runtime_probe.h"
-#include "mux.h"
 #include "m4v.h"
 
 /* ---------------------------------------------------------------
  *  Private platform handle definition
  * --------------------------------------------------------------- */
 
-/* Maximum codec entries: copy + prores + prores_ks + mux +
- *                        h264_vaapi + hevc_vaapi +
- *                        h264_nvenc + hevc_nvenc +
- *                        h264_amf   + hevc_amf   + av1_amf +
- *                        h264_qsv   + hevc_qsv   +
- *                        prores_ks_vulkan +
- *                        h264_vulkan + hevc_vulkan + av1_vulkan +
- *                        m4v                                       */
-#define LINUX_MAX_CODECS 18
+/* Maximum codec support flags. */
 
 struct CliPlatformHandle {
     LinuxCodecSupport   support;
-    PlatformCodecEntry  entries[LINUX_MAX_CODECS];
-    int                 codec_count;
 };
 
 /* ---------------------------------------------------------------
@@ -55,125 +44,6 @@ CliPlatformHandle* cli_platform_init(void) {
         return NULL;
 
     linux_probe_codec_support(&h->support);
-
-    /* Build codec list */
-    h->entries[h->codec_count].name          = "copy";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "prores";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 1;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "prores_ks";
-    h->entries[h->codec_count].needs_profile = 1;
-    h->entries[h->codec_count].needs_deblock = 1;
-    h->codec_count++;
-
-    h->entries[h->codec_count].name          = "mux";
-    h->entries[h->codec_count].needs_profile = 0;
-    h->entries[h->codec_count].needs_deblock = 0;
-    h->codec_count++;
-
-    if (h->support.has_h264_vaapi) {
-        h->entries[h->codec_count].name          = "h264_vaapi";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_vaapi) {
-        h->entries[h->codec_count].name          = "hevc_vaapi";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_h264_nvenc) {
-        h->entries[h->codec_count].name          = "h264_nvenc";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_nvenc) {
-        h->entries[h->codec_count].name          = "hevc_nvenc";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_h264_amf) {
-        h->entries[h->codec_count].name          = "h264_amf";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_amf) {
-        h->entries[h->codec_count].name          = "hevc_amf";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_av1_amf) {
-        h->entries[h->codec_count].name          = "av1_amf";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_h264_qsv) {
-        h->entries[h->codec_count].name          = "h264_qsv";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_qsv) {
-        h->entries[h->codec_count].name          = "hevc_qsv";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_prores_ks_vulkan) {
-        h->entries[h->codec_count].name          = "prores_ks_vulkan";
-        h->entries[h->codec_count].needs_profile = 1;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_h264_vulkan) {
-        h->entries[h->codec_count].name          = "h264_vulkan";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_hevc_vulkan) {
-        h->entries[h->codec_count].name          = "hevc_vulkan";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (h->support.has_av1_vulkan) {
-        h->entries[h->codec_count].name          = "av1_vulkan";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
-
-    if (platform_m4v_is_supported()) {
-        h->entries[h->codec_count].name          = "m4v";
-        h->entries[h->codec_count].needs_profile = 0;
-        h->entries[h->codec_count].needs_deblock = 0;
-        h->codec_count++;
-    }
 
     return h;
 }
@@ -198,6 +68,9 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
 
     if (!strcmp(codec, "m4v"))
         return platform_m4v_is_supported();
+
+    if (!strcmp(codec, "hq_converter"))
+        return platform_hq_is_available();
 
     if (!h)
         return 0;
@@ -230,9 +103,8 @@ int platform_codec_is_available(const CliPlatformHandle* h, const char* codec) {
 
 int platform_audio_mode_is_available(const char* mode) {
     return mode &&
-           (!strcmp(mode, "pcm")                 ||
-            !strcmp(mode, "fdk_aac_320")           ||
-            !strcmp(mode, "fdk_aac_320_ac3_640")   ||
+           (!strcmp(mode, "copy")                    ||
+            !strcmp(mode, "pcm")                 ||
             !strcmp(mode, "fdk_aac_320")           ||
             !strcmp(mode, "fdk_aac_320_ac3_640"));
 }
@@ -247,16 +119,11 @@ int platform_m4v_is_supported(void) {
     return bin && (strchr(bin, '/') != NULL);
 }
 
-/* ---------------------------------------------------------------
- *  Codec list
- * --------------------------------------------------------------- */
-
-int platform_get_codec_count(const CliPlatformHandle* h) {
-    return h ? h->codec_count : 0;
-}
-
-const PlatformCodecEntry* platform_get_codec_entries(const CliPlatformHandle* h) {
-    return h ? h->entries : NULL;
+int platform_hq_is_available(void) {
+    /* HQ availability is determined by the adapter module — it checks
+     * both library load and catalog access. */
+    extern int hq_is_available(void);
+    return hq_is_available();
 }
 
 /* ---------------------------------------------------------------
@@ -402,62 +269,6 @@ int platform_ensure_output_dir(const char* path) {
     }
 
     return 1;
-}
-
-/* ---------------------------------------------------------------
- *  Mux post-processing
- * --------------------------------------------------------------- */
-
-ConverterError platform_run_mux_postprocess(const ConvertOptions* opts,
-                                            const ConverterCallbacks* cb,
-                                            const char* input_file)
-{
-    ConvertOptions file_opts;
-    ConvertOptions final_name_opts;
-    MuxOptions     mux_opts;
-    char effective_output_dir[4096];
-    char final_output_file[1200];
-
-    if (!opts || !cb || !input_file)
-        return ERR_INVALID_OPTIONS;
-
-    memset(&file_opts, 0, sizeof(file_opts));
-    file_opts = *opts;
-    strcpy(file_opts.codec, "copy");
-
-    if (opts->output_dir[0] != '\0') {
-        strncpy(effective_output_dir, opts->output_dir,
-                sizeof(effective_output_dir) - 1);
-        effective_output_dir[sizeof(effective_output_dir) - 1] = '\0';
-    } else {
-        const char* home = cli_get_home_dir();
-        snprintf(effective_output_dir, sizeof(effective_output_dir),
-                 "%s/ffmpeg_converter", home);
-    }
-
-    strncpy(file_opts.output_dir, effective_output_dir,
-            sizeof(file_opts.output_dir) - 1);
-    file_opts.output_dir[sizeof(file_opts.output_dir) - 1] = '\0';
-
-    memset(&mux_opts, 0, sizeof(mux_opts));
-    converter_make_output_name(input_file, &file_opts,
-                               mux_opts.intermediate_file,
-                               sizeof(mux_opts.intermediate_file));
-    strncpy(mux_opts.video_track_file, opts->video_track_path,
-            sizeof(mux_opts.video_track_file) - 1);
-    mux_opts.video_track_file[sizeof(mux_opts.video_track_file) - 1] = '\0';
-    mux_opts.overwrite = opts->overwrite;
-
-    /* Final container/extension depends on opts->preset (mkv/mov/m4v);
-     * keep codec="mux" here so converter_make_output_name() picks it up. */
-    final_name_opts = *opts;
-    strncpy(final_name_opts.output_dir, effective_output_dir,
-            sizeof(final_name_opts.output_dir) - 1);
-    final_name_opts.output_dir[sizeof(final_name_opts.output_dir) - 1] = '\0';
-    converter_make_output_name(input_file, &final_name_opts,
-                               final_output_file, sizeof(final_output_file));
-
-    return mux_run_postprocess_for_preset(&mux_opts, opts, final_output_file, cb);
 }
 
 char** platform_utf8_argv(int argc, char** argv, int* needs_free)

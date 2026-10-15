@@ -15,6 +15,9 @@ class Program
 {
     static async Task<int> Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--hq-worker")
+            return await HqWorker.RunAsync(args);
+
         Console.OutputEncoding = System.Text.Encoding.UTF8;
 
         string platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows" :
@@ -305,7 +308,7 @@ class Program
         Console.WriteLine("  Available groups are filtered from presets.json after hardware detection.");
         Console.WriteLine("  -d, --deblock <none|weak|strong>");
         Console.WriteLine("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>");
-        Console.WriteLine("      --audio-output <pcm|fdk_aac_320|fdk_aac_320_ac3_640>");
+        Console.WriteLine("      --audio-output <copy|pcm|fdk_aac_320|fdk_aac_320_ac3_640>");
         if (hasMkvmerge)
         {
             Console.WriteLine("      --video-track <file>  replacement video track for mux mode");
@@ -375,6 +378,13 @@ class Program
             foreach (var (encName, enc) in group.Encoders)
             {
                 if (!enc.Enabled) continue;
+                if (groupName.Equals("hq_converter", StringComparison.OrdinalIgnoreCase))
+                {
+                    string defaultPreset = presetDb.HqCatalog?.GetDefaultPreset(encName) ?? "";
+                    string presets = string.Join(", ", presetDb.HqCatalog?.GetPresets(encName) ?? Array.Empty<string>());
+                    Console.WriteLine($"  {encName} (default: {defaultPreset}; presets: {presets})");
+                    continue;
+                }
                 string? final = enc.FinalCodec ?? enc.ExecutionCodec;
                 bool isAvail = probe == null || final == "copy" || final == "mux" || final == "m4v" || probe.SupportedEncoders.Contains(final ?? "");
                 if (isAvail)
@@ -415,4 +425,3 @@ class Program
         }
     }
 }
-
