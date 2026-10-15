@@ -1,0 +1,192 @@
+#include "gui_window.h"
+#include "converter_platform.h"
+#include "mux_policy.h"
+
+#include <string.h>
+
+static void drain_updates(void)
+{
+    while (g_main_context_iteration(NULL, FALSE))
+        ;
+}
+
+static const char *selected_text(GtkWidget *widget)
+{
+    GtkStringObject *item = GTK_STRING_OBJECT(
+        gtk_drop_down_get_selected_item(GTK_DROP_DOWN(widget)));
+    g_assert_nonnull(item);
+    return gtk_string_object_get_string(item);
+}
+
+static void select_text(GtkWidget *widget, const char *text)
+{
+    GListModel *model = gtk_drop_down_get_model(GTK_DROP_DOWN(widget));
+    guint count = g_list_model_get_n_items(model);
+    for (guint i = 0; i < count; i++) {
+        GtkStringObject *item = g_list_model_get_item(model, i);
+        gboolean match = g_strcmp0(gtk_string_object_get_string(item), text) == 0;
+        g_object_unref(item);
+        if (match) {
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(widget), i);
+            drain_updates();
+            return;
+        }
+    }
+    g_error("Missing dropdown entry: %s", text);
+}
+
+static ConvertOptions collect_options(AppWidgets *w)
+{
+    ConvertOptions opts;
+    char **files;
+    int count;
+    collect_options_from_gui(w, &opts, &files, &count);
+    for (int i = 0; i < count; i++)
+        g_free(files[i]);
+    g_free(files);
+    return opts;
+}
+
+static void assert_video_unchanged(AppWidgets *w, const ConvertOptions *before,
+                                   const char *video_args, guint codec,
+                                   guint encoder, guint preset, guint vulkan,
+                                   guint vaapi, guint filter, guint deblock)
+{
+    ConvertOptions after = collect_options(w);
+    g_assert_cmpstr(after.codec, ==, before->codec);
+    g_assert_cmpstr(after.preset, ==, before->preset);
+    g_assert_cmpstr(after.hw_device, ==, before->hw_device);
+    g_assert_cmpint(after.vulkan_device, ==, before->vulkan_device);
+    g_assert_cmpint(after.deblock, ==, before->deblock);
+    g_assert_cmpuint(gtk_drop_down_get_selected(GTK_DROP_DOWN(w->codec_combo)), ==, codec);
+    g_assert_cmpuint(gtk_drop_down_get_selected(GTK_DROP_DOWN(w->encoder_combo)), ==, encoder);
+    g_assert_cmpuint(gtk_drop_down_get_selected(GTK_DROP_DOWN(w->profile_combo)), ==, preset);
+    g_assert_cmpuint(gtk_drop_down_get_selected(GTK_DROP_DOWN(w->vulkan_device_combo)), ==, vulkan);
+    g_assert_cmpuint(gtk_drop_down_get_selected(GTK_DROP_DOWN(w->vaapi_device_combo)), ==, vaapi);
+    g_assert_cmpuint(gtk_drop_down_get_selected(GTK_DROP_DOWN(w->filter_combo)), ==, filter);
+    g_assert_cmpuint(gtk_drop_down_get_selected(GTK_DROP_DOWN(w->deblock_combo)), ==, deblock);
+    g_assert_cmpstr(platform_get_video_codec_flags(after.codec, NULL, &after), ==, video_args);
+}
+
+static void test_audio_changes(AppWidgets *w, const char *group,
+                               const char *encoder, const char *preset)
+{
+    static const char *audio_modes[] = {"pcm", "fdk_aac_320", "fdk_aac_320_ac3_640", "copy"};
+    static const char *normalizations[] = {
+        "none", "peak_norm", "peak_norm_2pass", "loudness_norm", "loudness_norm_2pass"
+    };
+    select_text(w->codec_combo, group);
+    select_text(w->encoder_combo, encoder);
+    select_text(w->profile_combo, preset);
+    select_text(w->filter_combo, "strong");
+    select_text(w->deblock_combo, "strong");
+    if (g_list_model_get_n_items(G_LIST_MODEL(w->vulkan_device_list)) > 1)
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->vulkan_device_combo), 1);
+    if (g_list_model_get_n_items(G_LIST_MODEL(w->vaapi_device_list)) > 1)
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->vaapi_device_combo), 1);
+    drain_updates();
+    ConvertOptions before = collect_options(w);
+    char *video_args = g_strdup(platform_get_video_codec_flags(before.codec, NULL, &before));
+    g_assert_nonnull(video_args);
+    g_assert_true(video_args[0] != '\0');
+    guint codec_index = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->codec_combo));
+    guint encoder_index = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->encoder_combo));
+    guint preset_index = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->profile_combo));
+    guint vulkan_index = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->vulkan_device_combo));
+    guint vaapi_index = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->vaapi_device_combo));
+    guint filter_index = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->filter_combo));
+    guint deblock_index = gtk_drop_down_get_selected(GTK_DROP_DOWN(w->deblock_combo));
+    for (guint a = 0; a < G_N_ELEMENTS(audio_modes); a++) {
+        select_text(w->audio_output_combo, audio_modes[a]);
+        for (guint n = 0; n < G_N_ELEMENTS(normalizations); n++) {
+            select_text(w->audio_norm_combo, normalizations[n]);
+            ConvertOptions after = collect_options(w);
+            g_assert_cmpstr(after.audio_output_mode, ==, audio_modes[a]);
+            g_assert_cmpstr(after.audio_norm, ==, normalizations[n]);
+            g_assert_cmpint(gtk_widget_get_sensitive(w->genre_combo), ==,
+                           strcmp(normalizations[n], "loudness_norm_2pass") == 0);
+            assert_video_unchanged(w, &before, video_args, codec_index,
+                                   encoder_index, preset_index, vulkan_index,
+                                   vaapi_index, filter_index, deblock_index);
+        }
+    }
+    set_running_ui_state(w, TRUE);
+    set_running_ui_state(w, FALSE);
+    drain_updates();
+    assert_video_unchanged(w, &before, video_args, codec_index, encoder_index,
+                           preset_index, vulkan_index, vaapi_index,
+                           filter_index, deblock_index);
+    g_free(video_args);
+}
+
+static void test_mux_default(AppWidgets *w)
+{
+    MuxBuildProfile profile;
+    MuxPolicy expected;
+    char error[256];
+    g_assert_true(mux_build_profile_default(&profile));
+    g_assert_true(mux_policy_resolve(&profile, MUX_MODE_M4V, NULL,
+                                    MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
+                                    &expected, error, sizeof(error)));
+    select_text(w->audio_output_combo, "pcm");
+    select_text(w->codec_combo, "mux");
+    select_text(w->encoder_combo, "m4v");
+    g_assert_cmpstr(selected_text(w->audio_output_combo), ==,
+                    mux_audio_mode_name(expected.audio_mode));
+    ConvertOptions opts = collect_options(w);
+    g_assert_cmpstr(opts.codec, ==, "mux");
+    g_assert_cmpstr(opts.preset, ==, "m4v");
+    g_assert_cmpstr(opts.audio_output_mode, ==,
+                    mux_audio_mode_name(expected.audio_mode));
+    g_assert_cmpstr(selected_text(w->profile_combo), ==, "default");
+    select_text(w->audio_output_combo, "fdk_aac_320_ac3_640");
+    g_assert_cmpstr(selected_text(w->audio_output_combo), ==, "fdk_aac_320_ac3_640");
+}
+
+int main(void)
+{
+    g_setenv("PRESETS_PATH", FFMPEG_CONVERTER_PRESETS_DIR, TRUE);
+    if (!gtk_init_check()) {
+        g_print("No GTK display available; skipping widget tests.\n");
+        return 77;
+    }
+    GtkApplication *app = gtk_application_new(
+        "io.github.possible947.ffmpeg_converter.tests", G_APPLICATION_NON_UNIQUE);
+    GError *error = NULL;
+    g_assert_true(g_application_register(G_APPLICATION(app), NULL, &error));
+    AppWidgets w = {0};
+    g_mutex_init(&w.thread_lock);
+    /* Model capabilities only: never run a real hardware encode/probe. */
+    w.linux_codec_support.has_av1_vaapi = 1;
+    w.linux_codec_support.has_h264_vaapi = 1;
+    w.linux_codec_support.has_hevc_vulkan = 1;
+    w.linux_codec_support.vulkan_hw_device_index = 2;
+    w.linux_codec_support.vulkan_hw_working_mask = 1 << 2;
+    w.linux_codec_support.has_hevc_nvenc = 1;
+    w.linux_codec_support.has_h264_qsv = 1;
+    w.window = create_main_window(app, &w);
+    drain_updates();
+    test_audio_changes(&w, "software", "prores_ks", "hq");
+    test_audio_changes(&w, "vaapi", "av1", "quality");
+    test_audio_changes(&w, "vulkan", "hevc", "quality");
+    test_audio_changes(&w, "nvenc", "hevc", "quality");
+    test_audio_changes(&w, "qsv", "h264", "speed");
+    test_mux_default(&w);
+    w.shutting_down = TRUE;
+    if (w.dependent_update_source_id)
+        g_source_remove(w.dependent_update_source_id);
+    gtk_window_destroy(GTK_WINDOW(w.window));
+    selection_catalog_free(w.selection_catalog);
+    g_ptr_array_unref(w.file_paths);
+    g_array_unref(w.vulkan_device_ids);
+    for (guint i = 0; i < w.vaapi_device_nodes->len; i++)
+        g_free(g_array_index(w.vaapi_device_nodes, gchar *, i));
+    g_array_unref(w.vaapi_device_nodes);
+    g_free(w.output_dir_path);
+    g_free(w.video_track_path);
+    g_mutex_clear(&w.thread_lock);
+    g_object_unref(app);
+    platform_cleanup();
+    g_print("GTK audio/video isolation tests passed.\n");
+    return 0;
+}

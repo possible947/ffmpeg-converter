@@ -385,8 +385,12 @@ ConverterError mux_run_postprocess(
     char quoted_intermediate[2048];
     char quoted_title[4096];
     char temp_output[1200];
-    char timing_arg[128];
-    char lang_arg[96];
+    char timing_mapping[80];
+    char quoted_timing[320];
+    char timing_arg[352];
+    char lang_mapping[80];
+    char quoted_lang[320];
+    char lang_arg[352];
     int written;
 
     (void)convert_opts;
@@ -423,14 +427,19 @@ ConverterError mux_run_postprocess(
             emit_error(callbacks, "post-mux failed: could not probe source FPS", ERR_FFPROBE_FAILED);
             return ERR_FFPROBE_FAILED;
         }
-        snprintf(timing_arg, sizeof(timing_arg), "--default-duration 0:%sfps ", rate);
+        snprintf(timing_mapping, sizeof(timing_mapping), "0:%sfps", rate);
+        platform_shell_quote(timing_mapping, quoted_timing, sizeof(quoted_timing));
+        snprintf(timing_arg, sizeof(timing_arg), "--default-duration %s ", quoted_timing);
     }
 
     /* The replacement video track is usually a raw elementary stream with no
      * language tag of its own, so inherit it from the original source. */
     lang_arg[0] = '\0';
-    if (probe_video_track_language(ffprobe_bin, opts->intermediate_file, lang, sizeof(lang)))
-        snprintf(lang_arg, sizeof(lang_arg), "--language 0:%s ", lang);
+    if (probe_video_track_language(ffprobe_bin, opts->intermediate_file, lang, sizeof(lang))) {
+        snprintf(lang_mapping, sizeof(lang_mapping), "0:%s", lang);
+        platform_shell_quote(lang_mapping, quoted_lang, sizeof(quoted_lang));
+        snprintf(lang_arg, sizeof(lang_arg), "--language %s ", quoted_lang);
+    }
 
     if (!probe_container_title(ffprobe_bin, opts->intermediate_file, title, sizeof(title))) {
         emit_error(callbacks, "post-mux failed: could not probe source title", ERR_FFPROBE_FAILED);

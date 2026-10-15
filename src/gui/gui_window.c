@@ -1086,13 +1086,31 @@ static void update_dependent_widgets(AppWidgets *w)
                                 MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
                                 &policy, policy_error, sizeof(policy_error))) {
             /* Audio mode not compatible with this mux container */
-            const char *default_mode = mode == MUX_MODE_M4V
-                                           ? "fdk_aac_320_ac3_640" : "pcm";
+            /* Use policy to resolve default audio mode for this container */
+            MuxPolicy default_policy;
+            char default_error[256] = {0};
+            const char *default_mode = "pcm";
             guint selected = 0;
+            
+            if (mux_build_profile_default(&profile) &&
+                mux_policy_resolve(&profile, mode, NULL,
+                                  MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
+                                  &default_policy, default_error, sizeof(default_error))) {
+                /* Get canonical audio mode name from resolved policy */
+                default_mode = mux_audio_mode_name(default_policy.audio_mode);
+            }
+            
             fprintf(stderr, "Audio mode constraint violation: %s (resetting to %s)\n",
                     policy_error[0] ? policy_error : "unknown error", default_mode);
+            
+            /* Set dropdown index based on canonical mode */
             if (g_strcmp0(default_mode, "fdk_aac_320_ac3_640") == 0)
                 selected = 3;
+            else if (g_strcmp0(default_mode, "fdk_aac_320") == 0)
+                selected = 2;
+            else if (g_strcmp0(default_mode, "copy") == 0)
+                selected = 0;
+            /* else pcm = 1 (default) */
             gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo),
                                        selected);
         }

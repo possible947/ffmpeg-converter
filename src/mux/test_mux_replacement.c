@@ -9,6 +9,16 @@
 #include <unistd.h>
 
 static int failures;
+static int language_injection_seen;
+static int quoted_timing_seen;
+
+static void capture_message(const char *message)
+{
+    if (strcmp(message, "LANGUAGE_INJECTION_EXECUTED") == 0)
+        language_injection_seen = 1;
+    if (strstr(message, "--default-duration '0:10/1fps' ") != NULL)
+        quoted_timing_seen = 1;
+}
 
 static void expect(int condition, const char *message)
 {
@@ -113,7 +123,8 @@ static int create_media(const char *ffmpeg, const char *dir, const char *kind,
     return system(cmd) == 0;
 }
 
-static void verify_output(const char *ffprobe, const char *path, int mov, int has_title)
+static void verify_output(const char *ffprobe, const char *path, int mov,
+                          int has_title, int expected_subtitles)
 {
     json_t *data = probe(ffprobe, path);
     json_t *streams;
@@ -131,9 +142,13 @@ static void verify_output(const char *ffprobe, const char *path, int mov, int ha
         if (!type)
             continue;
         if (strcmp(type, "video") == 0) {
+            const char *language = json_string_value(json_object_get(
+                json_object_get(stream, "tags"), "language"));
             ++video;
             expect(json_integer_value(json_object_get(stream, "width")) == 64,
                    "video comes from replacement");
+            expect(language && strcmp(language, "eng") == 0,
+                   "replacement video inherits standard source language");
         } else if (strcmp(type, "audio") == 0) {
             ++audio;
         } else if (strcmp(type, "subtitle") == 0) {
@@ -147,7 +162,7 @@ static void verify_output(const char *ffprobe, const char *path, int mov, int ha
     }
     expect(video == 1, "one replacement video");
     expect(audio == 2, "all source audio tracks, no replacement audio");
-    expect(subtitles == 2, "all source subtitles, no replacement subtitles");
+    expect(subtitles == expected_subtitles, "all source subtitles, no replacement subtitles");
     expect(attachments == (mov ? 0 : 1),
            "only source attachment in MKV; incompatible attachment omitted in MOV");
     expect(json_array_size(json_object_get(data, "chapters")) == 1,
@@ -207,7 +222,11 @@ int main(void)
         "source.srt", "source.meta", "source.txt", "source.mkv",
         "replacement.srt", "replacement.meta", "replacement.txt", "replacement.mkv",
         "output.mkv", "output.mov", "output.mov.mux_tmp.mkv", "extracted.srt",
-        "source_without_title.mkv", "output_without_title.mkv"
+        "source_without_title.mkv", "output_without_title.mkv",
+        "source_malicious_language.mkv", "output_malicious_language.mkv",
+        "replacement.h264", "output_forced_duration.mkv",
+        "source_without_subtitles.mkv", "output_without_subtitles.mov",
+        "output_without_subtitles.mov.mux_tmp.mkv"
     };
     char dir[128], output[512], path[512];
     MuxOptions opts = {0};
@@ -247,7 +266,7 @@ int main(void)
         snprintf(opts.output_file, sizeof(opts.output_file), "%s/output.mkv", dir);
         opts.overwrite = 1;
         if (mux_run_postprocess(&opts, &convert_opts, NULL) == ERR_OK) {
-            verify_output(ffprobe, opts.output_file, 0, 1);
+            verify_output(ffprobe, opts.output_file, 0, 1, 2);
             verify_subtitle(ffmpeg, dir, opts.output_file);
         } else {
             expect(0, "MKV replacement mux succeeds");
@@ -256,10 +275,50 @@ int main(void)
         snprintf(convert_opts.audio_output_mode, sizeof(convert_opts.audio_output_mode), "pcm");
         snprintf(output, sizeof(output), "%s/output.mov", dir);
         if (mux_run_postprocess_for_preset(&opts, &convert_opts, output, NULL) == ERR_OK) {
-            verify_output(ffprobe, output, 1, 1);
+            verify_output(ffprobe, output, 1, 1, 2);
             verify_subtitle(ffmpeg, dir, output);
         } else {
             expect(0, "MOV replacement mux succeeds");
+        }
+        {
+            ConverterCallbacks callbacks = {0};
+            callbacks.on_message = capture_message;
+            /* Exercise suffix-based timing arguments without requiring an
+             * additional encoder; mkvmerge identifies the container by content. */
+            snprintf(path, sizeof(path), "%s/replacement.h264", dir);
+            expect(link(opts.video_track_file, path) == 0,
+                   "create replacement alias that requests forced FPS");
+            snprintf(opts.video_track_file, sizeof(opts.video_track_file), "%s", path);
+            snprintf(opts.output_file, sizeof(opts.output_file),
+                     "%s/output_forced_duration.mkv", dir);
+            if (mux_run_postprocess(&opts, &convert_opts, &callbacks) == ERR_OK)
+                verify_output(ffprobe, opts.output_file, 0, 1, 2);
+            else
+                expect(0, "replacement mux preserves rational forced FPS");
+            expect(quoted_timing_seen, "complete track/rational-FPS argument is shell quoted");
+            snprintf(opts.video_track_file, sizeof(opts.video_track_file),
+                     "%s/replacement.mkv", dir);
+        }
+        {
+            char cmd[4096];
+            char *quoted = platform_escape_path_for_command(ffmpeg);
+            expect(quoted != NULL, "quote subtitle-removal tool");
+            if (quoted) {
+                snprintf(cmd, sizeof(cmd),
+                         "%s -hide_banner -loglevel error -nostdin -y "
+                         "-i '%s/source.mkv' -map 0 -map -0:s -c copy "
+                         "'%s/source_without_subtitles.mkv'", quoted, dir, dir);
+                free(quoted);
+                expect(system(cmd) == 0, "create source without subtitles");
+                snprintf(opts.intermediate_file, sizeof(opts.intermediate_file),
+                         "%s/source_without_subtitles.mkv", dir);
+                snprintf(output, sizeof(output), "%s/output_without_subtitles.mov", dir);
+                if (mux_run_postprocess_for_preset(&opts, &convert_opts,
+                                                  output, NULL) == ERR_OK)
+                    verify_output(ffprobe, output, 1, 1, 0);
+                else
+                    expect(0, "MOV replacement mux without subtitles succeeds");
+            }
         }
         {
             char cmd[4096];
@@ -277,9 +336,32 @@ int main(void)
                 snprintf(opts.output_file, sizeof(opts.output_file),
                          "%s/output_without_title.mkv", dir);
                 if (mux_run_postprocess(&opts, &convert_opts, NULL) == ERR_OK)
-                    verify_output(ffprobe, opts.output_file, 0, 0);
+                    verify_output(ffprobe, opts.output_file, 0, 0, 2);
                 else
                     expect(0, "replacement mux with untitled source succeeds");
+            }
+        }
+        {
+            char cmd[4096];
+            char *quoted = platform_escape_path_for_command(ffmpeg);
+            ConverterCallbacks callbacks = {0};
+            callbacks.on_message = capture_message;
+            expect(quoted != NULL, "quote language-fixture tool");
+            if (quoted) {
+                snprintf(cmd, sizeof(cmd),
+                         "%s -hide_banner -loglevel error -nostdin -y "
+                         "-i '%s/source.mkv' -map 0 -c copy "
+                         "-metadata:s:v:0 'language=eng; printf LANGUAGE_INJECTION_EXECUTED; #' "
+                         "'%s/source_malicious_language.mkv'", quoted, dir, dir);
+                free(quoted);
+                expect(system(cmd) == 0, "create source with malicious language metadata");
+                snprintf(opts.intermediate_file, sizeof(opts.intermediate_file),
+                         "%s/source_malicious_language.mkv", dir);
+                snprintf(opts.output_file, sizeof(opts.output_file),
+                         "%s/output_malicious_language.mkv", dir);
+                expect(mux_run_postprocess(&opts, &convert_opts, &callbacks) != ERR_OK,
+                       "mkvmerge rejects invalid language as one literal argument");
+                expect(!language_injection_seen, "language metadata cannot execute shell commands");
             }
         }
     }
