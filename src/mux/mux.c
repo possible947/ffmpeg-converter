@@ -244,6 +244,52 @@ static int probe_source_metadata(const char* ffprobe_bin, const char* input_file
     return 1;
 }
 
+static int probe_attachment_presence(const char *ffprobe_bin,
+                                     const char *input_file)
+{
+    char command[8192];
+    char quoted_tool[2048];
+    char quoted_input[2048];
+    char line[256];
+    json_t *document;
+    json_t *streams;
+    json_t *stream;
+    FILE *pipe;
+    size_t index;
+    int status;
+    int found = 0;
+
+    if (!ffprobe_bin || !ffprobe_bin[0] || !input_file || !input_file[0])
+        return -1;
+    platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
+    platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
+    status = snprintf(command, sizeof(command),
+                      "%s -v error -show_entries stream=codec_type -of json %s %s",
+                      quoted_tool, quoted_input, platform_null_redirect());
+    if (status < 0 || (size_t)status >= sizeof(command))
+        return -1;
+    pipe = mux_platform_popen(command, "r");
+    if (!pipe)
+        return -1;
+    document = json_loadf(pipe, 0, NULL);
+    while (fgets(line, sizeof(line), pipe)) {}
+    status = platform_pclose_exitcode(pipe);
+    streams = json_object_get(document, "streams");
+    if (status != 0 || !json_is_array(streams)) {
+        json_decref(document);
+        return -1;
+    }
+    json_array_foreach(streams, index, stream) {
+        const char *type = json_string_value(json_object_get(stream, "codec_type"));
+        if (type && strcmp(type, "attachment") == 0) {
+            found = 1;
+            break;
+        }
+    }
+    json_decref(document);
+    return found;
+}
+
 static int validate_mux_output(const char* ffprobe_bin, const char* output_file)
 {
     char cmd[8192];
@@ -483,6 +529,7 @@ ConverterError mux_run_postprocess(
 static ConverterError mux_remux_container(const char* input_file,
                                           const char* output_file,
                                           const char* container_fmt,
+                                          const MuxPolicy *policy,
                                           const ConverterCallbacks* callbacks)
 {
     const char* ffmpeg_bin = platform_get_ffmpeg_bin();
@@ -491,29 +538,42 @@ static ConverterError mux_remux_container(const char* input_file,
     char quoted_tool[2048];
     char quoted_input[2048];
     char quoted_output[2048];
+    const char *metadata_args = "";
+    const char *chapter_args = "";
+    const char *mov_metadata_args = "";
     int written;
 
+    if (!policy)
+        return ERR_INVALID_OPTIONS;
     if (!ffmpeg_bin || ffmpeg_bin[0] == '\0') {
         emit_error(callbacks, "post-mux failed: ffmpeg not found", ERR_INVALID_OPTIONS);
         return ERR_INVALID_OPTIONS;
     }
 
-    if (!subtitle_preservation_build(input_file, MUX_CONTAINER_MOV,
+    subtitle_args[0] = '\0';
+    if (policy->preserve_subtitles_when_supported &&
+        !subtitle_preservation_build(input_file, policy->container,
                                      subtitle_args, sizeof(subtitle_args), callbacks)) {
         emit_error(callbacks, "post-mux failed: could not probe source subtitles",
                    ERR_FFPROBE_FAILED);
         return ERR_FFPROBE_FAILED;
     }
+    if (policy->metadata_action == MUX_STREAM_PRESERVE) {
+        metadata_args = "-map_metadata 0 ";
+        mov_metadata_args = "-movflags use_metadata_tags ";
+    }
+    if (policy->chapter_action == MUX_STREAM_PRESERVE)
+        chapter_args = "-map_chapters 0 ";
 
     platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
     platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
     platform_shell_quote(output_file, quoted_output, sizeof(quoted_output));
 
     written = snprintf(cmd, sizeof(cmd),
-                       "%s -y -nostdin -i %s -map 0:v:0 -map 0:a? "
-                       "-map_metadata 0 -map_chapters 0 -c copy %s"
-                       "-movflags use_metadata_tags -f %s %s 2>&1",
-                       quoted_tool, quoted_input, subtitle_args,
+                       "%s -y -nostdin -i %s -map 0:v:0 -map 0:a? %s%s"
+                       "-c copy %s%s-f %s %s 2>&1",
+                       quoted_tool, quoted_input, metadata_args, chapter_args,
+                       subtitle_args, mov_metadata_args,
                        container_fmt, quoted_output);
     if (written < 0 || (size_t)written >= sizeof(cmd)) {
         emit_error(callbacks, "post-mux failed: container remux command is too long",
@@ -544,6 +604,7 @@ ConverterError mux_run_postprocess_for_preset(
     MuxBuildProfile profile;
     MuxPolicy policy;
     const char* preset;
+    int has_attachments;
     char policy_error[256];
     char temp_mkv[1200];
     ConverterError err;
@@ -563,6 +624,19 @@ ConverterError mux_run_postprocess_for_preset(
                    policy_error[0] != '\0' ? policy_error : "invalid mux build profile",
                    ERR_INVALID_OPTIONS);
         return ERR_INVALID_OPTIONS;
+    }
+    if (policy.attachment_action == MUX_STREAM_DROP) {
+        has_attachments = probe_attachment_presence(
+            platform_get_ffprobe_bin(), opts->intermediate_file);
+        if (has_attachments < 0) {
+            emit_error(callbacks,
+                       "post-mux failed: could not verify attachment handling",
+                       ERR_FFPROBE_FAILED);
+            return ERR_FFPROBE_FAILED;
+        }
+        if (has_attachments)
+            emit_message(callbacks,
+                         "Warning: input attachments are dropped by the selected output container.");
     }
     local_opts = *opts;
 
@@ -585,7 +659,8 @@ ConverterError mux_run_postprocess_for_preset(
         return err;
 
     if (policy.container == MUX_CONTAINER_MOV) {
-        err = mux_remux_container(temp_mkv, final_output_file, "mov", callbacks);
+        err = mux_remux_container(temp_mkv, final_output_file, "mov",
+                                  &policy, callbacks);
     } else if (policy.container == MUX_CONTAINER_M4V) {
         M4VOptions m4v_opts;
         char detail[256];
@@ -594,6 +669,8 @@ ConverterError mux_run_postprocess_for_preset(
         m4v_default_options(&m4v_opts);
         m4v_opts.audio_mode = policy.audio_mode == MUX_AUDIO_AAC
                                   ? 1 : 0;
+        m4v_opts.add_chapters =
+            policy.chapter_action == MUX_STREAM_PRESERVE;
         detail[0] = '\0';
         err = m4v_create_from_input(temp_mkv, final_output_file, &m4v_opts,
                                    opts->overwrite, NULL, callbacks,

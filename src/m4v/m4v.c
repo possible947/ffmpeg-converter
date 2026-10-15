@@ -1,6 +1,7 @@
 #include "m4v.h"
 #include "m4v_platform.h"
 #include "converter_platform.h"
+#include "subtitle_preservation.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -362,6 +363,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     char ac3_mp4[1200];
     char disposition_m4v[1200];
     char chapters_m4v[1200];
+    char subtitles_m4v[1200];
     char quoted_tool[2048];
     char quoted_input[2048];
     char quoted_output[2048];
@@ -370,6 +372,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     char quoted_ac3[2048];
     char quoted_disposition_m4v[2048];
     char quoted_chapters_m4v[2048];
+    char quoted_subtitles_m4v[2048];
     char quoted_video_add[4096];
     char quoted_aac_add[4096];
     char quoted_ac3_add[4096];
@@ -438,6 +441,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     snprintf(ac3_mp4, sizeof(ac3_mp4), "%s/audio_ac3.mp4", work_dir);
     snprintf(disposition_m4v, sizeof(disposition_m4v), "%s/with_disposition.m4v", work_dir);
     snprintf(chapters_m4v, sizeof(chapters_m4v), "%s/with_chapters.m4v", work_dir);
+    snprintf(subtitles_m4v, sizeof(subtitles_m4v), "%s/with_subtitles.m4v", work_dir);
 
     fps = probe_fps_for_input(ffprobe_bin, input_file);
     lang = local_opts.audio_lang[0] != '\0' ? local_opts.audio_lang : "rus";
@@ -642,6 +646,53 @@ ConverterError m4v_create_from_input(const char *input_file,
         } else if (rc != -2) {
             m4v_platform_unlink(chapters_m4v);
             emit_message(callbacks, "Apple M4V chapters warning: chapter import failed");
+        }
+    }
+
+    {
+        char subtitle_args[8192];
+        if (!subtitle_preservation_build_from_input(input_file, 1,
+                                                    MUX_CONTAINER_M4V,
+                                                    subtitle_args,
+                                                    sizeof(subtitle_args),
+                                                    callbacks)) {
+            copy_string(error_text, error_text_sz,
+                        "Apple M4V subtitle policy could not be resolved");
+            emit_error(callbacks, "Apple M4V subtitle policy could not be resolved",
+                       ERR_FFPROBE_FAILED);
+            m4v_platform_remove_temp_dir(work_dir);
+            return ERR_FFPROBE_FAILED;
+        }
+        m4v_platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
+        m4v_platform_shell_quote(output_file, quoted_output, sizeof(quoted_output));
+        m4v_platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
+        m4v_platform_shell_quote(subtitles_m4v, quoted_subtitles_m4v,
+                                 sizeof(quoted_subtitles_m4v));
+        emit_stage(callbacks, "Apple M4V metadata and subtitle preservation");
+        snprintf(cmd, sizeof(cmd),
+                 "%s -y -nostdin -i %s -i %s -map 0 "
+                 "-map_metadata 1 -map_metadata:s:v:0 1:s:v:%d -map_chapters 0 "
+                 "-c copy %s -f mp4 %s 2>&1",
+                 quoted_tool, quoted_output, quoted_input,
+                 local_opts.video_track_index, subtitle_args,
+                 quoted_subtitles_m4v);
+        rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
+        if (rc != 0) {
+            m4v_platform_unlink(subtitles_m4v);
+            copy_string(error_text, error_text_sz,
+                        rc == -2 ? "Stopped" : "Apple M4V metadata remux failed");
+            m4v_platform_remove_temp_dir(work_dir);
+            return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
+        }
+        if (rename(subtitles_m4v, output_file) != 0) {
+            if (!copy_file_binary(subtitles_m4v, output_file)) {
+                m4v_platform_unlink(subtitles_m4v);
+                copy_string(error_text, error_text_sz,
+                            "Apple M4V metadata: could not finalize output");
+                m4v_platform_remove_temp_dir(work_dir);
+                return ERR_UNKNOWN;
+            }
+            m4v_platform_unlink(subtitles_m4v);
         }
     }
 

@@ -59,68 +59,101 @@ static void test_normative_mux_matrix(void)
 {
     MuxPolicy policy;
     const char *extension;
+    int prores_copy_resolved;
 
-    CHECK(resolve(MUX_MODE_COPY, NULL, MUX_VIDEO_H264,
-                  MUX_VIDEO_UNKNOWN, &policy) &&
-          policy.container == MUX_CONTAINER_MKV,
-          "MUX-T001: Copy H.264 routes to MKV");
-    extension = mux_container_extension(policy.container);
-    CHECK(extension && strcmp(extension, "mkv") == 0,
-          "MUX-T002: Copy H.264 uses the Policy MKV extension");
-    CHECK(resolve(MUX_MODE_COPY, NULL, MUX_VIDEO_HEVC,
-                  MUX_VIDEO_UNKNOWN, &policy) &&
-          policy.container == MUX_CONTAINER_MKV,
-          "MUX-T003: Copy HEVC routes to MKV");
-    CHECK(resolve(MUX_MODE_COPY, NULL, MUX_VIDEO_PRORES,
-                  MUX_VIDEO_UNKNOWN, &policy) &&
-          policy.container == MUX_CONTAINER_MOV,
-          "MUX-T004: Copy ProRes routes to MOV");
-    extension = mux_container_extension(policy.container);
-    CHECK(extension && strcmp(extension, "mov") == 0,
-          "MUX-T005: Copy ProRes uses the Policy MOV extension");
-    CHECK(resolve(MUX_MODE_COPY, NULL, MUX_VIDEO_H264,
-                  MUX_VIDEO_UNKNOWN, &policy) &&
-          policy.audio_mode == MUX_AUDIO_PCM &&
-          policy.audio_action == MUX_STREAM_CONVERT,
-          "Copy mode retains the canonical PCM audio default");
-    CHECK(!policy.requires_add_track &&
-          !policy.requires_video_replacement &&
-          policy.video_action == MUX_STREAM_PRESERVE,
-          "MUX-T007: Copy preserves video without Add Track");
-    CHECK(resolve(MUX_MODE_MKV, NULL, MUX_VIDEO_UNKNOWN,
+    CHECK(resolve(MUX_MODE_MKV, "copy", MUX_VIDEO_UNKNOWN,
                   MUX_VIDEO_H264, &policy) &&
-          policy.audio_mode == MUX_AUDIO_PCM,
-          "MUX-T008: MKV uses the canonical PCM default");
-    CHECK(resolve(MUX_MODE_M4V, NULL, MUX_VIDEO_UNKNOWN,
-                  MUX_VIDEO_H264, &policy) &&
-          policy.audio_mode == MUX_AUDIO_AAC_AC3,
-          "MUX-T009: M4V uses the canonical AAC+AC3 default");
-    CHECK(!resolve(MUX_MODE_MOV, "aac", MUX_VIDEO_UNKNOWN,
-                   MUX_VIDEO_H264, &policy),
-          "MUX-T010: MOV rejects unsupported replacement audio");
-    CHECK(!resolve(MUX_MODE_M4V, "pcm", MUX_VIDEO_UNKNOWN,
-                   MUX_VIDEO_H264, &policy),
-          "MUX-T011: M4V rejects PCM audio");
+          policy.audio_track_policy == MUX_AUDIO_TRACK_ALL,
+          "MUX-T001: Audio Copy preserves all source tracks");
     CHECK(resolve(MUX_MODE_MKV, "pcm", MUX_VIDEO_UNKNOWN,
                   MUX_VIDEO_H264, &policy) &&
-          policy.requires_add_track && policy.requires_video_replacement,
-          "MUX-T012: Replacement modes require Add Track and replacement video");
-    CHECK(policy.video_action == MUX_STREAM_CONVERT &&
-          policy.audio_action == MUX_STREAM_CONVERT,
-          "MUX-T013: Replacement video and PCM audio are marked for conversion");
+          policy.audio_track_policy == MUX_AUDIO_TRACK_FIRST,
+          "MUX-T002: PCM uses the first source audio track");
+    CHECK(resolve(MUX_MODE_MKV, "aac", MUX_VIDEO_UNKNOWN,
+                  MUX_VIDEO_H264, &policy) &&
+          policy.audio_track_policy == MUX_AUDIO_TRACK_FIRST,
+          "MUX-T003: AAC uses the first source audio track");
+    CHECK(resolve(MUX_MODE_MKV, "aac+ac3", MUX_VIDEO_UNKNOWN,
+                  MUX_VIDEO_H264, &policy) &&
+          policy.audio_track_policy == MUX_AUDIO_TRACK_FIRST,
+          "MUX-T004: AAC+AC3 uses the first source audio track");
+    CHECK(!resolve(MUX_MODE_MOV, "copy", MUX_VIDEO_UNKNOWN,
+                   MUX_VIDEO_H264, &policy),
+          "MUX-T005: MOV rejects invalid audio");
+    CHECK(!resolve(MUX_MODE_M4V, "pcm", MUX_VIDEO_UNKNOWN,
+                   MUX_VIDEO_H264, &policy),
+          "MUX-T006: M4V rejects invalid audio");
+    CHECK(!resolve(MUX_MODE_M4V, "aac", MUX_VIDEO_UNKNOWN,
+                   MUX_VIDEO_PRORES, &policy),
+          "MUX-T007: M4V rejects ProRes replacement tracks");
+    CHECK(resolve(MUX_MODE_MOV, "pcm", MUX_VIDEO_UNKNOWN,
+                  MUX_VIDEO_PRORES, &policy) &&
+          resolve(MUX_MODE_MOV, "pcm", MUX_VIDEO_UNKNOWN,
+                  MUX_VIDEO_H264, &policy) &&
+          resolve(MUX_MODE_MOV, "pcm", MUX_VIDEO_UNKNOWN,
+                  MUX_VIDEO_HEVC, &policy),
+          "MUX-T008: MOV accepts ProRes, H.264, and HEVC");
+    CHECK(resolve(MUX_MODE_MKV, "pcm", MUX_VIDEO_UNKNOWN,
+                  MUX_VIDEO_PRORES, &policy),
+          "MUX-T009: MKV accepts ProRes replacement tracks");
+    prores_copy_resolved = resolve(MUX_MODE_COPY, "pcm", MUX_VIDEO_PRORES,
+                                   MUX_VIDEO_UNKNOWN, &policy);
+    CHECK(prores_copy_resolved &&
+          policy.container == MUX_CONTAINER_MOV,
+          "MUX-T010: Copy routes ProRes to MOV");
+    if (prores_copy_resolved && policy.container == MUX_CONTAINER_MOV) {
+        extension = mux_container_extension(policy.container);
+        CHECK(extension && strcmp(extension, "mov") == 0,
+              "Copy ProRes uses the Policy MOV extension");
+    }
+    CHECK(resolve(MUX_MODE_COPY, "pcm", MUX_VIDEO_H264,
+                  MUX_VIDEO_UNKNOWN, &policy) &&
+          policy.container == MUX_CONTAINER_MKV,
+          "MUX-T011: Copy routes H.264 to MKV");
+    CHECK(resolve(MUX_MODE_COPY, "pcm", MUX_VIDEO_HEVC,
+                  MUX_VIDEO_UNKNOWN, &policy) &&
+          policy.container == MUX_CONTAINER_MKV,
+          "Copy routes HEVC to MKV");
     CHECK(policy.chapter_action == MUX_STREAM_PRESERVE,
-          "MUX-T014: Chapters have an explicit preserve action");
-    CHECK(policy.metadata_action == MUX_STREAM_PRESERVE,
-          "MUX-T015: Metadata has an explicit preserve action");
-    CHECK(policy.language_action == MUX_STREAM_PRESERVE &&
+          "Policy explicitly preserves chapters");
+    CHECK(policy.metadata_action == MUX_STREAM_PRESERVE &&
+          policy.language_action == MUX_STREAM_PRESERVE &&
           policy.disposition_action == MUX_STREAM_PRESERVE,
-          "MUX-T016: Language and disposition flags have explicit preserve actions");
+          "Policy explicitly preserves metadata, language, and dispositions");
     CHECK(policy.attachment_action == MUX_STREAM_PRESERVE,
-          "MUX-T017: MKV explicitly preserves attachments");
+          "MKV explicitly preserves attachments");
     CHECK(resolve(MUX_MODE_MOV, "pcm", MUX_VIDEO_UNKNOWN,
                   MUX_VIDEO_H264, &policy) &&
-          policy.attachment_action == MUX_STREAM_REJECT,
-          "MUX-T018: MOV explicitly rejects unsupported attachments");
+          policy.attachment_action == MUX_STREAM_DROP,
+          "MOV explicitly drops unsupported attachments");
+    {
+        MuxBuildProfile profile;
+        char error[128];
+        MuxAudioMode modes[4];
+        MuxVideoCodec mixed_sources[] = {MUX_VIDEO_H264, MUX_VIDEO_PRORES};
+        size_t mode_count;
+        CHECK(mux_build_profile_default(&profile) &&
+              mux_policy_resolve_hq(&profile, MUX_VIDEO_PRORES, NULL,
+                                    &policy, error, sizeof(error)) &&
+              policy.mode == MUX_MODE_MOV &&
+              policy.audio_mode == MUX_AUDIO_PCM,
+              "MUX-T014: HQ ProRes resolves to MOV with PCM audio");
+        CHECK(mux_build_profile_default(&profile) &&
+              mux_policy_resolve_hq(&profile, MUX_VIDEO_H264, NULL,
+                                    &policy, error, sizeof(error)) &&
+              policy.mode == MUX_MODE_MKV,
+              "MUX-T015: HQ non-ProRes resolves to MKV");
+        mode_count = mux_policy_list_audio_modes(
+            &profile, MUX_MODE_COPY, mixed_sources, 2, MUX_VIDEO_UNKNOWN,
+            modes, sizeof(modes) / sizeof(modes[0]));
+        CHECK(mode_count == 1 && modes[0] == MUX_AUDIO_PCM,
+              "MUX-T016: shared Policy exposes only modes valid for every queued source");
+        CHECK(mux_policy_list_audio_modes(
+                  &profile, MUX_MODE_M4V, NULL, 0, MUX_VIDEO_UNKNOWN,
+                  modes, sizeof(modes) / sizeof(modes[0])) == 2 &&
+              modes[0] == MUX_AUDIO_AAC_AC3 && modes[1] == MUX_AUDIO_AAC,
+              "MUX-T017: GUI audio choices use shared M4V Policy defaults and constraints");
+    }
 }
 
 int main(void)

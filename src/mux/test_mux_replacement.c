@@ -166,12 +166,13 @@ static void verify_output(const char *ffprobe, const char *path, int mov,
         }
     }
     expect(video == 1, "one replacement video");
-    expect(audio == 2, "all source audio tracks, no replacement audio");
-    expect(subtitles == expected_subtitles, "all source subtitles, no replacement subtitles");
+    expect(audio == 2, "MUX-T001: all source audio tracks, no replacement audio");
+    expect(subtitles == expected_subtitles,
+           "MUX-T013: supported source subtitles survive without replacement subtitles");
     expect(attachments == (mov ? 0 : 1),
            "only source attachment in MKV; incompatible attachment omitted in MOV");
     expect(json_array_size(json_object_get(data, "chapters")) == 1,
-           "only source chapter preserved");
+           "MUX-T012: only source chapter preserved");
     text = json_dumps(data, JSON_COMPACT);
     expect(text != NULL, "serialize output probe");
     if (text) {
@@ -274,11 +275,15 @@ int main(void)
         snprintf(opts.video_track_file, sizeof(opts.video_track_file), "%s/replacement.mkv", dir);
         snprintf(opts.output_file, sizeof(opts.output_file), "%s/output.mkv", dir);
         opts.overwrite = 1;
-        if (mux_run_postprocess(&opts, &convert_opts, NULL) == ERR_OK) {
-            verify_output(ffprobe, opts.output_file, 0, 1, 2, 1, "eng");
-            verify_subtitle(ffmpeg, dir, opts.output_file);
-        } else {
-            expect(0, "MKV replacement mux succeeds");
+        {
+            ConverterError mux_result =
+                mux_run_postprocess(&opts, &convert_opts, NULL);
+            expect(mux_result == ERR_OK,
+                   "MUX-T018: existing MKV replacement workflow succeeds");
+            if (mux_result == ERR_OK) {
+                verify_output(ffprobe, opts.output_file, 0, 1, 2, 1, "eng");
+                verify_subtitle(ffmpeg, dir, opts.output_file);
+            }
         }
         snprintf(convert_opts.preset, sizeof(convert_opts.preset), "mov");
         snprintf(convert_opts.audio_output_mode, sizeof(convert_opts.audio_output_mode), "pcm");

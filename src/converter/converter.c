@@ -91,9 +91,15 @@ static int resolve_mux_output_policy(const char *input,
 
     if (strcmp(opts->codec, "copy") == 0) {
         InputVideoInfo info;
-        if (input_video_info_probe(input, &info))
-            source_codec = mux_video_codec_parse(info.codec_name);
-        mode = MUX_MODE_COPY;
+        if (!input_video_info_probe(input, &info))
+            return 0;
+        source_codec = mux_video_codec_parse(info.codec_name);
+        if (opts->preset[0] == '\0' || strcmp(opts->preset, "default") == 0)
+            mode = MUX_MODE_COPY;
+        else
+            mode = mux_mode_parse(opts->preset);
+        if (mode == MUX_MODE_INVALID)
+            return 0;
     } else if (strcmp(opts->codec, "mux") == 0) {
         mode = mux_mode_parse(opts->preset[0] ? opts->preset : "mkv");
     } else {
@@ -108,8 +114,8 @@ static int resolve_mux_output_policy(const char *input,
 static int input_has_attachment_stream(const char *input)
 {
     const char *ffprobe = platform_get_ffprobe_bin();
-    char quoted_tool[2048];
-    char quoted_input[2048];
+    char *quoted_tool;
+    char *quoted_input;
     char command[8192];
     char line[128];
     FILE *pipe;
@@ -118,12 +124,19 @@ static int input_has_attachment_stream(const char *input)
 
     if (!input || !ffprobe || !ffprobe[0])
         return -1;
-    platform_shell_quote(ffprobe, quoted_tool, sizeof(quoted_tool));
-    platform_shell_quote(input, quoted_input, sizeof(quoted_input));
+    quoted_tool = platform_escape_path_for_command(ffprobe);
+    quoted_input = platform_escape_path_for_command(input);
+    if (!quoted_tool || !quoted_input) {
+        free(quoted_tool);
+        free(quoted_input);
+        return -1;
+    }
     status = snprintf(command, sizeof(command),
                       "%s -v error -select_streams t -show_entries stream=index "
-                      "-of csv=p=0 %s %s",
-                      quoted_tool, quoted_input, platform_null_redirect());
+                      "-of csv=p=0 %s 2>%s",
+                      quoted_tool, quoted_input, platform_get_null_device());
+    free(quoted_tool);
+    free(quoted_input);
     if (status < 0 || (size_t)status >= sizeof(command))
         return -1;
 
@@ -562,11 +575,22 @@ static void build_ffmpeg_cmd(
 ) {
     const ConvertOptions* opts = &c->opts;
     const char* ffmpeg_bin = get_ffmpeg_bin();
+    MuxPolicy copy_policy;
+    int have_copy_policy = 0;
 
     /* Resolve audio mode and encoder capabilities via the audio module */
     AudioOutputMode audio_mode = audio_output_mode_parse(opts->audio_output_mode);
     if (audio_mode == AUDIO_MODE_INVALID)
         audio_mode = AUDIO_MODE_PCM; /* default fallback */
+    if (strcmp(opts->codec, "copy") == 0) {
+        if (!resolve_mux_output_policy(input, opts, &copy_policy)) {
+            if (c->cb.on_error)
+                c->cb.on_error("Copy mode policy resolution failed", ERR_INVALID_OPTIONS);
+            cmd_out[0] = '\0';
+            return;
+        }
+        have_copy_policy = 1;
+    }
 
     AudioEncoderCaps caps;
     audio_probe_encoders(&caps);
@@ -578,6 +602,9 @@ static void build_ffmpeg_cmd(
     AudioTrackPolicy track_policy = AUDIO_TRACK_POLICY_FIRST;
     if (cfg_ok)
         track_policy = audio_cfg.track_policy;
+    if (have_copy_policy)
+        track_policy = copy_policy.audio_track_policy == MUX_AUDIO_TRACK_ALL
+                           ? AUDIO_TRACK_POLICY_ALL : AUDIO_TRACK_POLICY_FIRST;
 
     /* For use_aac_for_h265 path: resolve separately */
     int is_dual_audio_output = cfg_ok && audio_cfg.is_dual_output;
@@ -618,8 +645,6 @@ static void build_ffmpeg_cmd(
 
     InputVideoInfo input_info;
     int have_input_info = input_video_info_probe(input, &input_info);
-    MuxPolicy copy_policy;
-    int have_copy_policy = 0;
     int selected_10bit = codec_is_10bit(opts->codec);
     int output_hw = codec_is_vaapi(opts->codec) || codec_is_qsv(opts->codec) ||
                     codec_is_nvenc(opts->codec) || codec_is_amf(opts->codec) ||
@@ -635,24 +660,19 @@ static void build_ffmpeg_cmd(
         c->cb.on_message("Input video bit depth is unknown; using the selected encoder format.");
     if (strcmp(opts->codec, "copy") == 0) {
         int has_attachments;
-        if (!resolve_mux_output_policy(input, opts, &copy_policy)) {
-            if (c->cb.on_error)
-                c->cb.on_error("Copy mode policy resolution failed", ERR_INVALID_OPTIONS);
-            cmd_out[0] = '\0';
-            return;
-        }
-        have_copy_policy = 1;
         has_attachments = input_has_attachment_stream(input);
-        if (copy_policy.attachment_action == MUX_STREAM_REJECT &&
-            has_attachments != 0) {
+        if (copy_policy.attachment_action == MUX_STREAM_DROP &&
+            has_attachments < 0) {
             if (c->cb.on_error)
-                c->cb.on_error(has_attachments < 0
-                                   ? "Cannot verify attachment compatibility for Copy mode"
-                                   : "Copy mode output container cannot preserve input attachments",
+                c->cb.on_error("Cannot verify attachment compatibility for Copy mode",
                                ERR_INVALID_OPTIONS);
             cmd_out[0] = '\0';
             return;
         }
+        if (copy_policy.attachment_action == MUX_STREAM_DROP && has_attachments &&
+            c->cb.on_message)
+            c->cb.on_message(
+                "Warning: input attachments are dropped by the selected output container.");
     }
 
     /* Shell-safe escaped versions of all user-provided paths */
@@ -785,7 +805,10 @@ static void build_ffmpeg_cmd(
         if (cmd_cat(cmd, sizeof(cmd), &pos, subtitle_args) < 0)
             goto overflow;
     }
-    if (cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0) goto overflow;
+    if ((!have_copy_policy ||
+         copy_policy.metadata_action == MUX_STREAM_PRESERVE) &&
+        cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0)
+        goto overflow;
     if (have_copy_policy && copy_policy.chapter_action == MUX_STREAM_PRESERVE &&
         cmd_cat(cmd, sizeof(cmd), &pos, "-map_chapters 0 ") < 0) goto overflow;
     if (have_copy_policy && copy_policy.attachment_action == MUX_STREAM_PRESERVE &&
@@ -1058,6 +1081,22 @@ ConverterError converter_process_files(
 ) {
     if (!c || !files || file_count <= 0)
         return ERR_INVALID_OPTIONS;
+
+    if (strcmp(c->opts.codec, "copy") == 0) {
+        int i;
+        for (i = 0; i < file_count; ++i) {
+            MuxPolicy policy;
+            ConverterError file_error = check_file(c, files[i]);
+            if (file_error != ERR_OK)
+                return file_error;
+            if (!resolve_mux_output_policy(files[i], &c->opts, &policy)) {
+                if (c->cb.on_error)
+                    c->cb.on_error("Copy mode policy validation failed",
+                                   ERR_INVALID_OPTIONS);
+                return ERR_INVALID_OPTIONS;
+            }
+        }
+    }
 
     c->stop_flag = 0;
 

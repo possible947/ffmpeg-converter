@@ -46,6 +46,11 @@ typedef enum {
 } MuxAudioMode;
 
 typedef enum {
+    MUX_AUDIO_TRACK_FIRST = 0,
+    MUX_AUDIO_TRACK_ALL
+} MuxAudioTrackPolicy;
+
+typedef enum {
     MUX_VIDEO_UNKNOWN = 0,
     MUX_VIDEO_PRORES,
     MUX_VIDEO_H264,
@@ -75,6 +80,7 @@ typedef struct {
     MuxMode mode;
     MuxContainer container;
     MuxAudioMode audio_mode;
+    MuxAudioTrackPolicy audio_track_policy;
     int audio_mode_was_defaulted;
     int requires_add_track;
     int requires_video_replacement;
@@ -116,6 +122,19 @@ int mux_policy_resolve(const MuxBuildProfile *profile,
                        MuxPolicy *policy,
                        char *error,
                        size_t error_size);
+int mux_policy_resolve_hq(const MuxBuildProfile *profile,
+                          MuxVideoCodec replacement_video_codec,
+                          const char *audio_mode,
+                          MuxPolicy *policy,
+                          char *error,
+                          size_t error_size);
+size_t mux_policy_list_audio_modes(const MuxBuildProfile *profile,
+                                   MuxMode mode,
+                                   const MuxVideoCodec *source_video_codecs,
+                                   size_t source_count,
+                                   MuxVideoCodec replacement_video_codec,
+                                   MuxAudioMode *audio_modes,
+                                   size_t audio_modes_capacity);
 
 const char *mux_mode_name(MuxMode mode);
 const char *mux_container_name(MuxContainer container);

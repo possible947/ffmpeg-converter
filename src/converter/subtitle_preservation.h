@@ -8,5 +8,11 @@
 int subtitle_preservation_build(const char *input, MuxContainer container,
                                 char *args, size_t args_size,
                                 const ConverterCallbacks *callbacks);
+int subtitle_preservation_build_from_input(const char *input,
+                                           unsigned int input_index,
+                                           MuxContainer container,
+                                           char *args,
+                                           size_t args_size,
+                                           const ConverterCallbacks *callbacks);
 
 #endif
