@@ -54,6 +54,13 @@ typedef enum {
 } MuxVideoCodec;
 
 typedef enum {
+    MUX_STREAM_PRESERVE = 0,
+    MUX_STREAM_CONVERT,
+    MUX_STREAM_DROP,
+    MUX_STREAM_REJECT
+} MuxStreamAction;
+
+typedef enum {
     MUX_SUBTITLE_COPY = 0,
     MUX_SUBTITLE_CONVERT,
     MUX_SUBTITLE_DROP
@@ -75,6 +82,14 @@ typedef struct {
     int preserve_chapters;
     int preserve_metadata;
     int preserve_subtitles_when_supported;
+    MuxStreamAction video_action;
+    MuxStreamAction audio_action;
+    MuxStreamAction subtitle_action;
+    MuxStreamAction chapter_action;
+    MuxStreamAction metadata_action;
+    MuxStreamAction language_action;
+    MuxStreamAction disposition_action;
+    MuxStreamAction attachment_action;
 } MuxPolicy;
 
 /* Parse canonical profile values ("linux"/"windows"/"macos", "8.1"/"9.0"). */
@@ -104,6 +119,7 @@ int mux_policy_resolve(const MuxBuildProfile *profile,
 
 const char *mux_mode_name(MuxMode mode);
 const char *mux_container_name(MuxContainer container);
+const char *mux_container_extension(MuxContainer container);
 const char *mux_audio_mode_name(MuxAudioMode mode);
 MuxSubtitlePolicy mux_subtitle_policy_resolve(const char *codec,
                                               MuxContainer container);

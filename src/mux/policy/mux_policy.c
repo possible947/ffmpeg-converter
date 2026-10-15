@@ -189,6 +189,17 @@ int mux_policy_resolve(const MuxBuildProfile *profile,
     policy->preserve_chapters = 1;
     policy->preserve_metadata = 1;
     policy->preserve_subtitles_when_supported = 1;
+    policy->video_action = mode == MUX_MODE_COPY
+                               ? MUX_STREAM_PRESERVE : MUX_STREAM_CONVERT;
+    policy->audio_action = resolved_audio == MUX_AUDIO_COPY
+                               ? MUX_STREAM_PRESERVE : MUX_STREAM_CONVERT;
+    policy->subtitle_action = MUX_STREAM_PRESERVE;
+    policy->chapter_action = MUX_STREAM_PRESERVE;
+    policy->metadata_action = MUX_STREAM_PRESERVE;
+    policy->language_action = MUX_STREAM_PRESERVE;
+    policy->disposition_action = MUX_STREAM_PRESERVE;
+    policy->attachment_action = container == MUX_CONTAINER_MKV
+                                    ? MUX_STREAM_PRESERVE : MUX_STREAM_REJECT;
     return 1;
 }
 
@@ -210,6 +221,16 @@ const char *mux_container_name(MuxContainer container)
         case MUX_CONTAINER_MOV: return "mov";
         case MUX_CONTAINER_M4V: return "m4v";
         default: return "invalid";
+    }
+}
+
+const char *mux_container_extension(MuxContainer container)
+{
+    switch (container) {
+        case MUX_CONTAINER_MKV: return "mkv";
+        case MUX_CONTAINER_MOV: return "mov";
+        case MUX_CONTAINER_M4V: return "m4v";
+        default: return NULL;
     }
 }
 

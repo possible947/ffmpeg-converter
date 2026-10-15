@@ -4,6 +4,7 @@
 #include "converter_platform.h"
 #include "input_video_info.h"
 #include "converter_common.h"
+#include "mux_policy.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -73,6 +74,70 @@ static int codec_uses_mov_container(const char* codec) {
             strcmp(codec, "prores_ks") == 0 ||
             strcmp(codec, "prores_videotoolbox") == 0 ||
             strcmp(codec, "prores_ks_vulkan") == 0);
+}
+
+static int resolve_mux_output_policy(const char *input,
+                                     const ConvertOptions *opts,
+                                     MuxPolicy *policy)
+{
+    MuxBuildProfile profile;
+    MuxMode mode;
+    MuxVideoCodec source_codec = MUX_VIDEO_UNKNOWN;
+    const char *audio_mode;
+    char error[128];
+
+    if (!input || !opts || !policy || !mux_build_profile_default(&profile))
+        return 0;
+
+    if (strcmp(opts->codec, "copy") == 0) {
+        InputVideoInfo info;
+        if (input_video_info_probe(input, &info))
+            source_codec = mux_video_codec_parse(info.codec_name);
+        mode = MUX_MODE_COPY;
+    } else if (strcmp(opts->codec, "mux") == 0) {
+        mode = mux_mode_parse(opts->preset[0] ? opts->preset : "mkv");
+    } else {
+        return 0;
+    }
+
+    audio_mode = opts->audio_output_mode[0] ? opts->audio_output_mode : NULL;
+    return mux_policy_resolve(&profile, mode, audio_mode, source_codec,
+                              MUX_VIDEO_UNKNOWN, policy, error, sizeof(error));
+}
+
+static int input_has_attachment_stream(const char *input)
+{
+    const char *ffprobe = platform_get_ffprobe_bin();
+    char quoted_tool[2048];
+    char quoted_input[2048];
+    char command[8192];
+    char line[128];
+    FILE *pipe;
+    int found = 0;
+    int status;
+
+    if (!input || !ffprobe || !ffprobe[0])
+        return -1;
+    platform_shell_quote(ffprobe, quoted_tool, sizeof(quoted_tool));
+    platform_shell_quote(input, quoted_input, sizeof(quoted_input));
+    status = snprintf(command, sizeof(command),
+                      "%s -v error -select_streams t -show_entries stream=index "
+                      "-of csv=p=0 %s %s",
+                      quoted_tool, quoted_input, platform_null_redirect());
+    if (status < 0 || (size_t)status >= sizeof(command))
+        return -1;
+
+    pipe = platform_popen(command, "r");
+    if (!pipe)
+        return -1;
+    while (fgets(line, sizeof(line), pipe)) {
+        if (line[0] != '\0' && strspn(line, "\r\n") != strlen(line)) {
+            found = 1;
+            break;
+        }
+    }
+    status = platform_pclose(pipe);
+    return status == 0 ? found : -1;
 }
 
 /* Convert preset string ("lt", "standard", "hq", "4444", "default") to ffmpeg profile number */
@@ -410,14 +475,11 @@ static void make_output_name(
     }
 
     const char *ext;
-    if (strcmp(opts->codec, "copy") == 0)
-        ext = "mkv";
-    else if (strcmp(opts->codec, "mux") == 0) {
-        if (!strcmp(opts->preset, "mov"))
-            ext = "mov";
-        else if (!strcmp(opts->preset, "m4v"))
-            ext = "m4v";
-        else
+    if (strcmp(opts->codec, "copy") == 0 || strcmp(opts->codec, "mux") == 0) {
+        MuxPolicy policy;
+        ext = resolve_mux_output_policy(input, opts, &policy)
+                  ? mux_container_extension(policy.container) : NULL;
+        if (!ext)
             ext = "mkv";
     }
     else if (strcmp(opts->codec, "hevc_videotoolbox") == 0 ||
@@ -556,6 +618,8 @@ static void build_ffmpeg_cmd(
 
     InputVideoInfo input_info;
     int have_input_info = input_video_info_probe(input, &input_info);
+    MuxPolicy copy_policy;
+    int have_copy_policy = 0;
     int selected_10bit = codec_is_10bit(opts->codec);
     int output_hw = codec_is_vaapi(opts->codec) || codec_is_qsv(opts->codec) ||
                     codec_is_nvenc(opts->codec) || codec_is_amf(opts->codec) ||
@@ -569,6 +633,27 @@ static void build_ffmpeg_cmd(
     }
     if (have_input_info && output_hw && input_info.bit_depth == 0 && c->cb.on_message)
         c->cb.on_message("Input video bit depth is unknown; using the selected encoder format.");
+    if (strcmp(opts->codec, "copy") == 0) {
+        int has_attachments;
+        if (!resolve_mux_output_policy(input, opts, &copy_policy)) {
+            if (c->cb.on_error)
+                c->cb.on_error("Copy mode policy resolution failed", ERR_INVALID_OPTIONS);
+            cmd_out[0] = '\0';
+            return;
+        }
+        have_copy_policy = 1;
+        has_attachments = input_has_attachment_stream(input);
+        if (copy_policy.attachment_action == MUX_STREAM_REJECT &&
+            has_attachments != 0) {
+            if (c->cb.on_error)
+                c->cb.on_error(has_attachments < 0
+                                   ? "Cannot verify attachment compatibility for Copy mode"
+                                   : "Copy mode output container cannot preserve input attachments",
+                               ERR_INVALID_OPTIONS);
+            cmd_out[0] = '\0';
+            return;
+        }
+    }
 
     /* Shell-safe escaped versions of all user-provided paths */
     char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
@@ -687,7 +772,7 @@ static void build_ffmpeg_cmd(
     }
     if (strcmp(opts->codec, "copy") == 0) {
         char subtitle_args[8192];
-        if (!subtitle_preservation_build(input, MUX_CONTAINER_MKV,
+        if (!subtitle_preservation_build(input, copy_policy.container,
                                          subtitle_args, sizeof(subtitle_args), &c->cb)) {
             if (c->cb.on_message)
                 c->cb.on_message("Cannot resolve subtitle preservation policy.");
@@ -701,6 +786,10 @@ static void build_ffmpeg_cmd(
             goto overflow;
     }
     if (cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0) goto overflow;
+    if (have_copy_policy && copy_policy.chapter_action == MUX_STREAM_PRESERVE &&
+        cmd_cat(cmd, sizeof(cmd), &pos, "-map_chapters 0 ") < 0) goto overflow;
+    if (have_copy_policy && copy_policy.attachment_action == MUX_STREAM_PRESERVE &&
+        cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:t? ") < 0) goto overflow;
     if (append_color_metadata(cmd, sizeof(cmd), &pos,
                               have_input_info ? &input_info : NULL) < 0)
         goto overflow;
