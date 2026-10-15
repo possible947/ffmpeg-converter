@@ -1080,13 +1080,17 @@ static void update_dependent_widgets(AppWidgets *w)
         MuxPolicy policy;
         MuxMode mode = mux_mode_parse(encoder);
         char *audio_mode = get_dropdown_text(w->audio_output_combo);
+        char policy_error[256];
         if (mux_build_profile_default(&profile) &&
             !mux_policy_resolve(&profile, mode, audio_mode,
                                 MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
-                                &policy, NULL, 0)) {
+                                &policy, policy_error, sizeof(policy_error))) {
+            /* Audio mode not compatible with this mux container */
             const char *default_mode = mode == MUX_MODE_M4V
                                            ? "fdk_aac_320_ac3_640" : "pcm";
             guint selected = 0;
+            fprintf(stderr, "Audio mode constraint violation: %s (resetting to %s)\n",
+                    policy_error[0] ? policy_error : "unknown error", default_mode);
             if (g_strcmp0(default_mode, "fdk_aac_320_ac3_640") == 0)
                 selected = 3;
             gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo),

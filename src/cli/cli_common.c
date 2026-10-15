@@ -892,7 +892,11 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             strcpy(opts->preset, "default");
     }
 
-    if (!strcmp(opts->codec, "m4v")) {
+    /* Apply M4V policy defaults for both --codec m4v and --codec mux --encoder m4v */
+    int is_m4v_mode = !strcmp(opts->codec, "m4v") ||
+                      (!strcmp(opts->codec, "mux") && 
+                       selection_encoder[0] != '\0' && !strcmp(selection_encoder, "m4v"));
+    if (is_m4v_mode) {
         MuxBuildProfile profile;
         MuxPolicy policy;
         char policy_error[256];
@@ -904,7 +908,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         }
         if (!mux_build_profile_default(&profile) ||
             !mux_policy_resolve(&profile, MUX_MODE_M4V,
-                                opts->audio_output_mode,
+                                audio_output_explicit ? opts->audio_output_mode : NULL,
                                 MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
                                 &policy, policy_error, sizeof(policy_error))) {
             fprintf(stderr, "Error: %s\n",

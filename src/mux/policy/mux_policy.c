@@ -75,9 +75,9 @@ MuxAudioMode mux_audio_mode_parse(const char *value)
         return MUX_AUDIO_COPY;
     if (strcmp(value, "pcm") == 0)
         return MUX_AUDIO_PCM;
-    if (strcmp(value, "fdk_aac_320") == 0)
+    if (strcmp(value, "fdk_aac_320") == 0 || strcmp(value, "aac") == 0)
         return MUX_AUDIO_AAC;
-    if (strcmp(value, "fdk_aac_320_ac3_640") == 0)
+    if (strcmp(value, "fdk_aac_320_ac3_640") == 0 || strcmp(value, "aac+ac3") == 0)
         return MUX_AUDIO_AAC_AC3;
     return MUX_AUDIO_INVALID;
 }
@@ -222,4 +222,40 @@ const char *mux_audio_mode_name(MuxAudioMode mode)
         case MUX_AUDIO_AAC_AC3: return "fdk_aac_320_ac3_640";
         default: return "invalid";
     }
+}
+
+MuxSubtitlePolicy mux_subtitle_policy_resolve(const char *codec,
+                                              MuxContainer container)
+{
+    static const struct {
+        const char *codec;
+        const char *mkv_encoder;
+        const char *mov_encoder;
+    } compatibility[] = {
+        {"mov_text", "srt", "copy"},
+        {"subrip", "copy", "mov_text"},
+        {"ass", "copy", "mov_text"},
+        {"ssa", "copy", "mov_text"},
+        {"webvtt", "copy", "mov_text"},
+        {"hdmv_pgs_subtitle", "copy", NULL},
+        {"dvd_subtitle", "copy", NULL},
+        {"dvb_subtitle", "copy", NULL}
+    };
+    MuxSubtitlePolicy result = {MUX_SUBTITLE_DROP, NULL};
+    size_t i;
+
+    if (!codec || container < MUX_CONTAINER_MKV || container > MUX_CONTAINER_M4V)
+        return result;
+    for (i = 0; i < sizeof(compatibility) / sizeof(compatibility[0]); ++i) {
+        if (strcmp(codec, compatibility[i].codec) == 0) {
+            result.encoder = container == MUX_CONTAINER_MKV
+                                 ? compatibility[i].mkv_encoder
+                                 : compatibility[i].mov_encoder;
+            if (result.encoder)
+                result.action = strcmp(result.encoder, "copy") == 0
+                                    ? MUX_SUBTITLE_COPY : MUX_SUBTITLE_CONVERT;
+            break;
+        }
+    }
+    return result;
 }

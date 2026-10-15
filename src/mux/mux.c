@@ -3,7 +3,9 @@
 #include "converter_platform.h"
 #include "m4v.h"
 #include "mux_policy.h"
+#include "subtitle_preservation.h"
 
+#include <jansson.h>
 #include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -222,6 +224,48 @@ static int probe_video_track_language(const char* ffprobe_bin,
     return lang_out[0] != '\0';
 }
 
+static int probe_container_title(const char* ffprobe_bin, const char* input_file,
+                                 char* title_out, size_t title_out_sz)
+{
+    char cmd[8192];
+    char quoted_tool[2048];
+    char quoted_input[2048];
+    char line[256];
+    const char* title;
+    json_t* data;
+    FILE* fp;
+    int status;
+
+    if (!ffprobe_bin || !ffprobe_bin[0] || !title_out || title_out_sz == 0)
+        return 0;
+    title_out[0] = '\0';
+    platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
+    platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
+    snprintf(cmd, sizeof(cmd),
+             "%s -v error -show_entries format_tags=title -of json %s %s",
+             quoted_tool, quoted_input, platform_null_redirect());
+    fp = mux_platform_popen(cmd, "r");
+    if (!fp)
+        return 0;
+    data = json_loadf(fp, 0, NULL);
+    while (fgets(line, sizeof(line), fp)) {}
+    status = platform_pclose_exitcode(fp);
+    if (!data || status != 0) {
+        json_decref(data);
+        return 0;
+    }
+    title = json_string_value(json_object_get(
+        json_object_get(json_object_get(data, "format"), "tags"), "title"));
+    if (title && strlen(title) >= title_out_sz) {
+        json_decref(data);
+        return 0;
+    }
+    if (title)
+        snprintf(title_out, title_out_sz, "%s", title);
+    json_decref(data);
+    return 1;
+}
+
 static int validate_mux_output(const char* ffprobe_bin, const char* output_file)
 {
     char cmd[8192];
@@ -333,14 +377,17 @@ ConverterError mux_run_postprocess(
     const char* mkvmerge_bin;
     char rate[64];
     char lang[64];
+    char title[1024];
     char cmd[12288];
     char quoted_tool[2048];
     char quoted_output[2048];
     char quoted_track[2048];
     char quoted_intermediate[2048];
+    char quoted_title[4096];
     char temp_output[1200];
     char timing_arg[128];
     char lang_arg[96];
+    int written;
 
     (void)convert_opts;
 
@@ -385,20 +432,35 @@ ConverterError mux_run_postprocess(
     if (probe_video_track_language(ffprobe_bin, opts->intermediate_file, lang, sizeof(lang)))
         snprintf(lang_arg, sizeof(lang_arg), "--language 0:%s ", lang);
 
+    if (!probe_container_title(ffprobe_bin, opts->intermediate_file, title, sizeof(title))) {
+        emit_error(callbacks, "post-mux failed: could not probe source title", ERR_FFPROBE_FAILED);
+        return ERR_FFPROBE_FAILED;
+    }
     platform_shell_quote(mkvmerge_bin, quoted_tool, sizeof(quoted_tool));
     platform_shell_quote(temp_output, quoted_output, sizeof(quoted_output));
     platform_shell_quote(opts->video_track_file, quoted_track, sizeof(quoted_track));
     platform_shell_quote(opts->intermediate_file, quoted_intermediate, sizeof(quoted_intermediate));
+    platform_shell_quote(title, quoted_title, sizeof(quoted_title));
 
-    snprintf(cmd,
+    /* Segment titles are not global tags. Set even an empty source title to
+     * prevent mkvmerge falling back to the replacement's segment title. */
+    written = snprintf(cmd,
              sizeof(cmd),
-             "%s -o %s --no-audio %s%s--video-tracks 0 %s --no-video %s 2>&1",
+             "%s -o %s --title %s "
+             "--no-audio --no-subtitles --no-attachments --no-chapters "
+             "--no-global-tags --no-track-tags --no-buttons "
+             "%s%s--video-tracks 0 %s --no-video %s 2>&1",
              quoted_tool,
              quoted_output,
+             quoted_title,
              timing_arg,
              lang_arg,
              quoted_track,
              quoted_intermediate);
+    if (written < 0 || (size_t)written >= sizeof(cmd)) {
+        emit_error(callbacks, "post-mux failed: command is too long", ERR_PATH_TOO_LONG);
+        return ERR_PATH_TOO_LONG;
+    }
 
     emit_stage(callbacks, "Post-mux (mkvmerge)");
     emit_message(callbacks, cmd);
@@ -433,22 +495,40 @@ static ConverterError mux_remux_container(const char* input_file,
                                           const ConverterCallbacks* callbacks)
 {
     const char* ffmpeg_bin = platform_get_ffmpeg_bin();
-    char cmd[8192];
+    char cmd[16384];
+    char subtitle_args[8192];
     char quoted_tool[2048];
     char quoted_input[2048];
     char quoted_output[2048];
+    int written;
 
     if (!ffmpeg_bin || ffmpeg_bin[0] == '\0') {
         emit_error(callbacks, "post-mux failed: ffmpeg not found", ERR_INVALID_OPTIONS);
         return ERR_INVALID_OPTIONS;
     }
 
+    if (!subtitle_preservation_build(input_file, MUX_CONTAINER_MOV,
+                                     subtitle_args, sizeof(subtitle_args), callbacks)) {
+        emit_error(callbacks, "post-mux failed: could not probe source subtitles",
+                   ERR_FFPROBE_FAILED);
+        return ERR_FFPROBE_FAILED;
+    }
+
     platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
     platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
     platform_shell_quote(output_file, quoted_output, sizeof(quoted_output));
 
-    snprintf(cmd, sizeof(cmd), "%s -y -nostdin -i %s -c copy -f %s %s 2>&1",
-             quoted_tool, quoted_input, container_fmt, quoted_output);
+    written = snprintf(cmd, sizeof(cmd),
+                       "%s -y -nostdin -i %s -map 0:v:0 -map 0:a? "
+                       "-map_metadata 0 -map_chapters 0 -c copy %s"
+                       "-movflags use_metadata_tags -f %s %s 2>&1",
+                       quoted_tool, quoted_input, subtitle_args,
+                       container_fmt, quoted_output);
+    if (written < 0 || (size_t)written >= sizeof(cmd)) {
+        emit_error(callbacks, "post-mux failed: container remux command is too long",
+                   ERR_PATH_TOO_LONG);
+        return ERR_PATH_TOO_LONG;
+    }
 
     emit_stage(callbacks, "Post-mux: remux to .mov");
     if (run_mux_command(cmd, callbacks) != 0) {

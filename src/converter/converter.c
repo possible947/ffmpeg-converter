@@ -1,4 +1,5 @@
 #include "converter.h"
+#include "subtitle_preservation.h"
 #include "audio_orchestrator.h"
 #include "converter_platform.h"
 #include "input_video_info.h"
@@ -685,7 +686,18 @@ static void build_ffmpeg_cmd(
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:a:0 ") < 0) goto overflow;
     }
     if (strcmp(opts->codec, "copy") == 0) {
-        if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:s? -c:s copy ") < 0)
+        char subtitle_args[8192];
+        if (!subtitle_preservation_build(input, MUX_CONTAINER_MKV,
+                                         subtitle_args, sizeof(subtitle_args), &c->cb)) {
+            if (c->cb.on_message)
+                c->cb.on_message("Cannot resolve subtitle preservation policy.");
+            free(esc_ffmpeg);
+            free(esc_input);
+            free(esc_output);
+            cmd_out[0] = '\0';
+            return;
+        }
+        if (cmd_cat(cmd, sizeof(cmd), &pos, subtitle_args) < 0)
             goto overflow;
     }
     if (cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0) goto overflow;
