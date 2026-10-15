@@ -39,6 +39,20 @@ static void copy_string(char *dst, size_t dst_sz, const char *src)
     dst[dst_sz - 1] = '\0';
 }
 
+static int build_gpac_import_url(const char *path,
+                                 const char *options,
+                                 char *out,
+                                 size_t out_sz)
+{
+    int written;
+    if (!path || !options || !out || out_sz == 0)
+        return 0;
+    /* GPAC expects local filesystem paths literally before its #import
+     * fragment. Percent-encoding turns the path into a different local URL. */
+    written = snprintf(out, out_sz, "%s#%s", path, options);
+    return written >= 0 && (size_t)written < out_sz;
+}
+
 static int copy_file_binary(const char *source_path, const char *output_path)
 {
     FILE *source;
@@ -373,18 +387,19 @@ ConverterError m4v_create_from_input(const char *input_file,
     char quoted_disposition_m4v[2048];
     char quoted_chapters_m4v[2048];
     char quoted_subtitles_m4v[2048];
-    char quoted_video_add[4096];
-    char quoted_aac_add[4096];
-    char quoted_ac3_add[4096];
-    char video_add[3072];
-    char aac_add[3072];
-    char ac3_add[3072];
+    char quoted_video_add[8192];
+    char quoted_aac_add[8192];
+    char quoted_ac3_add[8192];
+    char video_add[6144];
+    char aac_add[6144];
+    char ac3_add[6144];
     int add_ac3;
     char cmd[20480];
     char detail[256];
     char video_codec[64];
     char output_dir[1024];
     int rc;
+    int temp_dir_created;
     double fps;
     const char *lang;
 
@@ -430,7 +445,23 @@ ConverterError m4v_create_from_input(const char *input_file,
         else
             copy_string(output_dir, sizeof(output_dir), ".");
     }
-    if (!m4v_platform_make_temp_dir(output_dir, work_dir, sizeof(work_dir))) {
+    temp_dir_created = 0;
+    if (strchr(output_file, '+')) {
+        /* GPAC parses '+' in -add URLs as a source-list separator. Keep
+         * imported intermediates in a path without '+'; finalization already
+         * supports copying across filesystems. */
+        const char *system_temp = getenv("TMPDIR");
+        if (system_temp && system_temp[0] && !strchr(system_temp, '+'))
+            temp_dir_created = m4v_platform_make_temp_dir(
+                system_temp, work_dir, sizeof(work_dir));
+        if (!temp_dir_created)
+            temp_dir_created = m4v_platform_make_temp_dir(
+                "/tmp", work_dir, sizeof(work_dir));
+    } else {
+        temp_dir_created = m4v_platform_make_temp_dir(
+            output_dir, work_dir, sizeof(work_dir));
+    }
+    if (!temp_dir_created) {
         copy_string(error_text, error_text_sz, "Failed to create temp dir");
         emit_error(callbacks, "Failed to create temp dir", ERR_UNKNOWN);
         return ERR_UNKNOWN;
@@ -533,12 +564,35 @@ ConverterError m4v_create_from_input(const char *input_file,
     m4v_platform_shell_quote(mp4box_bin, quoted_tool, sizeof(quoted_tool));
     m4v_platform_shell_quote(output_file, quoted_output, sizeof(quoted_output));
     emit_stage(callbacks, "Apple M4V step 4/6: MP4Box mux");
-    snprintf(video_add, sizeof(video_add), "%s#video:fps=%.6f:name=Video", video_mp4, fps);
-    snprintf(aac_add, sizeof(aac_add), "%s#audio:name=AAC:lang=%s", aac_m4a, lang);
+    {
+        char video_options[128];
+        char aac_options[128];
+        snprintf(video_options, sizeof(video_options),
+                 "video:fps=%.6f:name=Video", fps);
+        snprintf(aac_options, sizeof(aac_options), "audio:name=AAC:lang=%s", lang);
+        if (!build_gpac_import_url(video_mp4, video_options,
+                                   video_add, sizeof(video_add)) ||
+            !build_gpac_import_url(aac_m4a, aac_options,
+                                   aac_add, sizeof(aac_add))) {
+            copy_string(error_text, error_text_sz,
+                        "Apple M4V MP4Box importer path is too long");
+            m4v_platform_remove_temp_dir(work_dir);
+            return ERR_PATH_TOO_LONG;
+        }
+    }
     m4v_platform_shell_quote(video_add, quoted_video_add, sizeof(quoted_video_add));
     m4v_platform_shell_quote(aac_add, quoted_aac_add, sizeof(quoted_aac_add));
     if (add_ac3) {
-        snprintf(ac3_add, sizeof(ac3_add), "%s#audio:name=AC3 %dk:lang=%s", ac3_mp4, local_opts.ac3_bitrate_kbps, lang);
+        char ac3_options[128];
+        snprintf(ac3_options, sizeof(ac3_options),
+                 "audio:name=AC3 %dk:lang=%s", local_opts.ac3_bitrate_kbps, lang);
+        if (!build_gpac_import_url(ac3_mp4, ac3_options,
+                                   ac3_add, sizeof(ac3_add))) {
+            copy_string(error_text, error_text_sz,
+                        "Apple M4V MP4Box importer path is too long");
+            m4v_platform_remove_temp_dir(work_dir);
+            return ERR_PATH_TOO_LONG;
+        }
         m4v_platform_shell_quote(ac3_add, quoted_ac3_add, sizeof(quoted_ac3_add));
     }
     {

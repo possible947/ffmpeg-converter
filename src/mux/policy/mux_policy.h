@@ -55,6 +55,7 @@ typedef enum {
     MUX_VIDEO_PRORES,
     MUX_VIDEO_H264,
     MUX_VIDEO_HEVC,
+    MUX_VIDEO_AV1,
     MUX_VIDEO_UNSUPPORTED
 } MuxVideoCodec;
 
@@ -135,6 +136,10 @@ size_t mux_policy_list_audio_modes(const MuxBuildProfile *profile,
                                    MuxVideoCodec replacement_video_codec,
                                    MuxAudioMode *audio_modes,
                                    size_t audio_modes_capacity);
+size_t mux_policy_list_hq_audio_modes(const MuxBuildProfile *profile,
+                                      MuxVideoCodec replacement_video_codec,
+                                      MuxAudioMode *audio_modes,
+                                      size_t audio_modes_capacity);
 
 const char *mux_mode_name(MuxMode mode);
 const char *mux_container_name(MuxContainer container);

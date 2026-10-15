@@ -1,7 +1,10 @@
 #include "mux.h"
 #include "converter_platform.h"
+#include "add_track.h"
+#include "mux_platform.h"
 
 #include <jansson.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +14,487 @@
 static int failures;
 static int language_injection_seen;
 static int quoted_timing_seen;
+
+static void test_log_message(const char *message)
+{
+    fprintf(stderr, "Add Track test: %s\n", message);
+}
+
+static void test_log_error(const char *message, ConverterError error)
+{
+    fprintf(stderr, "Add Track test error (%d): %s\n", error, message);
+}
+
+static void expect(int condition, const char *message);
+static int write_fixture(const char *path, const char *text);
+static json_t *probe(const char *ffprobe, const char *path);
+
+static int transcode_video_fixture(const char *ffmpeg,
+                                   const char *input,
+                                   const char *output,
+                                   const char *encoder,
+                                   const char *encoder_options)
+{
+    char cmd[8192];
+    char *quoted_tool = platform_escape_path_for_command(ffmpeg);
+    if (!quoted_tool)
+        return 0;
+    snprintf(cmd, sizeof(cmd),
+             "%s -hide_banner -loglevel error -nostdin -y -i '%s' -map 0 "
+             "-c copy -c:v %s %s '%s'",
+             quoted_tool, input, encoder, encoder_options, output);
+    free(quoted_tool);
+    return system(cmd) == 0;
+}
+
+static int create_prores_fixture(const char *ffmpeg,
+                                const char *input,
+                                const char *output)
+{
+    char cmd[8192];
+    char *quoted_tool = platform_escape_path_for_command(ffmpeg);
+    if (!quoted_tool)
+        return 0;
+    snprintf(cmd, sizeof(cmd),
+             "%s -hide_banner -loglevel error -nostdin -y -i '%s' "
+             "-map 0:v:0 -map 0:a:0 -map 0:s? -map_metadata 0 "
+             "-map_chapters 0 -c:v prores_ks -profile:v 3 "
+             "-c:a pcm_s16le -c:s mov_text '%s'",
+             quoted_tool, input, output);
+    free(quoted_tool);
+    return system(cmd) == 0;
+}
+
+static ConverterError run_add_track(Converter *converter,
+                                    const char *source,
+                                    const char *replacement,
+                                    const char *output_dir,
+                                    const char *mode,
+                                    const char *audio,
+                                    AddTrackResult *result)
+{
+    ConvertOptions options = {0};
+    AddTrackRequest request;
+    snprintf(options.codec, sizeof(options.codec), "mux");
+    snprintf(options.preset, sizeof(options.preset), "%s", mode);
+    if (audio)
+        snprintf(options.audio_output_mode, sizeof(options.audio_output_mode),
+                 "%s", audio);
+    snprintf(options.output_dir, sizeof(options.output_dir), "%s", output_dir);
+    snprintf(options.video_track_path, sizeof(options.video_track_path), "%s",
+             replacement);
+    options.overwrite = 1;
+    request.source_file = source;
+    request.convert_options = &options;
+    return add_track_execute(converter, &request, result);
+}
+
+static ConverterError run_hq_add_track(Converter *converter,
+                                       const char *source,
+                                       const char *replacement,
+                                       const char *output_dir,
+                                       const char *encoder,
+                                       const char *audio,
+                                       AddTrackResult *result)
+{
+    ConvertOptions options = {0};
+    AddTrackRequest request;
+    snprintf(options.codec, sizeof(options.codec), "hq_converter");
+    snprintf(options.hw_device, sizeof(options.hw_device), "%s", encoder);
+    snprintf(options.preset, sizeof(options.preset), "hq");
+    if (audio)
+        snprintf(options.audio_output_mode, sizeof(options.audio_output_mode),
+                 "%s", audio);
+    snprintf(options.output_dir, sizeof(options.output_dir), "%s", output_dir);
+    snprintf(options.video_track_path, sizeof(options.video_track_path), "%s",
+             replacement);
+    options.overwrite = 1;
+    request.source_file = source;
+    request.convert_options = &options;
+    return add_track_execute(converter, &request, result);
+}
+
+static int verify_production_audio(const char *ffprobe,
+                                   const char *path,
+                                   int expected_count,
+                                   const char *first_codec,
+                                   const char *second_codec)
+{
+    json_t *data = probe(ffprobe, path);
+    json_t *streams;
+    json_t *stream;
+    size_t index;
+    int count = 0;
+    int codecs_match = 1;
+    if (!data)
+        return 0;
+    streams = json_object_get(data, "streams");
+    json_array_foreach(streams, index, stream) {
+        const char *type = json_string_value(json_object_get(stream, "codec_type"));
+        const char *codec = json_string_value(json_object_get(stream, "codec_name"));
+        if (type && strcmp(type, "audio") == 0) {
+            const char *expected = count == 0 ? first_codec : second_codec;
+            if (!expected || !codec || strcmp(codec, expected) != 0)
+                codecs_match = 0;
+            ++count;
+        }
+    }
+    json_decref(data);
+    return count == expected_count && codecs_match;
+}
+
+static int verify_add_track_preservation(const char *ffprobe,
+                                         const char *path,
+                                         const char *video_codec,
+                                         int expected_subtitles,
+                                         int expected_attachments,
+                                         const char *subtitle_codec)
+{
+    json_t *data = probe(ffprobe, path);
+    json_t *streams;
+    json_t *stream;
+    size_t index;
+    int video = 0;
+    int video_codec_matches = 1;
+    int subtitles = 0;
+    int attachments = 0;
+    int subtitle_codecs_match = 1;
+    const char *title;
+    const char *comment;
+    char *serialized;
+    int ok;
+    if (!data)
+        return 0;
+    streams = json_object_get(data, "streams");
+    json_array_foreach(streams, index, stream) {
+        const char *type = json_string_value(json_object_get(stream, "codec_type"));
+        const char *codec = json_string_value(json_object_get(stream, "codec_name"));
+        if (type && strcmp(type, "video") == 0) {
+            ++video;
+            if (!codec || strcmp(codec, video_codec) != 0)
+                video_codec_matches = 0;
+        } else if (type && strcmp(type, "subtitle") == 0) {
+            ++subtitles;
+            if (!codec || strcmp(codec, subtitle_codec) != 0)
+                subtitle_codecs_match = 0;
+        } else if (type && strcmp(type, "attachment") == 0) {
+            ++attachments;
+        }
+    }
+    title = json_string_value(json_object_get(
+        json_object_get(json_object_get(data, "format"), "tags"), "title"));
+    serialized = json_dumps(data, JSON_COMPACT);
+    ok = video == 1 &&
+         video_codec_matches &&
+         subtitles == expected_subtitles &&
+         subtitle_codecs_match &&
+         attachments == expected_attachments &&
+         json_array_size(json_object_get(data, "chapters")) == 1 &&
+         title && strcmp(title, "source_TITLE") == 0 &&
+         serialized && strstr(serialized, "source_GLOBAL") != NULL &&
+         serialized && strstr(serialized, "replacement_") == NULL;
+    if (!ok)
+        fprintf(stderr,
+                "preservation details for %s: video=%d subtitles=%d/%d "
+                "subtitle-codecs=%d attachments=%d/%d chapters=%zu "
+                "title=%s comment=%s replacement=%d\n",
+                path, video, subtitles, expected_subtitles, subtitle_codecs_match,
+                attachments, expected_attachments,
+                json_array_size(json_object_get(data, "chapters")),
+                title ? title : "(missing)",
+                serialized && strstr(serialized, "source_GLOBAL")
+                    ? "source_GLOBAL" : "(missing)",
+                serialized && strstr(serialized, "replacement_") != NULL);
+    free(serialized);
+    json_decref(data);
+    return ok;
+}
+
+static void test_production_add_track(const char *ffmpeg,
+                                     const char *ffprobe,
+                                     const char *dir,
+                                     const char *source,
+                                     const char *replacement)
+{
+    static const struct {
+        const char *audio;
+        int count;
+        const char *first;
+        const char *second;
+    } mkv_cases[] = {
+        {"copy", 2, "pcm_s16le", "pcm_s16le"},
+        {"pcm", 1, "pcm_s16le", NULL},
+        {"aac", 1, "aac", NULL},
+        {"aac+ac3", 2, "aac", "ac3"}
+    };
+    Converter *converter = converter_create();
+    AddTrackResult result;
+    char output[1024];
+    char source_h264[512];
+    char source_av1[512];
+    char replacement_h264[512];
+    char replacement_av1[512];
+    char replacement_hevc[512];
+    char source_prores[512];
+    char special_dir[640];
+    char corrupt_source[512];
+    char failed_temp_output[1024];
+    size_t i;
+
+    expect(converter != NULL, "create converter for production Add Track");
+    if (!converter)
+        return;
+    snprintf(source_h264, sizeof(source_h264), "%s/source-h264.mkv", dir);
+    snprintf(source_av1, sizeof(source_av1), "%s/source-av1.mkv", dir);
+    snprintf(replacement_h264, sizeof(replacement_h264),
+             "%s/replacement-h264.mkv", dir);
+    snprintf(replacement_av1, sizeof(replacement_av1),
+             "%s/replacement-av1.mkv", dir);
+    snprintf(replacement_hevc, sizeof(replacement_hevc),
+             "%s/replacement-hevc.mkv", dir);
+    snprintf(source_prores, sizeof(source_prores), "%s/source-prores.mov", dir);
+
+    expect(transcode_video_fixture(ffmpeg, source, source_h264, "libx264",
+                                   "-preset ultrafast"),
+           "create H.264 Add Track source");
+    expect(transcode_video_fixture(ffmpeg, source_h264, source_av1, "libaom-av1",
+                                   "-cpu-used 8 -crf 40 -b:v 0"),
+           "create AV1 Add Track source");
+    expect(transcode_video_fixture(ffmpeg, replacement, replacement_h264,
+                                   "libx264", "-preset ultrafast"),
+           "create H.264 replacement track");
+    expect(transcode_video_fixture(ffmpeg, replacement, replacement_av1,
+                                   "libaom-av1",
+                                   "-cpu-used 8 -crf 40 -b:v 0"),
+           "create AV1 replacement track");
+    expect(transcode_video_fixture(ffmpeg, replacement, replacement_hevc,
+                                   "libx265", "-preset ultrafast"),
+           "create HEVC replacement track");
+    expect(create_prores_fixture(ffmpeg, source, source_prores),
+           "create ProRes Add Track source");
+
+    if (platform_file_is_regular(source_h264) &&
+        platform_file_is_regular(replacement_h264)) {
+        for (i = 0; i < sizeof(mkv_cases) / sizeof(mkv_cases[0]); ++i) {
+            ConverterError err = run_add_track(converter, source_h264,
+                                               replacement_h264, dir, "mkv",
+                                               mkv_cases[i].audio, &result);
+            expect(err == ERR_OK, "production MKV Add Track succeeds");
+            if (err == ERR_OK)
+                expect(verify_production_audio(ffprobe, result.output_file,
+                                               mkv_cases[i].count,
+                                               mkv_cases[i].first,
+                                               mkv_cases[i].second),
+                       "production MKV audio policy is applied");
+            if (err == ERR_OK && i == 0)
+                expect(verify_add_track_preservation(ffprobe,
+                                                     result.output_file,
+                                                     "h264",
+                                                     2, 1, "subrip"),
+                       "production MKV preserves only source chapters, metadata, subtitles and attachments");
+            platform_unlink(result.output_file);
+        }
+
+        {
+            ConverterError err = run_add_track(converter, source_h264,
+                                               replacement_h264, dir, "mov",
+                                               "pcm", &result);
+            expect(err == ERR_OK, "production MOV Add Track succeeds");
+            if (err == ERR_OK)
+                expect(verify_production_audio(ffprobe, result.output_file,
+                                               1, "pcm_s16le", NULL),
+                       "production MOV contains selected PCM audio");
+            if (err == ERR_OK)
+                expect(verify_add_track_preservation(ffprobe,
+                                                     result.output_file,
+                                                     "h264",
+                                                     2, 0, "mov_text"),
+                       "production MOV preserves compatible source streams and metadata");
+            platform_unlink(result.output_file);
+        }
+
+        for (i = 0; i < 3; ++i) {
+            const char *audio = i == 0 ? "aac" :
+                                i == 1 ? "aac+ac3" : NULL;
+            int count = i == 0 ? 1 : 2;
+            ConverterError err = run_add_track(converter, source_h264,
+                                               replacement_h264, dir, "m4v",
+                                               audio, &result);
+            expect(err == ERR_OK, "production M4V Add Track succeeds");
+            if (err == ERR_OK)
+                expect(verify_production_audio(ffprobe, result.output_file,
+                                               count, "aac",
+                                               count == 2 ? "ac3" : NULL),
+                       "production M4V audio mode is applied");
+            if (err == ERR_OK && i == 0)
+                expect(verify_add_track_preservation(ffprobe,
+                                                     result.output_file,
+                                                     "h264",
+                                                     2, 0, "mov_text"),
+                       "production M4V preserves source subtitles, chapters and metadata");
+            platform_unlink(result.output_file);
+        }
+    }
+
+    if (platform_file_is_regular(source_av1) &&
+        platform_file_is_regular(replacement_h264)) {
+        ConverterError err = run_add_track(converter, source_av1,
+                                           replacement_h264, dir, "mov",
+                                           "pcm", &result);
+        expect(err == ERR_OK, "AV1 source is replaced before MOV preparation");
+        if (err == ERR_OK)
+            expect(verify_production_audio(ffprobe, result.output_file,
+                                           1, "pcm_s16le", NULL),
+                   "AV1-source MOV contains PCM");
+        if (err == ERR_OK)
+            expect(verify_add_track_preservation(ffprobe, result.output_file,
+                                                 "h264",
+                                                 2, 0, "mov_text"),
+                   "AV1-source MOV preserves supported source streams");
+        platform_unlink(result.output_file);
+    }
+
+    if (platform_file_is_regular(source_prores) &&
+        platform_file_is_regular(replacement_h264)) {
+        for (i = 0; i < 3; ++i) {
+            const char *audio = i == 0 ? "aac" :
+                                i == 1 ? "aac+ac3" : NULL;
+            int count = i == 0 ? 1 : 2;
+            ConverterError err = run_add_track(converter, source_prores,
+                                               replacement_h264, dir, "m4v",
+                                               audio, &result);
+            expect(err == ERR_OK, "ProRes source reaches production M4V Creator");
+            if (err == ERR_OK)
+                expect(verify_production_audio(ffprobe, result.output_file,
+                                               count, "aac",
+                                               count == 2 ? "ac3" : NULL),
+                       "ProRes-source M4V audio mode is applied");
+            if (err == ERR_OK && i == 0)
+                expect(verify_add_track_preservation(ffprobe,
+                                                     result.output_file,
+                                                     "h264",
+                                                     2, 0, "mov_text"),
+                       "ProRes-source M4V preserves supported source streams");
+            platform_unlink(result.output_file);
+        }
+    }
+
+    if (platform_file_is_regular(source_h264) &&
+        platform_file_is_regular(source_av1) &&
+        platform_file_is_regular(source_prores)) {
+        const char *hq_sources[] = {source_h264, source_av1};
+        for (i = 0; i < sizeof(hq_sources) / sizeof(hq_sources[0]); ++i) {
+            ConverterError err = run_hq_add_track(
+                converter, hq_sources[i], source_prores, dir, "prores_ks",
+                "aac", &result);
+            expect(err == ERR_OK,
+                   "HQ ProRes handoff resolves MOV+PCM after source preparation");
+            if (err == ERR_OK) {
+                expect(verify_production_audio(ffprobe, result.output_file,
+                                               1, "pcm_s16le", NULL),
+                       "HQ ProRes policy forces PCM");
+                expect(verify_add_track_preservation(ffprobe,
+                                                     result.output_file,
+                                                     "prores",
+                                                     2, 0, "mov_text"),
+                       "HQ ProRes handoff preserves supported source streams");
+            }
+            platform_unlink(result.output_file);
+        }
+    }
+
+    if (platform_file_is_regular(source_h264) &&
+        platform_file_is_regular(replacement_h264) &&
+        platform_file_is_regular(replacement_hevc)) {
+        static const struct {
+            const char *encoder;
+            const char *replacement;
+            const char *video_codec;
+        } hq_cases[] = {
+            {"x264", "replacement-h264.mkv", "h264"},
+            {"x265", "replacement-hevc.mkv", "hevc"}
+        };
+        for (i = 0; i < sizeof(hq_cases) / sizeof(hq_cases[0]); ++i) {
+            char track[512];
+            snprintf(track, sizeof(track), "%s/%s", dir,
+                     hq_cases[i].replacement);
+            ConverterError err = run_hq_add_track(
+                converter, source_h264, track, dir, hq_cases[i].encoder,
+                "aac", &result);
+            expect(err == ERR_OK, "HQ x264/x265 uses shared MKV Add Track");
+            if (err == ERR_OK) {
+                expect(verify_production_audio(ffprobe, result.output_file,
+                                               1, "aac", NULL),
+                       "HQ MKV handoff applies selected audio mode");
+                expect(verify_add_track_preservation(ffprobe,
+                                                     result.output_file,
+                                                     hq_cases[i].video_codec,
+                                                     2, 1, "subrip"),
+                       "HQ MKV handoff keeps source streams and excludes replacement auxiliaries");
+            }
+            platform_unlink(result.output_file);
+        }
+    }
+
+    if (platform_file_is_regular(replacement_av1)) {
+        ConverterError err = run_add_track(converter, source_h264,
+                                           replacement_av1, dir, "mkv",
+                                           "pcm", &result);
+        expect(err == ERR_OK, "production MKV Add Track accepts AV1 replacement");
+        if (err == ERR_OK) {
+            json_t *data = probe(ffprobe, result.output_file);
+            const char *codec = data
+                ? json_string_value(json_object_get(
+                      json_array_get(json_object_get(data, "streams"), 0),
+                      "codec_name"))
+                : NULL;
+            expect(codec && strcmp(codec, "av1") == 0,
+                   "production MKV retains AV1 replacement video");
+            json_decref(data);
+        }
+        platform_unlink(result.output_file);
+    }
+
+    snprintf(special_dir, sizeof(special_dir), "%s/path space + (paren) \xE6\xBC\xA2",
+             dir);
+    expect(mkdir(special_dir, 0700) == 0 ||
+           platform_stat_is_directory(special_dir),
+           "create M4V output directory with URL-special characters");
+    {
+        ConverterCallbacks callbacks = {0};
+        callbacks.on_message = test_log_message;
+        callbacks.on_error = test_log_error;
+        converter_set_callbacks(converter, &callbacks);
+        ConverterError err = run_add_track(converter, source_h264,
+                                           replacement_h264, special_dir, "m4v",
+                                           "aac", &result);
+        expect(err == ERR_OK, "M4V MP4Box importer accepts special path characters");
+        if (err == ERR_OK)
+            expect(verify_production_audio(ffprobe, result.output_file,
+                                           1, "aac", NULL),
+                   "special-path M4V output is structurally valid");
+        converter_set_callbacks(converter, NULL);
+    }
+
+    snprintf(corrupt_source, sizeof(corrupt_source), "%s/broken.mkv", dir);
+    expect(write_fixture(corrupt_source, "not a media file\n"),
+           "create corrupt Add Track source");
+    {
+        ConverterError err = run_add_track(converter, corrupt_source,
+                                           replacement_h264, dir, "mkv",
+                                           "pcm", &result);
+        expect(err != ERR_OK,
+               "single-source preparation failure is propagated");
+        snprintf(output, sizeof(output), "%s/broken_converted.mkv", dir);
+        expect(!platform_file_is_regular(output),
+               "failed source preparation is removed before post-mux");
+        snprintf(failed_temp_output, sizeof(failed_temp_output),
+                 "%s.mux_tmp.mkv", output);
+        expect(!platform_file_is_regular(failed_temp_output),
+               "failed source preparation never runs post-mux");
+    }
+    converter_destroy(converter);
+}
 
 static void capture_message(const char *message)
 {
@@ -36,6 +520,32 @@ static int write_fixture(const char *path, const char *text)
         return 0;
     ok = fputs(text, file) >= 0;
     return fclose(file) == 0 && ok;
+}
+
+static void remove_test_tree(const char *path)
+{
+    DIR *directory = opendir(path);
+    struct dirent *entry;
+    if (!directory) {
+        unlink(path);
+        return;
+    }
+    while ((entry = readdir(directory)) != NULL) {
+        char child[2048];
+        struct stat info;
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0)
+            continue;
+        if (snprintf(child, sizeof(child), "%s/%s", path,
+                     entry->d_name) >= (int)sizeof(child))
+            continue;
+        if (lstat(child, &info) == 0 && S_ISDIR(info.st_mode))
+            remove_test_tree(child);
+        else
+            unlink(child);
+    }
+    closedir(directory);
+    rmdir(path);
 }
 
 static int tool_available(const char *tool, const char *version_option)
@@ -226,19 +736,8 @@ int main(void)
     const char *ffmpeg = platform_get_ffmpeg_bin();
     const char *ffprobe = platform_get_ffprobe_bin();
     const char *mkvmerge = platform_get_mkvmerge_bin();
-    const char *files[] = {
-        "source.srt", "source.meta", "source.txt", "source.mkv",
-        "replacement.srt", "replacement.meta", "replacement.txt", "replacement.mkv",
-        "output.mkv", "output.mov", "output.mov.mux_tmp.mkv", "extracted.srt",
-        "source_without_title.mkv", "output_without_title.mkv",
-        "source_malicious_language.mkv", "output_malicious_language.mkv",
-        "replacement.h264", "output_forced_duration.mkv",
-        "source_without_subtitles.mkv", "output_without_subtitles.mov",
-        "output_without_subtitles.mov.mux_tmp.mkv",
-        "source_without_video_title.mkv", "output_without_video_title.mkv",
-        "source_without_language.mkv", "output_without_language.mkv"
-    };
     char dir[128], output[512], path[512];
+    char source_path[512], replacement_path[512];
     MuxOptions opts = {0};
     ConvertOptions convert_opts = {0};
     size_t i;
@@ -271,6 +770,11 @@ int main(void)
               create_media(ffmpeg, dir, "replacement", 64);
     expect(created, "create source and replacement media fixtures");
     if (created) {
+        snprintf(source_path, sizeof(source_path), "%s/source.mkv", dir);
+        snprintf(replacement_path, sizeof(replacement_path),
+                 "%s/replacement.mkv", dir);
+        test_production_add_track(ffmpeg, ffprobe, dir,
+                                  source_path, replacement_path);
         snprintf(opts.intermediate_file, sizeof(opts.intermediate_file), "%s/source.mkv", dir);
         snprintf(opts.video_track_file, sizeof(opts.video_track_file), "%s/replacement.mkv", dir);
         snprintf(opts.output_file, sizeof(opts.output_file), "%s/output.mkv", dir);
@@ -445,11 +949,8 @@ int main(void)
             free(saved);
         }
     }
-    for (i = 0; i < sizeof(files) / sizeof(files[0]); ++i) {
-        snprintf(path, sizeof(path), "%s/%s", dir, files[i]);
-        unlink(path);
-    }
-    expect(rmdir(dir) == 0, "remove all media fixtures");
+    remove_test_tree(dir);
+    expect(access(dir, F_OK) != 0, "remove all media fixtures");
     if (failures)
         return 1;
     puts("replacement-video isolation tests passed");

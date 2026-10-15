@@ -299,6 +299,7 @@ static int validate_mux_output(const char* ffprobe_bin, const char* output_file)
     char line[128];
     int has_audio = 0;
     int has_video = 0;
+    int status;
 
     if (!platform_file_is_regular(output_file))
         return 0;
@@ -325,8 +326,8 @@ static int validate_mux_output(const char* ffprobe_bin, const char* output_file)
             has_audio = 1;
     }
 
-    platform_pclose_exitcode(fp);
-    return has_video && has_audio;
+    status = platform_pclose_exitcode(fp);
+    return status == 0 && has_video && has_audio;
 }
 
 static int run_mux_command(const char* cmd, const ConverterCallbacks* callbacks)
@@ -437,6 +438,16 @@ ConverterError mux_run_postprocess(
 
     ffprobe_bin = platform_get_ffprobe_bin();
     mkvmerge_bin = platform_get_mkvmerge_bin();
+    if (!ffprobe_bin || ffprobe_bin[0] == '\0') {
+        emit_error(callbacks, "post-mux failed: ffprobe not found", ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
+    if (!validate_mux_output(ffprobe_bin, opts->intermediate_file)) {
+        emit_error(callbacks,
+                   "post-mux failed: source-preparation intermediate is invalid",
+                   ERR_FFPROBE_FAILED);
+        return ERR_FFPROBE_FAILED;
+    }
     if (!mkvmerge_bin || mkvmerge_bin[0] == '\0') {
         emit_error(callbacks, "post-mux failed: mkvmerge not found", ERR_INVALID_OPTIONS);
         return ERR_INVALID_OPTIONS;
@@ -677,6 +688,13 @@ ConverterError mux_run_postprocess_for_preset(
                                    detail, sizeof(detail));
         if (err != ERR_OK)
             emit_error(callbacks, detail[0] != '\0' ? detail : "Apple M4V pipeline failed", err);
+    }
+
+    if (err == ERR_OK && !validate_mux_output(platform_get_ffprobe_bin(),
+                                               final_output_file)) {
+        emit_error(callbacks, "post-mux failed: final container validation failed",
+                   ERR_FFPROBE_FAILED);
+        err = ERR_FFPROBE_FAILED;
     }
 
     platform_unlink(temp_mkv);

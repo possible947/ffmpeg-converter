@@ -88,10 +88,14 @@ MuxVideoCodec mux_video_codec_parse(const char *value)
         return MUX_VIDEO_UNKNOWN;
     if (strstr(value, "prores"))
         return MUX_VIDEO_PRORES;
-    if (strstr(value, "h264") || strstr(value, "avc"))
+    if (strstr(value, "h264") || strstr(value, "avc") ||
+        strstr(value, "x264"))
         return MUX_VIDEO_H264;
-    if (strstr(value, "hevc") || strstr(value, "h265"))
+    if (strstr(value, "hevc") || strstr(value, "h265") ||
+        strstr(value, "x265"))
         return MUX_VIDEO_HEVC;
+    if (strstr(value, "av1"))
+        return MUX_VIDEO_AV1;
     return MUX_VIDEO_UNSUPPORTED;
 }
 
@@ -175,6 +179,10 @@ int mux_policy_resolve(const MuxBuildProfile *profile,
     if ((mode == MUX_MODE_MKV || mode == MUX_MODE_MOV) &&
         replacement_video_codec == MUX_VIDEO_UNSUPPORTED) {
         set_error(error, error_size, "unsupported replacement video codec");
+        return 0;
+    }
+    if (mode == MUX_MODE_MOV && replacement_video_codec == MUX_VIDEO_AV1) {
+        set_error(error, error_size, "MOV does not support AV1 replacement video");
         return 0;
     }
 
@@ -273,6 +281,41 @@ size_t mux_policy_list_audio_modes(const MuxBuildProfile *profile,
         if (valid) {
             if (audio_modes && result_count < audio_modes_capacity)
                 audio_modes[result_count] = ordered[i];
+            ++result_count;
+        }
+    }
+    return result_count;
+}
+
+size_t mux_policy_list_hq_audio_modes(const MuxBuildProfile *profile,
+                                      MuxVideoCodec replacement_video_codec,
+                                      MuxAudioMode *audio_modes,
+                                      size_t audio_modes_capacity)
+{
+    static const MuxAudioMode candidates[] = {
+        MUX_AUDIO_PCM, MUX_AUDIO_COPY, MUX_AUDIO_AAC, MUX_AUDIO_AAC_AC3
+    };
+    size_t result_count = 0;
+    size_t i;
+
+    if (!profile)
+        return 0;
+    if (replacement_video_codec == MUX_VIDEO_PRORES) {
+        MuxPolicy policy;
+        if (!mux_policy_resolve_hq(profile, replacement_video_codec, NULL,
+                                   &policy, NULL, 0))
+            return 0;
+        if (audio_modes && audio_modes_capacity > 0)
+            audio_modes[0] = MUX_AUDIO_PCM;
+        return 1;
+    }
+    for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        MuxPolicy policy;
+        const char *audio = mux_audio_mode_name(candidates[i]);
+        if (mux_policy_resolve_hq(profile, replacement_video_codec, audio,
+                                  &policy, NULL, 0)) {
+            if (audio_modes && result_count < audio_modes_capacity)
+                audio_modes[result_count] = candidates[i];
             ++result_count;
         }
     }

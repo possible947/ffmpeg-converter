@@ -147,12 +147,12 @@ static void test_normative_mux_matrix(void)
             &profile, MUX_MODE_COPY, mixed_sources, 2, MUX_VIDEO_UNKNOWN,
             modes, sizeof(modes) / sizeof(modes[0]));
         CHECK(mode_count == 1 && modes[0] == MUX_AUDIO_PCM,
-              "MUX-T016: shared Policy exposes only modes valid for every queued source");
+              "Copy policy exposes only modes valid for every queued source");
         CHECK(mux_policy_list_audio_modes(
                   &profile, MUX_MODE_M4V, NULL, 0, MUX_VIDEO_UNKNOWN,
                   modes, sizeof(modes) / sizeof(modes[0])) == 2 &&
               modes[0] == MUX_AUDIO_AAC_AC3 && modes[1] == MUX_AUDIO_AAC,
-              "MUX-T017: GUI audio choices use shared M4V Policy defaults and constraints");
+              "M4V policy exposes its allowed audio modes in default-first order");
     }
 }
 
@@ -241,9 +241,34 @@ int main(void)
                              MUX_VIDEO_UNKNOWN, MUX_VIDEO_H264,
                              &policy, error, sizeof(error)),
           "all policy resolutions succeed for valid tuples");
+    CHECK(mux_video_codec_parse("av1") == MUX_VIDEO_AV1 &&
+          mux_video_codec_parse("av1_qsv") == MUX_VIDEO_AV1,
+          "AV1 replacement codecs are recognized");
+    CHECK(mux_video_codec_parse("x264") == MUX_VIDEO_H264 &&
+          mux_video_codec_parse("x265") == MUX_VIDEO_HEVC,
+          "HQ x264/x265 encoder identifiers map to their video codecs");
+    CHECK(resolve(MUX_MODE_MKV, "pcm", MUX_VIDEO_UNKNOWN,
+                  MUX_VIDEO_AV1, &policy),
+          "MKV policy accepts AV1 replacement video");
+    CHECK(!resolve(MUX_MODE_MOV, "pcm", MUX_VIDEO_UNKNOWN,
+                   MUX_VIDEO_AV1, &policy),
+          "MOV policy rejects AV1 replacement video");
+    CHECK(!resolve(MUX_MODE_M4V, "aac", MUX_VIDEO_UNKNOWN,
+                   MUX_VIDEO_AV1, &policy),
+          "M4V policy rejects AV1 replacement video");
     CHECK(policy.preserve_chapters && policy.preserve_metadata &&
           policy.preserve_subtitles_when_supported && policy.preserve_video,
           "policy explicitly records preservation requirements");
+    {
+        MuxAudioMode modes[4];
+        CHECK(mux_policy_list_hq_audio_modes(&profile, MUX_VIDEO_PRORES,
+                                             modes, 4) == 1 &&
+              modes[0] == MUX_AUDIO_PCM,
+              "HQ ProRes exposes PCM only");
+        CHECK(mux_policy_list_hq_audio_modes(&profile, MUX_VIDEO_H264,
+                                             modes, 4) == 4,
+              "HQ non-ProRes exposes the MKV audio modes");
+    }
 
     if (failures)
         return 1;

@@ -4,6 +4,7 @@
 #include "converter_platform.h"
 #include "input_video_info.h"
 #include "converter_common.h"
+#include "converter_internal.h"
 #include "mux_policy.h"
 #include <stdlib.h>
 #include <string.h>
@@ -1100,10 +1101,11 @@ static ConverterError run_ffmpeg_encode_with_progress(
 // ------------------------------------------------------------
 //  Main processing loop (equivalent to CLI main())
 // ------------------------------------------------------------
-ConverterError converter_process_files(
+static ConverterError converter_process_files_impl(
     Converter* c,
     const char** files,
-    int file_count
+    int file_count,
+    int stop_on_file_error
 ) {
     if (!c || !files || file_count <= 0)
         return ERR_INVALID_OPTIONS;
@@ -1167,6 +1169,8 @@ ConverterError converter_process_files(
         if (err != ERR_OK) {
             if (c->cb.on_file_end)
                 c->cb.on_file_end(input, err);
+            if (stop_on_file_error)
+                return err;
             continue;
         }
 
@@ -1182,6 +1186,8 @@ ConverterError converter_process_files(
         if (err == ERR_OUTPUT_EXISTS) {
             if (c->cb.on_file_end)
                 c->cb.on_file_end(input, ERR_SKIP_FILE);
+            if (stop_on_file_error)
+                return ERR_SKIP_FILE;
             continue;
         }
 
@@ -1199,6 +1205,8 @@ ConverterError converter_process_files(
             if (err != ERR_OK) {
                 if (c->cb.on_file_end)
                     c->cb.on_file_end(input, err);
+                if (stop_on_file_error)
+                    return err;
                 continue;
             }
             c->opts.gain = peak_result.gain;
@@ -1216,6 +1224,8 @@ ConverterError converter_process_files(
             if (err != ERR_OK) {
                 if (c->cb.on_file_end)
                     c->cb.on_file_end(input, err);
+                if (stop_on_file_error)
+                    return err;
                 continue;
             }
 
@@ -1248,6 +1258,8 @@ ConverterError converter_process_files(
                 c->cb.on_error("ffmpeg command build failed", ERR_INVALID_OPTIONS);
             if (c->cb.on_file_end)
                 c->cb.on_file_end(input, ERR_INVALID_OPTIONS);
+            if (stop_on_file_error)
+                return ERR_INVALID_OPTIONS;
             continue;
         }
 
@@ -1259,6 +1271,8 @@ ConverterError converter_process_files(
         if (err != ERR_OK) {
             if (c->cb.on_file_end)
                 c->cb.on_file_end(input, err);
+            if (stop_on_file_error)
+                return err;
             continue;
         }
 
@@ -1272,4 +1286,19 @@ ConverterError converter_process_files(
         c->cb.on_complete();
 
     return ERR_OK;
+}
+
+ConverterError converter_process_files(Converter *c,
+                                       const char **files,
+                                       int file_count)
+{
+    return converter_process_files_impl(c, files, file_count, 0);
+}
+
+ConverterError converter_process_single_file(Converter *c, const char *file)
+{
+    const char *files[] = {file};
+    if (!file)
+        return ERR_INVALID_OPTIONS;
+    return converter_process_files_impl(c, files, 1, 1);
 }

@@ -35,7 +35,7 @@ add_test(NAME MuxPolicyTests COMMAND test_mux_policy)
 
 if (UNIX)
     add_executable(test_mux_replacement test_mux_replacement.c)
-    target_link_libraries(test_mux_replacement PRIVATE mux)
+    target_link_libraries(test_mux_replacement PRIVATE mux add_track)
     add_test(NAME MuxReplacementIsolationTests COMMAND test_mux_replacement)
     set_tests_properties(MuxReplacementIsolationTests PROPERTIES SKIP_RETURN_CODE 77)
 endif()

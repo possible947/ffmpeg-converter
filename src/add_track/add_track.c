@@ -4,9 +4,12 @@
 #include "converter_platform.h"
 #include "hq_catalog.h"
 #include "mux_policy.h"
+#include "converter_internal.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <jansson.h>
 
 /**
  * Resolve the effective output directory for the given options.
@@ -37,6 +40,65 @@ static void add_track_resolve_output_dir(const ConvertOptions *opts,
         strncpy(out_dir, "ffmpeg_converter", out_dir_sz - 1);
         out_dir[out_dir_sz - 1] = '\0';
     }
+}
+
+static int add_track_intermediate_is_usable(const char *path)
+{
+    const char *ffprobe = platform_get_ffprobe_bin();
+    char *quoted_tool;
+    char *quoted_path;
+    char command[8192];
+    FILE *pipe;
+    json_t *document;
+    json_t *streams;
+    json_t *stream;
+    size_t index;
+    int has_video = 0;
+    int has_audio = 0;
+    int status;
+
+    if (!path || !platform_file_is_regular(path) || !ffprobe || !ffprobe[0])
+        return 0;
+    quoted_tool = platform_escape_path_for_command(ffprobe);
+    quoted_path = platform_escape_path_for_command(path);
+    if (!quoted_tool || !quoted_path) {
+        free(quoted_tool);
+        free(quoted_path);
+        return 0;
+    }
+    if (snprintf(command, sizeof(command),
+                 "%s -v error -show_entries stream=codec_type -of json %s 2>&1",
+                 quoted_tool, quoted_path) >= (int)sizeof(command)) {
+        free(quoted_tool);
+        free(quoted_path);
+        return 0;
+    }
+    free(quoted_tool);
+    free(quoted_path);
+
+    pipe = platform_popen(command, "r");
+    if (!pipe)
+        return 0;
+    document = json_loadf(pipe, 0, NULL);
+    status = platform_pclose(pipe);
+    if (!document) {
+        return 0;
+    }
+    streams = json_is_object(document)
+                  ? json_object_get(document, "streams") : NULL;
+    if (status != 0 || !json_is_array(streams)) {
+        json_decref(document);
+        return 0;
+    }
+    json_array_foreach(streams, index, stream) {
+        const char *type = json_string_value(json_object_get(stream, "codec_type"));
+        if (type && strcmp(type, "video") == 0)
+            has_video = 1;
+        else if (type && strcmp(type, "audio") == 0)
+            has_audio = 1;
+    }
+    json_decref(document);
+    return has_video && has_audio;
 }
 
 ConverterError add_track_execute(Converter *converter,
@@ -127,15 +189,26 @@ ConverterError add_track_execute(Converter *converter,
     memset(result, 0, sizeof(*result));
 
     work_opts = *request->convert_options;
-    work_opts.codec[0] = '\0';
-    strcpy(work_opts.codec, "copy");
-    strncpy(work_opts.preset, mux_mode_name(policy.mode),
+    snprintf(work_opts.codec, sizeof(work_opts.codec), "copy");
+    /* The source video is discarded by the replacement stage. Prepare its
+     * audio and other source streams in a container-neutral MKV instead of
+     * imposing the final MOV/M4V codec restrictions on it. */
+    strncpy(work_opts.preset, mux_mode_name(MUX_MODE_MKV),
             sizeof(work_opts.preset) - 1);
     work_opts.preset[sizeof(work_opts.preset) - 1] = '\0';
     strncpy(work_opts.audio_output_mode, mux_audio_mode_name(policy.audio_mode),
             sizeof(work_opts.audio_output_mode) - 1);
     work_opts.audio_output_mode[sizeof(work_opts.audio_output_mode) - 1] = '\0';
     work_opts.deblock = 0;
+
+    add_track_resolve_output_dir(request->convert_options,
+                                 effective_output_dir,
+                                 sizeof(effective_output_dir));
+    strncpy(work_opts.output_dir, effective_output_dir,
+            sizeof(work_opts.output_dir) - 1);
+    work_opts.output_dir[sizeof(work_opts.output_dir) - 1] = '\0';
+    converter_make_output_name(request->source_file, &work_opts,
+                               intermediate_file, sizeof(intermediate_file));
 
     err = converter_set_options(converter, &work_opts);
     if (err != ERR_OK)
@@ -145,26 +218,27 @@ ConverterError add_track_execute(Converter *converter,
         return ERR_SKIP_FILE;
 
     {
-        const char *files[] = { request->source_file };
-        err = converter_process_files(converter, files, 1);
-        if (err != ERR_OK)
+        err = converter_process_single_file(converter, request->source_file);
+        if (err != ERR_OK) {
+            if (err != ERR_SKIP_FILE || converter_is_stopped(converter))
+                platform_unlink(intermediate_file);
             return err;
+        }
     }
 
-    if (converter_is_stopped(converter))
+    if (converter_is_stopped(converter)) {
+        platform_unlink(intermediate_file);
         return ERR_SKIP_FILE;
+    }
 
-    add_track_resolve_output_dir(request->convert_options,
-                                 effective_output_dir,
-                                 sizeof(effective_output_dir));
-
-    work_opts.output_dir[0] = '\0';
-    strncpy(work_opts.output_dir, effective_output_dir,
-            sizeof(work_opts.output_dir) - 1);
-    work_opts.output_dir[sizeof(work_opts.output_dir) - 1] = '\0';
-
-    converter_make_output_name(request->source_file, &work_opts,
-                               intermediate_file, sizeof(intermediate_file));
+    if (!add_track_intermediate_is_usable(intermediate_file)) {
+        const ConverterCallbacks *callbacks = converter_get_callbacks(converter);
+        platform_unlink(intermediate_file);
+        if (callbacks && callbacks->on_error)
+            callbacks->on_error("Add Track source preparation produced no usable intermediate",
+                                ERR_FFPROBE_FAILED);
+        return ERR_FFPROBE_FAILED;
+    }
 
     final_opts = *request->convert_options;
     final_opts.output_dir[0] = '\0';
@@ -218,14 +292,8 @@ ConverterError add_track_execute(Converter *converter,
     if (err != ERR_OK)
         return err;
 
-    /* intermediate_file (the HQ-encoded video-only work file) has now been
-     * consumed into final_file by the mux step above. When the two paths
-     * differ — e.g. the ProRes case, where final_file is .mov but
-     * intermediate_file is always .mkv — the intermediate is left behind on
-     * disk unless removed here. When the paths are identical (the common
-     * non-ProRes case), mkvmerge already wrote directly over
-     * intermediate_file in place, so skip removal to avoid deleting the
-     * just-produced final output. */
+    /* Remove the preparation intermediate when post-mux wrote a different
+     * final path, without deleting the final output when paths are identical. */
     if (strcmp(intermediate_file, final_file) != 0)
         platform_unlink(intermediate_file);
 
