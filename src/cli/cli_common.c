@@ -16,6 +16,7 @@
 #include "converter.h"
 #include "progress.h"
 #include "cli_common.h"
+#include "mux_policy.h"
 #include "cli_platform.h"
 #include "preset_loader.h"
 #include "hq_adapter.h"
@@ -622,6 +623,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
 {
     int i;
     int audio_norm_explicit = 0;
+    int audio_output_explicit = 0;
     int deblock_explicit = 0;
     int preset_explicit = 0;
     char selection_group[64] = "software";
@@ -651,6 +653,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         m4v_opts->video_track_index = 0;
         m4v_opts->audio_track_index = 0;
         m4v_opts->ac3_bitrate_kbps  = 640;
+        m4v_opts->audio_mode        = 0;
         strcpy(m4v_opts->audio_lang, "rus");
         m4v_opts->add_chapters      = 1;
     }
@@ -731,6 +734,7 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             strncpy(opts->audio_output_mode, argv[i],
                     sizeof(opts->audio_output_mode) - 1);
             opts->audio_output_mode[sizeof(opts->audio_output_mode) - 1] = '\0';
+            audio_output_explicit = 1;
             continue;
         }
 
@@ -886,6 +890,29 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             strcpy(opts->preset, "standard");
         else
             strcpy(opts->preset, "default");
+    }
+
+    if (!strcmp(opts->codec, "m4v")) {
+        MuxBuildProfile profile;
+        MuxPolicy policy;
+        char policy_error[256];
+        policy_error[0] = '\0';
+        if (!audio_output_explicit) {
+            strncpy(opts->audio_output_mode, "fdk_aac_320_ac3_640",
+                    sizeof(opts->audio_output_mode) - 1);
+            opts->audio_output_mode[sizeof(opts->audio_output_mode) - 1] = '\0';
+        }
+        if (!mux_build_profile_default(&profile) ||
+            !mux_policy_resolve(&profile, MUX_MODE_M4V,
+                                opts->audio_output_mode,
+                                MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
+                                &policy, policy_error, sizeof(policy_error))) {
+            fprintf(stderr, "Error: %s\n",
+                    policy_error[0] ? policy_error : "invalid M4V build profile");
+            return 0;
+        }
+        if (m4v_opts)
+            m4v_opts->audio_mode = policy.audio_mode == MUX_AUDIO_AAC ? 1 : 0;
     }
 
     {

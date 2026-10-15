@@ -7,6 +7,14 @@ enable_testing()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+set(FFMPEG_CONVERTER_FFMPEG_PROFILE "8.1" CACHE STRING
+    "FFmpeg version profile used by the mux policy (8.1 or 9.0)")
+set_property(CACHE FFMPEG_CONVERTER_FFMPEG_PROFILE PROPERTY STRINGS "8.1" "9.0")
+if (NOT FFMPEG_CONVERTER_FFMPEG_PROFILE STREQUAL "8.1" AND
+    NOT FFMPEG_CONVERTER_FFMPEG_PROFILE STREQUAL "9.0")
+  message(FATAL_ERROR "FFMPEG_CONVERTER_FFMPEG_PROFILE must be 8.1 or 9.0")
+endif()
+
 set(SRC_DIR "${CMAKE_SOURCE_DIR}/src")
 
 # HQ_converter is an external, prebuilt Linux/macOS dependency.  This step
@@ -111,4 +119,3 @@ if (EXISTS "${HQ_CONVERTER_RELEASE_DIR}")
 endif()
 # --- МОДУЛЬНАЯ СТРУКТУРА ---
 add_subdirectory(src)
-

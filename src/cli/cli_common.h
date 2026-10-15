@@ -44,6 +44,7 @@ typedef struct {
     int  video_track_index; /* 0-based index of the video stream to use */
     int  audio_track_index; /* 0-based index of the audio stream to use */
     int  ac3_bitrate_kbps;  /* AC3 bitrate in kbps (default 640)        */
+    int  audio_mode;        /* 0 = AAC + AC3, 1 = AAC only               */
     char audio_lang[16];    /* ISO 639 language tag (default "rus")      */
     int  add_chapters;      /* 1 = embed chapter markers (default 1)    */
 } CliM4VOptions;

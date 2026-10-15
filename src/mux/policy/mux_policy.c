@@ -1,0 +1,225 @@
+#include "mux_policy.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static void set_error(char *error, size_t error_size, const char *message)
+{
+    if (error && error_size)
+        snprintf(error, error_size, "%s", message);
+}
+
+int mux_build_profile_resolve(const char *platform,
+                              const char *ffmpeg_version,
+                              MuxBuildProfile *profile)
+{
+    if (!platform || !ffmpeg_version || !profile)
+        return 0;
+
+    if (strcmp(platform, "linux") == 0)
+        profile->platform = MUX_PLATFORM_LINUX;
+    else if (strcmp(platform, "windows") == 0)
+        profile->platform = MUX_PLATFORM_WINDOWS;
+    else if (strcmp(platform, "macos") == 0)
+        profile->platform = MUX_PLATFORM_MACOS;
+    else
+        return 0;
+
+    if (strcmp(ffmpeg_version, "8.1") == 0)
+        profile->ffmpeg_version = MUX_FFMPEG_8_1;
+    else if (strcmp(ffmpeg_version, "9.0") == 0)
+        profile->ffmpeg_version = MUX_FFMPEG_9_0;
+    else
+        return 0;
+
+    return 1;
+}
+
+int mux_build_profile_default(MuxBuildProfile *profile)
+{
+#if defined(_WIN32)
+    const char *platform = "windows";
+#elif defined(__APPLE__)
+    const char *platform = "macos";
+#else
+    const char *platform = "linux";
+#endif
+#ifdef FFMPEG_CONVERTER_FFMPEG_PROFILE
+    const char *version = FFMPEG_CONVERTER_FFMPEG_PROFILE;
+#else
+    const char *version = "8.1";
+#endif
+    return mux_build_profile_resolve(platform, version, profile);
+}
+
+MuxMode mux_mode_parse(const char *value)
+{
+    if (!value)
+        return MUX_MODE_INVALID;
+    if (strcmp(value, "copy") == 0)
+        return MUX_MODE_COPY;
+    if (strcmp(value, "mkv") == 0)
+        return MUX_MODE_MKV;
+    if (strcmp(value, "mov") == 0)
+        return MUX_MODE_MOV;
+    if (strcmp(value, "m4v") == 0)
+        return MUX_MODE_M4V;
+    return MUX_MODE_INVALID;
+}
+
+MuxAudioMode mux_audio_mode_parse(const char *value)
+{
+    if (!value)
+        return MUX_AUDIO_INVALID;
+    if (strcmp(value, "copy") == 0)
+        return MUX_AUDIO_COPY;
+    if (strcmp(value, "pcm") == 0)
+        return MUX_AUDIO_PCM;
+    if (strcmp(value, "fdk_aac_320") == 0)
+        return MUX_AUDIO_AAC;
+    if (strcmp(value, "fdk_aac_320_ac3_640") == 0)
+        return MUX_AUDIO_AAC_AC3;
+    return MUX_AUDIO_INVALID;
+}
+
+MuxVideoCodec mux_video_codec_parse(const char *value)
+{
+    if (!value)
+        return MUX_VIDEO_UNKNOWN;
+    if (strstr(value, "prores"))
+        return MUX_VIDEO_PRORES;
+    if (strstr(value, "h264") || strstr(value, "avc"))
+        return MUX_VIDEO_H264;
+    if (strstr(value, "hevc") || strstr(value, "h265"))
+        return MUX_VIDEO_HEVC;
+    return MUX_VIDEO_UNSUPPORTED;
+}
+
+int mux_policy_resolve(const MuxBuildProfile *profile,
+                       MuxMode mode,
+                       const char *audio_mode,
+                       MuxVideoCodec source_video_codec,
+                       MuxVideoCodec replacement_video_codec,
+                       MuxPolicy *policy,
+                       char *error,
+                       size_t error_size)
+{
+    MuxAudioMode resolved_audio;
+    MuxContainer container;
+    int defaulted = 0;
+
+    if (error && error_size)
+        error[0] = '\0';
+
+    if (!profile || !policy ||
+        profile->platform < MUX_PLATFORM_LINUX ||
+        profile->platform > MUX_PLATFORM_MACOS ||
+        profile->ffmpeg_version < MUX_FFMPEG_8_1 ||
+        profile->ffmpeg_version > MUX_FFMPEG_9_0 ||
+        mode < MUX_MODE_COPY || mode >= MUX_MODE_INVALID) {
+        set_error(error, error_size, "invalid mux profile or mode");
+        return 0;
+    }
+
+    switch (mode) {
+        case MUX_MODE_COPY:
+            container = source_video_codec == MUX_VIDEO_PRORES
+                            ? MUX_CONTAINER_MOV : MUX_CONTAINER_MKV;
+            break;
+        case MUX_MODE_MKV:
+            container = MUX_CONTAINER_MKV;
+            break;
+        case MUX_MODE_MOV:
+            container = MUX_CONTAINER_MOV;
+            break;
+        case MUX_MODE_M4V:
+            container = MUX_CONTAINER_M4V;
+            break;
+        default:
+            set_error(error, error_size, "unsupported mux mode");
+            return 0;
+    }
+
+    if (!audio_mode || audio_mode[0] == '\0') {
+        defaulted = 1;
+        if (mode == MUX_MODE_M4V)
+            resolved_audio = MUX_AUDIO_AAC_AC3;
+        else
+            resolved_audio = MUX_AUDIO_PCM;
+    } else {
+        resolved_audio = mux_audio_mode_parse(audio_mode);
+    }
+
+    if (resolved_audio == MUX_AUDIO_INVALID) {
+        set_error(error, error_size, "unknown mux audio mode");
+        return 0;
+    }
+
+    if (container == MUX_CONTAINER_MOV && resolved_audio != MUX_AUDIO_PCM) {
+        set_error(error, error_size, "MOV mux mode supports PCM audio only");
+        return 0;
+    }
+    if (container == MUX_CONTAINER_M4V &&
+        resolved_audio != MUX_AUDIO_AAC && resolved_audio != MUX_AUDIO_AAC_AC3) {
+        set_error(error, error_size, "M4V mux mode supports AAC or AAC+AC3 audio only");
+        return 0;
+    }
+
+    if (mode == MUX_MODE_M4V &&
+        replacement_video_codec != MUX_VIDEO_UNKNOWN &&
+        replacement_video_codec != MUX_VIDEO_H264 &&
+        replacement_video_codec != MUX_VIDEO_HEVC) {
+        set_error(error, error_size, "M4V replacement video must be H.264 or HEVC");
+        return 0;
+    }
+    if ((mode == MUX_MODE_MKV || mode == MUX_MODE_MOV) &&
+        replacement_video_codec == MUX_VIDEO_UNSUPPORTED) {
+        set_error(error, error_size, "unsupported replacement video codec");
+        return 0;
+    }
+
+    memset(policy, 0, sizeof(*policy));
+    policy->mode = mode;
+    policy->container = container;
+    policy->audio_mode = resolved_audio;
+    policy->audio_mode_was_defaulted = defaulted;
+    policy->requires_add_track = mode != MUX_MODE_COPY;
+    policy->requires_video_replacement = mode != MUX_MODE_COPY;
+    policy->preserve_video = 1;
+    policy->preserve_chapters = 1;
+    policy->preserve_metadata = 1;
+    policy->preserve_subtitles_when_supported = 1;
+    return 1;
+}
+
+const char *mux_mode_name(MuxMode mode)
+{
+    switch (mode) {
+        case MUX_MODE_COPY: return "copy";
+        case MUX_MODE_MKV: return "mkv";
+        case MUX_MODE_MOV: return "mov";
+        case MUX_MODE_M4V: return "m4v";
+        default: return "invalid";
+    }
+}
+
+const char *mux_container_name(MuxContainer container)
+{
+    switch (container) {
+        case MUX_CONTAINER_MKV: return "mkv";
+        case MUX_CONTAINER_MOV: return "mov";
+        case MUX_CONTAINER_M4V: return "m4v";
+        default: return "invalid";
+    }
+}
+
+const char *mux_audio_mode_name(MuxAudioMode mode)
+{
+    switch (mode) {
+        case MUX_AUDIO_COPY: return "copy";
+        case MUX_AUDIO_PCM: return "pcm";
+        case MUX_AUDIO_AAC: return "fdk_aac_320";
+        case MUX_AUDIO_AAC_AC3: return "fdk_aac_320_ac3_640";
+        default: return "invalid";
+    }
+}

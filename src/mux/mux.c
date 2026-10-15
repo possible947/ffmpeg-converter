@@ -2,6 +2,7 @@
 #include "mux_platform.h"
 #include "converter_platform.h"
 #include "m4v.h"
+#include "mux_policy.h"
 
 #include <ctype.h>
 #include <stdint.h>
@@ -109,6 +110,7 @@ static int probe_video_rate_string(const char* ffprobe_bin,
         platform_pclose_exitcode(fp);
         return 0;
     }
+
     platform_pclose_exitcode(fp);
     rate_out[strcspn(rate_out, "\r\n")] = '\0';
 
@@ -135,6 +137,49 @@ static int probe_video_rate_string(const char* ffprobe_bin,
     rate_out[strcspn(rate_out, "\r\n")] = '\0';
 
     return rate_out[0] != '\0' && strcmp(rate_out, "0/0") != 0;
+}
+
+ConverterError mux_probe_video_codec(const char *input_file,
+                                     MuxVideoCodec *codec_out)
+{
+    const char *ffprobe_bin;
+    char quoted_tool[2048];
+    char quoted_input[2048];
+    char cmd[8192];
+    char codec_name[128];
+    FILE *fp;
+    int status;
+
+    if (!input_file || !input_file[0] || !codec_out)
+        return ERR_INVALID_OPTIONS;
+    if (!platform_file_is_regular(input_file))
+        return ERR_INPUT_NOT_FOUND;
+
+    ffprobe_bin = platform_get_ffprobe_bin();
+    if (!ffprobe_bin || !ffprobe_bin[0])
+        return ERR_INVALID_OPTIONS;
+
+    platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
+    platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
+    snprintf(cmd, sizeof(cmd),
+             "%s -v error -select_streams v:0 -show_entries stream=codec_name "
+             "-of default=noprint_wrappers=1:nokey=1 %s %s",
+             quoted_tool, quoted_input, platform_null_redirect());
+    fp = mux_platform_popen(cmd, "r");
+    if (!fp)
+        return ERR_POPEN_FAILED;
+    if (!fgets(codec_name, sizeof(codec_name), fp)) {
+        status = platform_pclose_exitcode(fp);
+        return status == 0 ? ERR_INVALID_OPTIONS : ERR_FFPROBE_FAILED;
+    }
+    status = platform_pclose_exitcode(fp);
+    if (status != 0)
+        return ERR_FFPROBE_FAILED;
+
+    codec_name[strcspn(codec_name, "\r\n")] = '\0';
+    *codec_out = mux_video_codec_parse(codec_name);
+    return *codec_out == MUX_VIDEO_UNSUPPORTED
+               ? ERR_INVALID_OPTIONS : ERR_OK;
 }
 
 /* Reads the original source's video-track language tag from intermediate_file
@@ -347,8 +392,7 @@ ConverterError mux_run_postprocess(
 
     snprintf(cmd,
              sizeof(cmd),
-             "%s -o %s --no-audio --no-subtitles --no-buttons --no-attachments "
-             "--no-chapters --no-global-tags --no-track-tags %s%s--video-tracks 0 %s --no-video %s 2>&1",
+             "%s -o %s --no-audio %s%s--video-tracks 0 %s --no-video %s 2>&1",
              quoted_tool,
              quoted_output,
              timing_arg,
@@ -426,23 +470,42 @@ ConverterError mux_run_postprocess_for_preset(
     const ConverterCallbacks* callbacks
 ) {
     MuxOptions local_opts;
+    MuxBuildProfile profile;
+    MuxPolicy policy;
     const char* preset;
+    char policy_error[256];
     char temp_mkv[1200];
     ConverterError err;
 
     if (!opts || !final_output_file)
         return ERR_INVALID_OPTIONS;
 
-    preset = (convert_opts && convert_opts->preset[0] != '\0') ? convert_opts->preset : "mkv";
+    policy_error[0] = '\0';
+    preset = (convert_opts && convert_opts->preset[0] != '\0')
+                 ? convert_opts->preset : "mkv";
+    if (!mux_build_profile_default(&profile) ||
+        !mux_policy_resolve(&profile, mux_mode_parse(preset),
+                            convert_opts ? convert_opts->audio_output_mode : NULL,
+                            MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
+                            &policy, policy_error, sizeof(policy_error))) {
+        emit_error(callbacks,
+                   policy_error[0] != '\0' ? policy_error : "invalid mux build profile",
+                   ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
     local_opts = *opts;
 
-    if (!strcmp(preset, "mkv")) {
+    if (policy.container == MUX_CONTAINER_MKV) {
         strncpy(local_opts.output_file, final_output_file, sizeof(local_opts.output_file) - 1);
         local_opts.output_file[sizeof(local_opts.output_file) - 1] = '\0';
         return mux_run_postprocess(&local_opts, convert_opts, callbacks);
     }
 
-    snprintf(temp_mkv, sizeof(temp_mkv), "%s.mux_tmp.mkv", final_output_file);
+    if (snprintf(temp_mkv, sizeof(temp_mkv), "%s.mux_tmp.mkv", final_output_file) >=
+        (int)sizeof(temp_mkv)) {
+        emit_error(callbacks, "post-mux failed: output path is too long", ERR_PATH_TOO_LONG);
+        return ERR_PATH_TOO_LONG;
+    }
     strncpy(local_opts.output_file, temp_mkv, sizeof(local_opts.output_file) - 1);
     local_opts.output_file[sizeof(local_opts.output_file) - 1] = '\0';
 
@@ -450,29 +513,22 @@ ConverterError mux_run_postprocess_for_preset(
     if (err != ERR_OK)
         return err;
 
-    if (!strcmp(preset, "mov")) {
+    if (policy.container == MUX_CONTAINER_MOV) {
         err = mux_remux_container(temp_mkv, final_output_file, "mov", callbacks);
-    } else if (!strcmp(preset, "m4v")) {
+    } else if (policy.container == MUX_CONTAINER_M4V) {
         M4VOptions m4v_opts;
         char detail[256];
 
         emit_stage(callbacks, "Post-mux: Apple M4V pipeline");
         m4v_default_options(&m4v_opts);
+        m4v_opts.audio_mode = policy.audio_mode == MUX_AUDIO_AAC
+                                  ? 1 : 0;
         detail[0] = '\0';
         err = m4v_create_from_input(temp_mkv, final_output_file, &m4v_opts,
                                    opts->overwrite, NULL, callbacks,
                                    detail, sizeof(detail));
         if (err != ERR_OK)
             emit_error(callbacks, detail[0] != '\0' ? detail : "Apple M4V pipeline failed", err);
-    } else {
-        /* Unrecognized preset value: keep the mkvmerge result rather than
-         * silently discarding a completed mux. */
-        if (platform_rename(temp_mkv, final_output_file) != 0) {
-            emit_error(callbacks, "post-mux failed: could not finalize output", ERR_UNKNOWN);
-            err = ERR_UNKNOWN;
-        } else {
-            err = ERR_OK;
-        }
     }
 
     platform_unlink(temp_mkv);

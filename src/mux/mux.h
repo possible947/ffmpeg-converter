@@ -2,6 +2,7 @@
 #define FFMPEG_CONVERTER_MUX_H
 
 #include "converter.h"
+#include "mux_policy.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,6 +29,10 @@ ConverterError mux_run_postprocess_for_preset(
     const char* final_output_file,
     const ConverterCallbacks* callbacks
 );
+
+/* Probe the codec of the first video stream without changing the input. */
+ConverterError mux_probe_video_codec(const char *input_file,
+                                     MuxVideoCodec *codec_out);
 
 #ifdef __cplusplus
 }

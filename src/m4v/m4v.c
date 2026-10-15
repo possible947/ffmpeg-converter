@@ -376,6 +376,7 @@ ConverterError m4v_create_from_input(const char *input_file,
     char video_add[3072];
     char aac_add[3072];
     char ac3_add[3072];
+    int add_ac3;
     char cmd[20480];
     char detail[256];
     char video_codec[64];
@@ -394,6 +395,11 @@ ConverterError m4v_create_from_input(const char *input_file,
         local_opts = *opts;
     else
         m4v_default_options(&local_opts);
+    if (local_opts.audio_mode != 0 && local_opts.audio_mode != 1) {
+        copy_string(error_text, error_text_sz, "invalid M4V audio mode");
+        emit_error(callbacks, "invalid M4V audio mode", ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
 
     video_codec[0] = '\0';
     rc = m4v_validate_input_supported(input_file, detail, sizeof(detail), video_codec, sizeof(video_codec));
@@ -435,6 +441,7 @@ ConverterError m4v_create_from_input(const char *input_file,
 
     fps = probe_fps_for_input(ffprobe_bin, input_file);
     lang = local_opts.audio_lang[0] != '\0' ? local_opts.audio_lang : "rus";
+    add_ac3 = local_opts.audio_mode != 1;
 
     {
         VideoColorParams color;
@@ -500,21 +507,23 @@ ConverterError m4v_create_from_input(const char *input_file,
         return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
     }
 
-    m4v_platform_shell_quote(ac3_mp4, quoted_ac3, sizeof(quoted_ac3));
-    emit_stage(callbacks, "Apple M4V step 3/6: AC3 encode");
-    snprintf(cmd,
-             sizeof(cmd),
-             "%s -y -nostdin -i %s -map 0:a:%d -c:a ac3 -b:a %dk -f mp4 %s 2>&1",
-             quoted_tool,
-             quoted_input,
-             local_opts.audio_track_index,
-             local_opts.ac3_bitrate_kbps,
-             quoted_ac3);
-    rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
-    if (rc != 0) {
-        copy_string(error_text, error_text_sz, rc == -2 ? "Stopped" : "Apple M4V AC3 encode failed");
-        m4v_platform_remove_temp_dir(work_dir);
-        return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
+    if (add_ac3) {
+        m4v_platform_shell_quote(ac3_mp4, quoted_ac3, sizeof(quoted_ac3));
+        emit_stage(callbacks, "Apple M4V step 3/6: AC3 encode");
+        snprintf(cmd,
+                 sizeof(cmd),
+                 "%s -y -nostdin -i %s -map 0:a:%d -c:a ac3 -b:a %dk -f mp4 %s 2>&1",
+                 quoted_tool,
+                 quoted_input,
+                 local_opts.audio_track_index,
+                 local_opts.ac3_bitrate_kbps,
+                 quoted_ac3);
+        rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
+        if (rc != 0) {
+            copy_string(error_text, error_text_sz, rc == -2 ? "Stopped" : "Apple M4V AC3 encode failed");
+            m4v_platform_remove_temp_dir(work_dir);
+            return rc == -2 ? ERR_SKIP_FILE : ERR_FFMPEG_FAILED;
+        }
     }
 
     m4v_platform_shell_quote(mp4box_bin, quoted_tool, sizeof(quoted_tool));
@@ -522,22 +531,35 @@ ConverterError m4v_create_from_input(const char *input_file,
     emit_stage(callbacks, "Apple M4V step 4/6: MP4Box mux");
     snprintf(video_add, sizeof(video_add), "%s#video:fps=%.6f:name=Video", video_mp4, fps);
     snprintf(aac_add, sizeof(aac_add), "%s#audio:name=AAC:lang=%s", aac_m4a, lang);
-    snprintf(ac3_add, sizeof(ac3_add), "%s#audio:name=AC3 %dk:lang=%s", ac3_mp4, local_opts.ac3_bitrate_kbps, lang);
     m4v_platform_shell_quote(video_add, quoted_video_add, sizeof(quoted_video_add));
     m4v_platform_shell_quote(aac_add, quoted_aac_add, sizeof(quoted_aac_add));
-    m4v_platform_shell_quote(ac3_add, quoted_ac3_add, sizeof(quoted_ac3_add));
+    if (add_ac3) {
+        snprintf(ac3_add, sizeof(ac3_add), "%s#audio:name=AC3 %dk:lang=%s", ac3_mp4, local_opts.ac3_bitrate_kbps, lang);
+        m4v_platform_shell_quote(ac3_add, quoted_ac3_add, sizeof(quoted_ac3_add));
+    }
     {
         char quoted_brand[64];
         m4v_platform_shell_quote("M4V :0", quoted_brand, sizeof(quoted_brand));
-        snprintf(cmd,
-                 sizeof(cmd),
-                 "%s -new -brand %s -ab mp42 -ab isom -add %s -add %s -add %s %s 2>&1",
-                 quoted_tool,
-                 quoted_brand,
-                 quoted_video_add,
-                 quoted_aac_add,
-                 quoted_ac3_add,
-                 quoted_output);
+        if (add_ac3) {
+            snprintf(cmd,
+                     sizeof(cmd),
+                     "%s -new -brand %s -ab mp42 -ab isom -add %s -add %s -add %s %s 2>&1",
+                     quoted_tool,
+                     quoted_brand,
+                     quoted_video_add,
+                     quoted_aac_add,
+                     quoted_ac3_add,
+                     quoted_output);
+        } else {
+            snprintf(cmd,
+                     sizeof(cmd),
+                     "%s -new -brand %s -ab mp42 -ab isom -add %s -add %s %s 2>&1",
+                     quoted_tool,
+                     quoted_brand,
+                     quoted_video_add,
+                     quoted_aac_add,
+                     quoted_output);
+        }
     }
     if (!overwrite && m4v_platform_file_exists(output_file)) {
         copy_string(error_text, error_text_sz, "Output exists (enable overwrite)");
@@ -556,13 +578,23 @@ ConverterError m4v_create_from_input(const char *input_file,
     emit_stage(callbacks, "Apple M4V step 5/6: set audio disposition");
     m4v_platform_shell_quote(ffmpeg_bin, quoted_tool, sizeof(quoted_tool));
     m4v_platform_shell_quote(disposition_m4v, quoted_disposition_m4v, sizeof(quoted_disposition_m4v));
-    snprintf(cmd,
-             sizeof(cmd),
-             "%s -y -nostdin -i %s -map 0:v:0 -map 0:a:0 -map 0:a:1 -c:v copy -c:a copy "
-             "-disposition:a:0 default -disposition:a:1 0 -f mp4 %s 2>&1",
-             quoted_tool,
-             quoted_output,
-             quoted_disposition_m4v);
+    if (add_ac3) {
+        snprintf(cmd,
+                 sizeof(cmd),
+                 "%s -y -nostdin -i %s -map 0:v:0 -map 0:a:0 -map 0:a:1 -c:v copy -c:a copy "
+                 "-disposition:a:0 default -disposition:a:1 0 -f mp4 %s 2>&1",
+                 quoted_tool,
+                 quoted_output,
+                 quoted_disposition_m4v);
+    } else {
+        snprintf(cmd,
+                 sizeof(cmd),
+                 "%s -y -nostdin -i %s -map 0:v:0 -map 0:a:0 -c:v copy -c:a copy "
+                 "-disposition:a:0 default -f mp4 %s 2>&1",
+                 quoted_tool,
+                 quoted_output,
+                 quoted_disposition_m4v);
+    }
     rc = run_command_capture(cmd, NULL, 0, callbacks, stop_flag);
     if (rc != 0) {
         m4v_platform_unlink(disposition_m4v);

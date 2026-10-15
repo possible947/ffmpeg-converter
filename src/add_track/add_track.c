@@ -3,6 +3,7 @@
 #include "mux_platform.h"
 #include "converter_platform.h"
 #include "hq_catalog.h"
+#include "mux_policy.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -46,9 +47,17 @@ ConverterError add_track_execute(Converter *converter,
     ConvertOptions work_opts;
     ConvertOptions final_opts;
     MuxOptions mux_opts;
+    ConvertOptions mux_policy_opts;
+    MuxPolicy policy;
+    MuxBuildProfile profile;
+    MuxVideoCodec replacement_codec;
     char effective_output_dir[1024];
     char intermediate_file[1024];
     char final_file[1024];
+    char policy_error[256];
+    const char *policy_audio_mode;
+    MuxMode mux_mode;
+    int is_hq_prores;
 
     if (!converter || !request || !result)
         return ERR_INVALID_OPTIONS;
@@ -68,6 +77,49 @@ ConverterError add_track_execute(Converter *converter,
     if (!platform_file_is_regular(request->convert_options->video_track_path))
         return ERR_INPUT_NOT_FOUND;
 
+    is_hq_prores =
+        !strcmp(request->convert_options->codec, "hq_converter") &&
+        hq_catalog_is_prores_codec(request->convert_options->hw_device);
+    if (!mux_build_profile_default(&profile))
+        return ERR_INVALID_OPTIONS;
+    err = mux_probe_video_codec(request->convert_options->video_track_path,
+                                &replacement_codec);
+    if (err != ERR_OK)
+        return err;
+
+    if (!strcmp(request->convert_options->codec, "hq_converter")) {
+        mux_mode = is_hq_prores ? MUX_MODE_MOV : MUX_MODE_MKV;
+    } else {
+        const char *requested_mode = request->convert_options->preset;
+        mux_mode = (!requested_mode || requested_mode[0] == '\0' ||
+                    !strcmp(requested_mode, "default"))
+                       ? MUX_MODE_MKV : mux_mode_parse(requested_mode);
+    }
+
+    policy_audio_mode = is_hq_prores
+                            ? "pcm" : request->convert_options->audio_output_mode;
+    if (!mux_policy_resolve(&profile, mux_mode,
+                            policy_audio_mode,
+                            MUX_VIDEO_UNKNOWN, replacement_codec,
+                            &policy, policy_error, sizeof(policy_error))) {
+        const ConverterCallbacks *callbacks = converter_get_callbacks(converter);
+        if (callbacks && callbacks->on_error)
+            callbacks->on_error(policy_error, ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
+    if (!platform_get_mkvmerge_bin() ||
+        platform_get_mkvmerge_bin()[0] == '\0' ||
+        (policy.container == MUX_CONTAINER_M4V &&
+         (!platform_get_mp4box_bin() || platform_get_mp4box_bin()[0] == '\0'))) {
+        const ConverterCallbacks *callbacks = converter_get_callbacks(converter);
+        const char *message = policy.container == MUX_CONTAINER_M4V
+                                  ? "M4V mode requires mkvmerge and MP4Box"
+                                  : "replacement mux mode requires mkvmerge";
+        if (callbacks && callbacks->on_error)
+            callbacks->on_error(message, ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
+
     memset(result, 0, sizeof(*result));
 
     work_opts = *request->convert_options;
@@ -75,6 +127,9 @@ ConverterError add_track_execute(Converter *converter,
     strcpy(work_opts.codec, "copy");
     work_opts.preset[0] = '\0';
     strcpy(work_opts.preset, "default");
+    strncpy(work_opts.audio_output_mode, mux_audio_mode_name(policy.audio_mode),
+            sizeof(work_opts.audio_output_mode) - 1);
+    work_opts.audio_output_mode[sizeof(work_opts.audio_output_mode) - 1] = '\0';
     work_opts.deblock = 0;
 
     err = converter_set_options(converter, &work_opts);
@@ -120,10 +175,6 @@ ConverterError add_track_execute(Converter *converter,
      * substitute container-selection values understood by those two
      * functions, without touching request->convert_options itself. */
     {
-        int is_hq_prores =
-            !strcmp(request->convert_options->codec, "hq_converter") &&
-            hq_catalog_is_prores_codec(request->convert_options->hw_device);
-
         if (is_hq_prores) {
             strncpy(final_opts.codec, "prores_ks", sizeof(final_opts.codec) - 1);
             final_opts.codec[sizeof(final_opts.codec) - 1] = '\0';
@@ -144,22 +195,20 @@ ConverterError add_track_execute(Converter *converter,
 
         mux_opts.overwrite = request->convert_options->overwrite;
 
-        if (is_hq_prores) {
-            ConvertOptions mux_preset_opts = *request->convert_options;
-            strncpy(mux_preset_opts.preset, "mov",
-                    sizeof(mux_preset_opts.preset) - 1);
-            mux_preset_opts.preset[sizeof(mux_preset_opts.preset) - 1] = '\0';
+        mux_policy_opts = *request->convert_options;
+        strncpy(mux_policy_opts.preset, mux_mode_name(policy.mode),
+                sizeof(mux_policy_opts.preset) - 1);
+        mux_policy_opts.preset[sizeof(mux_policy_opts.preset) - 1] = '\0';
+        strncpy(mux_policy_opts.audio_output_mode,
+                mux_audio_mode_name(policy.audio_mode),
+                sizeof(mux_policy_opts.audio_output_mode) - 1);
+        mux_policy_opts.audio_output_mode[
+            sizeof(mux_policy_opts.audio_output_mode) - 1] = '\0';
 
-            err = mux_run_postprocess_for_preset(&mux_opts,
-                                                  &mux_preset_opts,
-                                                  final_file,
-                                                  converter_get_callbacks(converter));
-        } else {
-            err = mux_run_postprocess_for_preset(&mux_opts,
-                                                  request->convert_options,
-                                                  final_file,
-                                                  converter_get_callbacks(converter));
-        }
+        err = mux_run_postprocess_for_preset(&mux_opts,
+                                              &mux_policy_opts,
+                                              final_file,
+                                              converter_get_callbacks(converter));
     }
     if (err != ERR_OK)
         return err;

@@ -7,6 +7,7 @@
 #include "preset_loader.h"
 #include "hq_adapter.h"
 #include "hq_catalog.h"
+#include "mux_policy.h"
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -24,6 +25,7 @@ static void on_codec_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
 static void on_encoder_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
 static void on_filter_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
 static void on_audio_norm_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
+static void on_audio_output_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w);
 static gboolean update_dependent_widgets_idle(gpointer data);
 static void schedule_update_dependent_widgets(AppWidgets *w);
 static void on_add_files_clicked(GtkButton *button, AppWidgets *w);
@@ -700,6 +702,8 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         GtkStringList *list = gtk_string_list_new(output_items);
         w->audio_output_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo), 0);
+        g_signal_connect(w->audio_output_combo, "notify::selected",
+                         G_CALLBACK(on_audio_output_changed), w);
         g_object_unref(list);
         gtk_widget_set_hexpand(w->audio_output_combo, TRUE);
     }
@@ -1067,6 +1071,29 @@ static void update_dependent_widgets(AppWidgets *w)
     mux_group = g_strcmp0(codec, "mux") == 0;
     hq_group = g_strcmp0(codec, "hq_converter") == 0;
     mux_needs_track = mux_group && g_strcmp0(encoder, "copy") != 0;
+
+    if (mux_group && encoder &&
+        (g_strcmp0(encoder, "mkv") == 0 ||
+         g_strcmp0(encoder, "mov") == 0 ||
+         g_strcmp0(encoder, "m4v") == 0)) {
+        MuxBuildProfile profile;
+        MuxPolicy policy;
+        MuxMode mode = mux_mode_parse(encoder);
+        char *audio_mode = get_dropdown_text(w->audio_output_combo);
+        if (mux_build_profile_default(&profile) &&
+            !mux_policy_resolve(&profile, mode, audio_mode,
+                                MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
+                                &policy, NULL, 0)) {
+            const char *default_mode = mode == MUX_MODE_M4V
+                                           ? "fdk_aac_320_ac3_640" : "pcm";
+            guint selected = 0;
+            if (g_strcmp0(default_mode, "fdk_aac_320_ac3_640") == 0)
+                selected = 3;
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo),
+                                       selected);
+        }
+        g_free(audio_mode);
+    }
     /* Update preset combo with presets for the selected codec */
     populate_preset_combo(w);
 
@@ -1181,6 +1208,15 @@ static void on_filter_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
 /* Callback: audio_norm combo changed                                  */
 /* ------------------------------------------------------------------ */
 static void on_audio_norm_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
+{
+    (void)obj;
+    (void)pspec;
+    schedule_update_dependent_widgets(w);
+}
+
+static void on_audio_output_changed(GObject *obj,
+                                    GParamSpec *pspec,
+                                    AppWidgets *w)
 {
     (void)obj;
     (void)pspec;
@@ -1722,4 +1758,3 @@ void setup_keyboard_shortcuts(GtkApplication *app, AppWidgets *w)
         gtk_application_set_accels_for_action(app, detailed, accels);
     }
 }
-
