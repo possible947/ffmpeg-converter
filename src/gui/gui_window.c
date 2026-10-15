@@ -8,6 +8,7 @@
 #include "hq_adapter.h"
 #include "hq_catalog.h"
 #include "mux_policy.h"
+#include "input_video_info.h"
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -1043,6 +1044,33 @@ static void install_drop_target(AppWidgets *w)
 /* ------------------------------------------------------------------ */
 /* Update visibility / sensitivity of dependent widgets                */
 /* ------------------------------------------------------------------ */
+static void update_audio_output_options(AppWidgets *w,
+                                        const MuxAudioMode *audio_modes,
+                                        size_t audio_mode_count)
+{
+    const char *items[5] = {NULL, NULL, NULL, NULL, NULL};
+    char *current = get_dropdown_text(w->audio_output_combo);
+    guint selected = 0;
+    gboolean selection_found = FALSE;
+    GtkStringList *model = GTK_STRING_LIST(
+        gtk_drop_down_get_model(GTK_DROP_DOWN(w->audio_output_combo)));
+    guint old_count = g_list_model_get_n_items(G_LIST_MODEL(model));
+
+    for (size_t i = 0; i < audio_mode_count; ++i) {
+        items[i] = mux_audio_mode_name(audio_modes[i]);
+        if (current && g_strcmp0(current, items[i]) == 0) {
+            selected = (guint)i;
+            selection_found = TRUE;
+        }
+    }
+    w->updating_selection = TRUE;
+    gtk_string_list_splice(model, 0, old_count, items);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo),
+                               selection_found ? selected : 0);
+    w->updating_selection = FALSE;
+    g_free(current);
+}
+
 static void update_dependent_widgets(AppWidgets *w)
 {
     if (!w || w->shutting_down)
@@ -1054,6 +1082,7 @@ static void update_dependent_widgets(AppWidgets *w)
     gboolean mux_group;
     gboolean hq_group;
     gboolean mux_needs_track;
+    gboolean mux_policy_valid = TRUE;
 
     codec = get_dropdown_text(w->codec_combo);
     encoder = get_dropdown_text(w->encoder_combo);
@@ -1062,43 +1091,67 @@ static void update_dependent_widgets(AppWidgets *w)
                                   resolved_codec, sizeof(resolved_codec));
     mux_group = g_strcmp0(codec, "mux") == 0;
     hq_group = g_strcmp0(codec, "hq_converter") == 0;
-    mux_needs_track = mux_group && g_strcmp0(encoder, "copy") != 0;
+    mux_needs_track = FALSE;
 
-    if (mux_group && encoder &&
-        (g_strcmp0(encoder, "mkv") == 0 ||
-         g_strcmp0(encoder, "mov") == 0 ||
-         g_strcmp0(encoder, "m4v") == 0)) {
+    if (mux_group && encoder) {
         MuxBuildProfile profile;
         MuxPolicy policy;
         MuxMode mode = mux_mode_parse(encoder);
         char *audio_mode = get_dropdown_text(w->audio_output_combo);
-        char policy_error[256];
-        if (mux_build_profile_default(&profile) &&
-            !mux_policy_resolve(&profile, mode, audio_mode,
-                                MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
-                                &policy, policy_error, sizeof(policy_error))) {
-            MuxPolicy default_policy;
-            if (mux_policy_resolve(&profile, mode, NULL,
-                                   MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
-                                   &default_policy, NULL, 0)) {
-                const char *default_mode = mux_audio_mode_name(default_policy.audio_mode);
-                GListModel *model = gtk_drop_down_get_model(
-                    GTK_DROP_DOWN(w->audio_output_combo));
-                fprintf(stderr, "Audio mode constraint violation: %s (resetting to %s)\n",
-                        policy_error[0] ? policy_error : "unknown error", default_mode);
-                for (guint i = 0; i < g_list_model_get_n_items(model); i++) {
-                    GtkStringObject *item = g_list_model_get_item(model, i);
-                    gboolean match = g_strcmp0(
-                        gtk_string_object_get_string(item), default_mode) == 0;
-                    g_object_unref(item);
-                    if (match) {
-                        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo), i);
-                        break;
-                    }
+        mux_policy_valid = mux_build_profile_default(&profile) &&
+                           mode != MUX_MODE_INVALID;
+        MuxVideoCodec *sources = NULL;
+        size_t source_count = 0;
+        if (mux_policy_valid && mode == MUX_MODE_COPY && w->file_paths->len) {
+            source_count = w->file_paths->len;
+            sources = g_new(MuxVideoCodec, source_count);
+            for (guint i = 0; i < w->file_paths->len; ++i) {
+                const char *path = g_ptr_array_index(w->file_paths, i);
+                InputVideoInfo info;
+                if (!input_video_info_probe(path, &info)) {
+                    mux_policy_valid = FALSE;
+                    break;
                 }
+                sources[i] = mux_video_codec_parse(info.codec_name);
             }
         }
+
+        MuxAudioMode audio_modes[4];
+        size_t audio_mode_count = mux_policy_valid
+            ? mux_policy_list_audio_modes(&profile, mode, sources,
+                                          source_count, MUX_VIDEO_UNKNOWN,
+                                          audio_modes,
+                                          sizeof(audio_modes) / sizeof(audio_modes[0]))
+            : 0;
+        if (audio_mode_count == 0) {
+            mux_policy_valid = FALSE;
+        } else {
+            update_audio_output_options(w, audio_modes, audio_mode_count);
+            char *resolved_audio = get_dropdown_text(w->audio_output_combo);
+            if (mux_policy_resolve(&profile, mode,
+                                   resolved_audio,
+                                   mode == MUX_MODE_COPY && source_count
+                                       ? sources[0] : MUX_VIDEO_UNKNOWN,
+                                   MUX_VIDEO_UNKNOWN, &policy,
+                                   NULL, 0))
+                mux_needs_track = policy.requires_add_track;
+            g_free(resolved_audio);
+        }
+        if (mux_needs_track && (!w->video_track_path || !w->video_track_path[0]))
+            mux_policy_valid = FALSE;
+        g_free(sources);
         g_free(audio_mode);
+    }
+    if (!mux_group) {
+        MuxBuildProfile profile;
+        MuxAudioMode audio_modes[4];
+        if (mux_build_profile_default(&profile)) {
+            size_t count = mux_policy_list_audio_modes(
+                &profile, MUX_MODE_MKV, NULL, 0, MUX_VIDEO_UNKNOWN,
+                audio_modes, sizeof(audio_modes) / sizeof(audio_modes[0]));
+            if (count > 0)
+                update_audio_output_options(w, audio_modes, count);
+        }
     }
     /* A codec with one preset has nothing to choose; all multi-preset
      * codecs, including GPU encoders, must expose their preset tiers. */
@@ -1111,9 +1164,10 @@ static void update_dependent_widgets(AppWidgets *w)
                              codec_uses_software_prores(resolved_codec));
 
     gtk_widget_set_sensitive(w->add_files_btn,
-                             !mux_group);
+                             !mux_group || g_strcmp0(encoder, "copy") == 0);
     gtk_widget_set_sensitive(w->add_track_btn,
                              mux_needs_track && w->file_paths->len == 1);
+    gtk_widget_set_sensitive(w->start_btn, mux_policy_valid);
     gtk_widget_set_sensitive(w->apple_m4v_btn,
                              w->file_paths->len > 0);
 

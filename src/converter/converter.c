@@ -4,6 +4,7 @@
 #include "converter_platform.h"
 #include "input_video_info.h"
 #include "converter_common.h"
+#include "mux_policy.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -73,6 +74,107 @@ static int codec_uses_mov_container(const char* codec) {
             strcmp(codec, "prores_ks") == 0 ||
             strcmp(codec, "prores_videotoolbox") == 0 ||
             strcmp(codec, "prores_ks_vulkan") == 0);
+}
+
+typedef enum {
+    MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED = -1,
+    MUX_POLICY_RESOLVE_FAILED = 0,
+    MUX_POLICY_RESOLVE_OK = 1
+} MuxPolicyResolveResult;
+
+static MuxPolicyResolveResult resolve_mux_policy_for_codec(
+    const ConvertOptions *opts,
+    MuxVideoCodec source_codec,
+    MuxPolicy *policy)
+{
+    MuxBuildProfile profile;
+    MuxMode mode;
+    const char *audio_mode;
+    char error[128];
+
+    if (!opts || !policy || !mux_build_profile_default(&profile))
+        return MUX_POLICY_RESOLVE_FAILED;
+
+    if (strcmp(opts->codec, "copy") == 0) {
+        mode = opts->preset[0] == '\0' || strcmp(opts->preset, "default") == 0
+                   ? MUX_MODE_COPY
+                   : mux_mode_parse(opts->preset);
+    } else if (strcmp(opts->codec, "mux") == 0) {
+        mode = mux_mode_parse(opts->preset[0] ? opts->preset : "mkv");
+    } else {
+        return MUX_POLICY_RESOLVE_FAILED;
+    }
+
+    audio_mode = opts->audio_output_mode[0] ? opts->audio_output_mode : NULL;
+    return mux_policy_resolve(&profile, mode, audio_mode, source_codec,
+                              MUX_VIDEO_UNKNOWN, policy, error, sizeof(error))
+               ? MUX_POLICY_RESOLVE_OK
+               : MUX_POLICY_RESOLVE_FAILED;
+}
+
+static MuxPolicyResolveResult resolve_mux_output_policy(
+    const char *input,
+    const ConvertOptions *opts,
+    MuxPolicy *policy)
+{
+    MuxPolicyResolveResult result;
+    InputVideoInfo info;
+
+    if (!input || !opts || !policy)
+        return MUX_POLICY_RESOLVE_FAILED;
+
+    result = resolve_mux_policy_for_codec(opts, MUX_VIDEO_UNKNOWN, policy);
+    if (result != MUX_POLICY_RESOLVE_OK ||
+        strcmp(opts->codec, "copy") != 0)
+        return result;
+
+    if (!input_video_info_probe(input, &info))
+        return MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED;
+
+    return resolve_mux_policy_for_codec(
+        opts, mux_video_codec_parse(info.codec_name), policy);
+}
+
+static int input_has_attachment_stream(const char *input)
+{
+    const char *ffprobe = platform_get_ffprobe_bin();
+    char *quoted_tool;
+    char *quoted_input;
+    char command[8192];
+    char line[128];
+    FILE *pipe;
+    int found = 0;
+    int status;
+
+    if (!input || !ffprobe || !ffprobe[0])
+        return -1;
+    quoted_tool = platform_escape_path_for_command(ffprobe);
+    quoted_input = platform_escape_path_for_command(input);
+    if (!quoted_tool || !quoted_input) {
+        free(quoted_tool);
+        free(quoted_input);
+        return -1;
+    }
+    status = snprintf(command, sizeof(command),
+                      "%s -v error -select_streams t -show_entries stream=index "
+                      "-of csv=p=0 %s 2>%s",
+                      quoted_tool, quoted_input, platform_get_null_device());
+    free(quoted_tool);
+    free(quoted_input);
+    if (status < 0 || (size_t)status >= sizeof(command))
+        return -1;
+
+    pipe = platform_popen(command, "r");
+    if (!pipe)
+        return -1;
+    while (fgets(line, sizeof(line), pipe)) {
+        if (line[0] != '\0' && strspn(line, "\r\n") != strlen(line)) {
+            found = 1;
+            break;
+        }
+    }
+    status = platform_pclose(pipe);
+    return status == 0 ? found : -1;
 }
 
 /* Convert preset string ("lt", "standard", "hq", "4444", "default") to ffmpeg profile number */
@@ -410,14 +512,12 @@ static void make_output_name(
     }
 
     const char *ext;
-    if (strcmp(opts->codec, "copy") == 0)
-        ext = "mkv";
-    else if (strcmp(opts->codec, "mux") == 0) {
-        if (!strcmp(opts->preset, "mov"))
-            ext = "mov";
-        else if (!strcmp(opts->preset, "m4v"))
-            ext = "m4v";
-        else
+    if (strcmp(opts->codec, "copy") == 0 || strcmp(opts->codec, "mux") == 0) {
+        MuxPolicy policy;
+        ext = resolve_mux_output_policy(input, opts, &policy) ==
+                      MUX_POLICY_RESOLVE_OK
+                  ? mux_container_extension(policy.container) : NULL;
+        if (!ext)
             ext = "mkv";
     }
     else if (strcmp(opts->codec, "hevc_videotoolbox") == 0 ||
@@ -500,11 +600,23 @@ static void build_ffmpeg_cmd(
 ) {
     const ConvertOptions* opts = &c->opts;
     const char* ffmpeg_bin = get_ffmpeg_bin();
+    MuxPolicy copy_policy;
+    int have_copy_policy = 0;
 
     /* Resolve audio mode and encoder capabilities via the audio module */
     AudioOutputMode audio_mode = audio_output_mode_parse(opts->audio_output_mode);
     if (audio_mode == AUDIO_MODE_INVALID)
         audio_mode = AUDIO_MODE_PCM; /* default fallback */
+    if (strcmp(opts->codec, "copy") == 0) {
+        if (resolve_mux_output_policy(input, opts, &copy_policy) !=
+            MUX_POLICY_RESOLVE_OK) {
+            if (c->cb.on_error)
+                c->cb.on_error("Copy mode policy resolution failed", ERR_INVALID_OPTIONS);
+            cmd_out[0] = '\0';
+            return;
+        }
+        have_copy_policy = 1;
+    }
 
     AudioEncoderCaps caps;
     audio_probe_encoders(&caps);
@@ -516,6 +628,9 @@ static void build_ffmpeg_cmd(
     AudioTrackPolicy track_policy = AUDIO_TRACK_POLICY_FIRST;
     if (cfg_ok)
         track_policy = audio_cfg.track_policy;
+    if (have_copy_policy)
+        track_policy = copy_policy.audio_track_policy == MUX_AUDIO_TRACK_ALL
+                           ? AUDIO_TRACK_POLICY_ALL : AUDIO_TRACK_POLICY_FIRST;
 
     /* For use_aac_for_h265 path: resolve separately */
     int is_dual_audio_output = cfg_ok && audio_cfg.is_dual_output;
@@ -569,6 +684,22 @@ static void build_ffmpeg_cmd(
     }
     if (have_input_info && output_hw && input_info.bit_depth == 0 && c->cb.on_message)
         c->cb.on_message("Input video bit depth is unknown; using the selected encoder format.");
+    if (strcmp(opts->codec, "copy") == 0) {
+        int has_attachments;
+        has_attachments = input_has_attachment_stream(input);
+        if (copy_policy.attachment_action == MUX_STREAM_DROP &&
+            has_attachments < 0) {
+            if (c->cb.on_error)
+                c->cb.on_error("Cannot verify attachment compatibility for Copy mode",
+                               ERR_INVALID_OPTIONS);
+            cmd_out[0] = '\0';
+            return;
+        }
+        if (copy_policy.attachment_action == MUX_STREAM_DROP && has_attachments &&
+            c->cb.on_message)
+            c->cb.on_message(
+                "Warning: input attachments are dropped by the selected output container.");
+    }
 
     /* Shell-safe escaped versions of all user-provided paths */
     char* esc_ffmpeg = platform_escape_path_for_command(ffmpeg_bin);
@@ -687,7 +818,7 @@ static void build_ffmpeg_cmd(
     }
     if (strcmp(opts->codec, "copy") == 0) {
         char subtitle_args[8192];
-        if (!subtitle_preservation_build(input, MUX_CONTAINER_MKV,
+        if (!subtitle_preservation_build(input, copy_policy.container,
                                          subtitle_args, sizeof(subtitle_args), &c->cb)) {
             if (c->cb.on_message)
                 c->cb.on_message("Cannot resolve subtitle preservation policy.");
@@ -700,7 +831,14 @@ static void build_ffmpeg_cmd(
         if (cmd_cat(cmd, sizeof(cmd), &pos, subtitle_args) < 0)
             goto overflow;
     }
-    if (cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0) goto overflow;
+    if ((!have_copy_policy ||
+         copy_policy.metadata_action == MUX_STREAM_PRESERVE) &&
+        cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0)
+        goto overflow;
+    if (have_copy_policy && copy_policy.chapter_action == MUX_STREAM_PRESERVE &&
+        cmd_cat(cmd, sizeof(cmd), &pos, "-map_chapters 0 ") < 0) goto overflow;
+    if (have_copy_policy && copy_policy.attachment_action == MUX_STREAM_PRESERVE &&
+        cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:t? ") < 0) goto overflow;
     if (append_color_metadata(cmd, sizeof(cmd), &pos,
                               have_input_info ? &input_info : NULL) < 0)
         goto overflow;
@@ -969,6 +1107,36 @@ ConverterError converter_process_files(
 ) {
     if (!c || !files || file_count <= 0)
         return ERR_INVALID_OPTIONS;
+
+    if (strcmp(c->opts.codec, "copy") == 0) {
+        MuxPolicy validation_policy;
+        if (resolve_mux_policy_for_codec(&c->opts, MUX_VIDEO_UNKNOWN,
+                                          &validation_policy) !=
+            MUX_POLICY_RESOLVE_OK) {
+            if (c->cb.on_error)
+                c->cb.on_error("Copy mode policy validation failed",
+                               ERR_INVALID_OPTIONS);
+            return ERR_INVALID_OPTIONS;
+        }
+        int i;
+        for (i = 0; i < file_count; ++i) {
+            MuxPolicy policy;
+            if (!files[i] ||
+                !platform_stat_is_regular_file(files[i]) ||
+                !platform_is_file_readable(files[i]))
+                continue;
+            MuxPolicyResolveResult result =
+                resolve_mux_output_policy(files[i], &c->opts, &policy);
+            if (result == MUX_POLICY_RESOLVE_INPUT_PROBE_FAILED)
+                continue;
+            if (result != MUX_POLICY_RESOLVE_OK) {
+                if (c->cb.on_error)
+                    c->cb.on_error("Copy mode policy validation failed",
+                                   ERR_INVALID_OPTIONS);
+                return ERR_INVALID_OPTIONS;
+            }
+        }
+    }
 
     c->stop_flag = 0;
 

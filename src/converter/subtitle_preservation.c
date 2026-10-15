@@ -7,9 +7,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-int subtitle_preservation_build(const char *input, MuxContainer container,
-                                char *args, size_t args_size,
-                                const ConverterCallbacks *callbacks)
+int subtitle_preservation_build_from_input(const char *input,
+                                           unsigned int input_index,
+                                           MuxContainer container,
+                                           char *args, size_t args_size,
+                                           const ConverterCallbacks *callbacks)
 {
     const char *probe = platform_get_ffprobe_bin();
     char *tool;
@@ -79,8 +81,8 @@ int subtitle_preservation_build(const char *input, MuxContainer container,
         if (policy.action == MUX_SUBTITLE_DROP)
             continue;
         written = snprintf(args + used, args_size - used,
-                           "-map 0:%d -c:s:%u %s ",
-                           (int)json_integer_value(index), output_index++,
+                           "-map %u:%d -c:s:%u %s ",
+                           input_index, (int)json_integer_value(index), output_index++,
                            policy.encoder);
         if (written < 0 || (size_t)written >= args_size - used) {
             json_decref(document);
@@ -91,4 +93,12 @@ int subtitle_preservation_build(const char *input, MuxContainer container,
     }
     json_decref(document);
     return 1;
+}
+
+int subtitle_preservation_build(const char *input, MuxContainer container,
+                                char *args, size_t args_size,
+                                const ConverterCallbacks *callbacks)
+{
+    return subtitle_preservation_build_from_input(input, 0, container,
+                                                  args, args_size, callbacks);
 }

@@ -35,6 +35,19 @@ static void select_text(GtkWidget *widget, const char *text)
     g_error("Missing dropdown entry: %s", text);
 }
 
+static gboolean dropdown_has_text(GtkWidget *widget, const char *text)
+{
+    GListModel *model = gtk_drop_down_get_model(GTK_DROP_DOWN(widget));
+    for (guint i = 0; i < g_list_model_get_n_items(model); i++) {
+        GtkStringObject *item = g_list_model_get_item(model, i);
+        gboolean match = g_strcmp0(gtk_string_object_get_string(item), text) == 0;
+        g_object_unref(item);
+        if (match)
+            return TRUE;
+    }
+    return FALSE;
+}
+
 static ConvertOptions collect_options(AppWidgets *w)
 {
     ConvertOptions opts;
@@ -145,6 +158,7 @@ static void test_mux_default(AppWidgets *w)
     MuxBuildProfile profile;
     MuxPolicy expected;
     char error[256];
+    g_test_message("MUX-T016: GTK resolves mux defaults through shared Policy");
     g_assert_true(mux_build_profile_default(&profile));
     g_assert_true(mux_policy_resolve(&profile, MUX_MODE_M4V, NULL,
                                     MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
@@ -160,11 +174,10 @@ static void test_mux_default(AppWidgets *w)
     g_assert_cmpstr(opts.audio_output_mode, ==,
                     mux_audio_mode_name(expected.audio_mode));
     g_assert_cmpstr(selected_text(w->profile_combo), ==, "default");
+    g_assert_false(dropdown_has_text(w->audio_output_combo, "pcm"));
+    g_assert_false(dropdown_has_text(w->audio_output_combo, "copy"));
     select_text(w->audio_output_combo, "fdk_aac_320_ac3_640");
     g_assert_cmpstr(selected_text(w->audio_output_combo), ==, "fdk_aac_320_ac3_640");
-    select_text(w->audio_output_combo, "pcm");
-    g_assert_cmpstr(selected_text(w->audio_output_combo), ==,
-                    mux_audio_mode_name(expected.audio_mode));
     select_text(w->codec_combo, "software");
     select_text(w->encoder_combo, "prores");
     assert_preset_model(w, "software", "prores");

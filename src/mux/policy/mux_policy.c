@@ -182,6 +182,8 @@ int mux_policy_resolve(const MuxBuildProfile *profile,
     policy->mode = mode;
     policy->container = container;
     policy->audio_mode = resolved_audio;
+    policy->audio_track_policy = resolved_audio == MUX_AUDIO_COPY
+                                     ? MUX_AUDIO_TRACK_ALL : MUX_AUDIO_TRACK_FIRST;
     policy->audio_mode_was_defaulted = defaulted;
     policy->requires_add_track = mode != MUX_MODE_COPY;
     policy->requires_video_replacement = mode != MUX_MODE_COPY;
@@ -189,7 +191,92 @@ int mux_policy_resolve(const MuxBuildProfile *profile,
     policy->preserve_chapters = 1;
     policy->preserve_metadata = 1;
     policy->preserve_subtitles_when_supported = 1;
+    policy->video_action = MUX_STREAM_PRESERVE;
+    policy->audio_action = resolved_audio == MUX_AUDIO_COPY
+                               ? MUX_STREAM_PRESERVE : MUX_STREAM_CONVERT;
+    policy->subtitle_action = MUX_STREAM_PRESERVE;
+    policy->chapter_action = MUX_STREAM_PRESERVE;
+    policy->metadata_action = MUX_STREAM_PRESERVE;
+    policy->language_action = MUX_STREAM_PRESERVE;
+    policy->disposition_action = MUX_STREAM_PRESERVE;
+    policy->attachment_action = container == MUX_CONTAINER_MKV
+                                    ? MUX_STREAM_PRESERVE : MUX_STREAM_DROP;
     return 1;
+}
+
+int mux_policy_resolve_hq(const MuxBuildProfile *profile,
+                          MuxVideoCodec replacement_video_codec,
+                          const char *audio_mode,
+                          MuxPolicy *policy,
+                          char *error,
+                          size_t error_size)
+{
+    if (replacement_video_codec == MUX_VIDEO_UNKNOWN ||
+        replacement_video_codec == MUX_VIDEO_UNSUPPORTED) {
+        set_error(error, error_size, "unsupported HQ replacement video codec");
+        return 0;
+    }
+    if (replacement_video_codec == MUX_VIDEO_PRORES)
+        return mux_policy_resolve(profile, MUX_MODE_MOV, "pcm",
+                                  MUX_VIDEO_UNKNOWN, replacement_video_codec,
+                                  policy, error, error_size);
+    return mux_policy_resolve(profile, MUX_MODE_MKV, audio_mode,
+                              MUX_VIDEO_UNKNOWN, replacement_video_codec,
+                              policy, error, error_size);
+}
+
+size_t mux_policy_list_audio_modes(const MuxBuildProfile *profile,
+                                   MuxMode mode,
+                                   const MuxVideoCodec *source_video_codecs,
+                                   size_t source_count,
+                                   MuxVideoCodec replacement_video_codec,
+                                   MuxAudioMode *audio_modes,
+                                   size_t audio_modes_capacity)
+{
+    static const MuxAudioMode candidates[] = {
+        MUX_AUDIO_COPY, MUX_AUDIO_PCM, MUX_AUDIO_AAC, MUX_AUDIO_AAC_AC3
+    };
+    MuxAudioMode ordered[sizeof(candidates) / sizeof(candidates[0])];
+    MuxPolicy default_policy;
+    MuxVideoCodec unknown = MUX_VIDEO_UNKNOWN;
+    const MuxVideoCodec *sources = source_count ? source_video_codecs : &unknown;
+    size_t count = source_count ? source_count : 1;
+    size_t ordered_count = 0;
+    size_t result_count = 0;
+    size_t i;
+    size_t j;
+    char error[128];
+
+    if (!profile || (source_count && !source_video_codecs) ||
+        !mux_policy_resolve(profile, mode, NULL, sources[0],
+                            replacement_video_codec, &default_policy,
+                            error, sizeof(error)))
+        return 0;
+    ordered[ordered_count++] = default_policy.audio_mode;
+    for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        if (candidates[i] != default_policy.audio_mode)
+            ordered[ordered_count++] = candidates[i];
+    }
+
+    for (i = 0; i < ordered_count; ++i) {
+        int valid = 1;
+        const char *audio = mux_audio_mode_name(ordered[i]);
+        for (j = 0; j < count; ++j) {
+            MuxPolicy policy;
+            if (!mux_policy_resolve(profile, mode, audio, sources[j],
+                                    replacement_video_codec, &policy,
+                                    error, sizeof(error))) {
+                valid = 0;
+                break;
+            }
+        }
+        if (valid) {
+            if (audio_modes && result_count < audio_modes_capacity)
+                audio_modes[result_count] = ordered[i];
+            ++result_count;
+        }
+    }
+    return result_count;
 }
 
 const char *mux_mode_name(MuxMode mode)
@@ -210,6 +297,16 @@ const char *mux_container_name(MuxContainer container)
         case MUX_CONTAINER_MOV: return "mov";
         case MUX_CONTAINER_M4V: return "m4v";
         default: return "invalid";
+    }
+}
+
+const char *mux_container_extension(MuxContainer container)
+{
+    switch (container) {
+        case MUX_CONTAINER_MKV: return "mkv";
+        case MUX_CONTAINER_MOV: return "mov";
+        case MUX_CONTAINER_M4V: return "m4v";
+        default: return NULL;
     }
 }
 

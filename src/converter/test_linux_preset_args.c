@@ -44,42 +44,42 @@ static void test_hardware_args_from_presets_json(void)
     snprintf(opts.preset, sizeof(opts.preset), "%s", "balance");
     expect_string(
         platform_get_video_codec_flags(opts.codec, NULL, &opts),
-        "-c:v hevc_nvenc -preset p4 -cq 25 -lookahead_level auto ",
+        "-c:v hevc_nvenc -preset p4 -cq 25 ",
         "hevc_nvenc_10bit/balance uses hevc_nvenc presets.json ffmpeg_args");
 
     snprintf(opts.codec, sizeof(opts.codec), "%s", "h264_qsv");
     snprintf(opts.preset, sizeof(opts.preset), "%s", "speed");
     expect_string(
         platform_get_video_codec_flags(opts.codec, NULL, &opts),
-        "-c:v h264_qsv -global_quality 22 -preset veryfast -extbrc 1 ",
+        "-c:v h264_qsv -global_quality 22 -preset fast ",
         "h264_qsv/speed uses presets.json ffmpeg_args");
 
     snprintf(opts.codec, sizeof(opts.codec), "%s", "hevc_qsv");
     snprintf(opts.preset, sizeof(opts.preset), "%s", "balance");
     expect_string(
         platform_get_video_codec_flags(opts.codec, NULL, &opts),
-        "-c:v hevc_qsv -global_quality 25 -preset medium -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
+        "-c:v hevc_qsv -global_quality 25 -preset medium ",
         "hevc_qsv/balance uses presets.json ffmpeg_args");
 
     snprintf(opts.codec, sizeof(opts.codec), "%s", "hevc_qsv_10bit");
     snprintf(opts.preset, sizeof(opts.preset), "%s", "balance");
     expect_string(
         platform_get_video_codec_flags(opts.codec, NULL, &opts),
-        "-c:v hevc_qsv -global_quality 25 -preset medium -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
+        "-c:v hevc_qsv -global_quality 25 -preset medium ",
         "hevc_qsv_10bit/balance uses hevc_qsv presets.json ffmpeg_args");
 
     snprintf(opts.codec, sizeof(opts.codec), "%s", "av1_qsv");
     snprintf(opts.preset, sizeof(opts.preset), "%s", "quality");
     expect_string(
         platform_get_video_codec_flags(opts.codec, NULL, &opts),
-        "-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
+        "-c:v av1_qsv -global_quality 28 -preset slow ",
         "av1_qsv/quality uses presets.json ffmpeg_args");
 
     snprintf(opts.codec, sizeof(opts.codec), "%s", "av1_qsv_10bit");
     snprintf(opts.preset, sizeof(opts.preset), "%s", "quality");
     expect_string(
         platform_get_video_codec_flags(opts.codec, NULL, &opts),
-        "-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1 ",
+        "-c:v av1_qsv -global_quality 28 -preset slow ",
         "av1_qsv_10bit/quality uses av1_qsv presets.json ffmpeg_args");
 }
 

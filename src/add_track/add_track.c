@@ -55,7 +55,6 @@ ConverterError add_track_execute(Converter *converter,
     char intermediate_file[1024];
     char final_file[1024];
     char policy_error[256];
-    const char *policy_audio_mode;
     MuxMode mux_mode;
     int is_hq_prores;
 
@@ -88,24 +87,29 @@ ConverterError add_track_execute(Converter *converter,
         return err;
 
     if (!strcmp(request->convert_options->codec, "hq_converter")) {
-        mux_mode = is_hq_prores ? MUX_MODE_MOV : MUX_MODE_MKV;
+        if (!mux_policy_resolve_hq(&profile, replacement_codec,
+                                   request->convert_options->audio_output_mode,
+                                   &policy, policy_error, sizeof(policy_error))) {
+            const ConverterCallbacks *callbacks = converter_get_callbacks(converter);
+            if (callbacks && callbacks->on_error)
+                callbacks->on_error(policy_error, ERR_INVALID_OPTIONS);
+            return ERR_INVALID_OPTIONS;
+        }
+        mux_mode = policy.mode;
     } else {
         const char *requested_mode = request->convert_options->preset;
         mux_mode = (!requested_mode || requested_mode[0] == '\0' ||
                     !strcmp(requested_mode, "default"))
                        ? MUX_MODE_MKV : mux_mode_parse(requested_mode);
-    }
-
-    policy_audio_mode = is_hq_prores
-                            ? "pcm" : request->convert_options->audio_output_mode;
-    if (!mux_policy_resolve(&profile, mux_mode,
-                            policy_audio_mode,
-                            MUX_VIDEO_UNKNOWN, replacement_codec,
-                            &policy, policy_error, sizeof(policy_error))) {
-        const ConverterCallbacks *callbacks = converter_get_callbacks(converter);
-        if (callbacks && callbacks->on_error)
-            callbacks->on_error(policy_error, ERR_INVALID_OPTIONS);
-        return ERR_INVALID_OPTIONS;
+        if (!mux_policy_resolve(&profile, mux_mode,
+                                request->convert_options->audio_output_mode,
+                                MUX_VIDEO_UNKNOWN, replacement_codec,
+                                &policy, policy_error, sizeof(policy_error))) {
+            const ConverterCallbacks *callbacks = converter_get_callbacks(converter);
+            if (callbacks && callbacks->on_error)
+                callbacks->on_error(policy_error, ERR_INVALID_OPTIONS);
+            return ERR_INVALID_OPTIONS;
+        }
     }
     if (!platform_get_mkvmerge_bin() ||
         platform_get_mkvmerge_bin()[0] == '\0' ||
@@ -125,8 +129,9 @@ ConverterError add_track_execute(Converter *converter,
     work_opts = *request->convert_options;
     work_opts.codec[0] = '\0';
     strcpy(work_opts.codec, "copy");
-    work_opts.preset[0] = '\0';
-    strcpy(work_opts.preset, "default");
+    strncpy(work_opts.preset, mux_mode_name(policy.mode),
+            sizeof(work_opts.preset) - 1);
+    work_opts.preset[sizeof(work_opts.preset) - 1] = '\0';
     strncpy(work_opts.audio_output_mode, mux_audio_mode_name(policy.audio_mode),
             sizeof(work_opts.audio_output_mode) - 1);
     work_opts.audio_output_mode[sizeof(work_opts.audio_output_mode) - 1] = '\0';
