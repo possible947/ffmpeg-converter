@@ -13,6 +13,21 @@ set(CLI_COMMON_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/cli_common.c
 )
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(test_cli_m4v_policy test_cli_m4v_policy.c cli_common.c)
+    target_include_directories(test_cli_m4v_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(test_cli_m4v_policy PRIVATE
+        CLI_TEST_PRESETS_PATH="${GENERATED_PRESETS_DIR}/presets.json"
+    )
+    target_link_libraries(test_cli_m4v_policy PRIVATE
+        converter hq_adapter mux_policy jansson
+    )
+    add_test(NAME CliM4VPolicyTests COMMAND test_cli_m4v_policy)
+    set_tests_properties(CliM4VPolicyTests PROPERTIES
+        ENVIRONMENT "PRESETS_V2_PATH=${GENERATED_PRESETS_DIR}/presets.json;PRESETS_PATH=${GENERATED_PRESETS_DIR}"
+    )
+endif()
+
 set(LINUX_BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffmpeg")
 set(LINUX_BUNDLED_FFPROBE "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffprobe")
 set(LINUX_SYSTEM_MKVMERGE_CANDIDATES
@@ -200,5 +215,4 @@ if (APPLE)
         )
     endif()
 endif()
-
 

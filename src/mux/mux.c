@@ -184,65 +184,33 @@ ConverterError mux_probe_video_codec(const char *input_file,
                ? ERR_INVALID_OPTIONS : ERR_OK;
 }
 
-/* Reads the original source's video-track language tag from intermediate_file
- * (the ffmpeg-copied source), since opts->video_track_file is typically a raw
- * elementary stream with no container metadata of its own. */
-static int probe_video_track_language(const char* ffprobe_bin,
-                                      const char* input_file,
-                                      char* lang_out,
-                                      size_t lang_out_sz)
-{
-    char cmd[8192];
-    char quoted_tool[2048];
-    char quoted_input[2048];
-    FILE* fp;
-
-    if (!ffprobe_bin || !input_file || !lang_out || lang_out_sz == 0)
-        return 0;
-
-    platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
-    platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
-
-    snprintf(cmd,
-             sizeof(cmd),
-             "%s -v error -select_streams v:0 -show_entries stream_tags=language "
-             "-of default=noprint_wrappers=1:nokey=1 %s %s",
-             quoted_tool,
-             quoted_input,
-             platform_null_redirect());
-    fp = mux_platform_popen(cmd, "r");
-    if (!fp)
-        return 0;
-
-    if (!fgets(lang_out, (int)lang_out_sz, fp)) {
-        platform_pclose_exitcode(fp);
-        return 0;
-    }
-    platform_pclose_exitcode(fp);
-    lang_out[strcspn(lang_out, "\r\n")] = '\0';
-
-    return lang_out[0] != '\0';
-}
-
-static int probe_container_title(const char* ffprobe_bin, const char* input_file,
-                                 char* title_out, size_t title_out_sz)
+static int probe_source_metadata(const char* ffprobe_bin, const char* input_file,
+                                 char* title_out, size_t title_out_sz,
+                                 char* video_title_out, size_t video_title_out_sz,
+                                 char* language_out, size_t language_out_sz)
 {
     char cmd[8192];
     char quoted_tool[2048];
     char quoted_input[2048];
     char line[256];
     const char* title;
+    const char* video_title;
+    const char* language;
     json_t* data;
     FILE* fp;
     int status;
 
-    if (!ffprobe_bin || !ffprobe_bin[0] || !title_out || title_out_sz == 0)
+    if (!ffprobe_bin || !ffprobe_bin[0] || !title_out || title_out_sz == 0 ||
+        !video_title_out || video_title_out_sz == 0 ||
+        !language_out || language_out_sz < sizeof("und"))
         return 0;
     title_out[0] = '\0';
+    video_title_out[0] = '\0';
     platform_shell_quote(ffprobe_bin, quoted_tool, sizeof(quoted_tool));
     platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
     snprintf(cmd, sizeof(cmd),
-             "%s -v error -show_entries format_tags=title -of json %s %s",
+             "%s -v error -select_streams v:0 "
+             "-show_entries format_tags=title:stream_tags=title,language -of json %s %s",
              quoted_tool, quoted_input, platform_null_redirect());
     fp = mux_platform_popen(cmd, "r");
     if (!fp)
@@ -250,18 +218,28 @@ static int probe_container_title(const char* ffprobe_bin, const char* input_file
     data = json_loadf(fp, 0, NULL);
     while (fgets(line, sizeof(line), fp)) {}
     status = platform_pclose_exitcode(fp);
-    if (!data || status != 0) {
+    if (!data || status != 0 || !json_is_array(json_object_get(data, "streams"))) {
         json_decref(data);
         return 0;
     }
     title = json_string_value(json_object_get(
         json_object_get(json_object_get(data, "format"), "tags"), "title"));
-    if (title && strlen(title) >= title_out_sz) {
+    video_title = json_string_value(json_object_get(
+        json_object_get(json_array_get(json_object_get(data, "streams"), 0), "tags"), "title"));
+    language = json_string_value(json_object_get(
+        json_object_get(json_array_get(json_object_get(data, "streams"), 0), "tags"), "language"));
+    if ((title && strlen(title) >= title_out_sz) ||
+        (video_title && strlen(video_title) >= video_title_out_sz) ||
+        (language && strlen(language) >= language_out_sz)) {
         json_decref(data);
         return 0;
     }
     if (title)
         snprintf(title_out, title_out_sz, "%s", title);
+    if (video_title)
+        snprintf(video_title_out, video_title_out_sz, "%s", video_title);
+    snprintf(language_out, language_out_sz, "%s",
+             language && language[0] ? language : "und");
     json_decref(data);
     return 1;
 }
@@ -378,7 +356,10 @@ ConverterError mux_run_postprocess(
     char rate[64];
     char lang[64];
     char title[1024];
-    char cmd[12288];
+    char video_title[1024];
+    char track_name_mapping[1040];
+    char quoted_track_name[4200];
+    char cmd[20480];
     char quoted_tool[2048];
     char quoted_output[2048];
     char quoted_track[2048];
@@ -432,38 +413,39 @@ ConverterError mux_run_postprocess(
         snprintf(timing_arg, sizeof(timing_arg), "--default-duration %s ", quoted_timing);
     }
 
-    /* The replacement video track is usually a raw elementary stream with no
-     * language tag of its own, so inherit it from the original source. */
-    lang_arg[0] = '\0';
-    if (probe_video_track_language(ffprobe_bin, opts->intermediate_file, lang, sizeof(lang))) {
-        snprintf(lang_mapping, sizeof(lang_mapping), "0:%s", lang);
-        platform_shell_quote(lang_mapping, quoted_lang, sizeof(quoted_lang));
-        snprintf(lang_arg, sizeof(lang_arg), "--language %s ", quoted_lang);
-    }
-
-    if (!probe_container_title(ffprobe_bin, opts->intermediate_file, title, sizeof(title))) {
-        emit_error(callbacks, "post-mux failed: could not probe source title", ERR_FFPROBE_FAILED);
+    if (!probe_source_metadata(ffprobe_bin, opts->intermediate_file,
+                               title, sizeof(title), video_title, sizeof(video_title),
+                               lang, sizeof(lang))) {
+        emit_error(callbacks, "post-mux failed: could not probe source metadata", ERR_FFPROBE_FAILED);
         return ERR_FFPROBE_FAILED;
     }
+    /* Never inherit replacement language, including when the source is untagged. */
+    snprintf(lang_mapping, sizeof(lang_mapping), "0:%s", lang);
+    platform_shell_quote(lang_mapping, quoted_lang, sizeof(quoted_lang));
+    snprintf(lang_arg, sizeof(lang_arg), "--language %s ", quoted_lang);
     platform_shell_quote(mkvmerge_bin, quoted_tool, sizeof(quoted_tool));
     platform_shell_quote(temp_output, quoted_output, sizeof(quoted_output));
     platform_shell_quote(opts->video_track_file, quoted_track, sizeof(quoted_track));
     platform_shell_quote(opts->intermediate_file, quoted_intermediate, sizeof(quoted_intermediate));
     platform_shell_quote(title, quoted_title, sizeof(quoted_title));
+    snprintf(track_name_mapping, sizeof(track_name_mapping), "0:%s", video_title);
+    platform_shell_quote(track_name_mapping, quoted_track_name, sizeof(quoted_track_name));
 
     /* Segment titles are not global tags. Set even an empty source title to
-     * prevent mkvmerge falling back to the replacement's segment title. */
+     * prevent mkvmerge falling back to the replacement's segment title.
+     * TrackName is a header property, so --no-track-tags does not exclude it. */
     written = snprintf(cmd,
              sizeof(cmd),
              "%s -o %s --title %s "
              "--no-audio --no-subtitles --no-attachments --no-chapters "
              "--no-global-tags --no-track-tags --no-buttons "
-             "%s%s--video-tracks 0 %s --no-video %s 2>&1",
+             "%s%s--track-name %s --video-tracks 0 %s --no-video %s 2>&1",
              quoted_tool,
              quoted_output,
              quoted_title,
              timing_arg,
              lang_arg,
+             quoted_track_name,
              quoted_track,
              quoted_intermediate);
     if (written < 0 || (size_t)written >= sizeof(cmd)) {

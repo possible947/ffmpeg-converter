@@ -504,10 +504,8 @@ static gboolean on_probe_done(gpointer data)
     populate_codec_combo(w);
     g_signal_handlers_unblock_by_func(w->codec_combo, on_codec_changed, w);
 
-    /* Also refresh the Vulkan device list now that probe data is ready. */
-    populate_vulkan_device_combo(w);
-    /* ... and the VAAPI render-node list. */
-    populate_vaapi_device_combo(w);
+    /* Refresh all video selections for the newly populated codec list. */
+    on_codec_changed(NULL, NULL, w);
 
     gtk_label_set_text(GTK_LABEL(w->status_label), "Ready");
     schedule_update_dependent_widgets(w);
@@ -632,6 +630,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         w->profile_combo = gtk_drop_down_new(G_LIST_MODEL(w->preset_list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), 0); /* default: first preset */
         gtk_widget_set_hexpand(w->profile_combo, TRUE);
+        populate_preset_combo(w);
     }
     /* Initially disabled for copy and hardware codecs */
     gtk_widget_set_sensitive(w->profile_combo, FALSE);
@@ -643,7 +642,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->filter_combo), 0);
         g_signal_connect(w->filter_combo, "notify::selected",
                          G_CALLBACK(on_filter_changed), w);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->filter_combo, TRUE);
     }
     {
@@ -651,7 +649,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         GtkStringList *list = gtk_string_list_new(filter_preset_items);
         w->filter_preset_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->filter_preset_combo), 0);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->filter_preset_combo, TRUE);
     }
 
@@ -661,7 +658,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         GtkStringList *list = gtk_string_list_new(deblock_items);
         w->deblock_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->deblock_combo), 0);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->deblock_combo, TRUE);
     }
     gtk_widget_set_sensitive(w->deblock_combo, FALSE);
@@ -677,7 +673,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_norm_combo), 0);
         g_signal_connect(w->audio_norm_combo, "notify::selected",
                          G_CALLBACK(on_audio_norm_changed), w);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->audio_norm_combo, TRUE);
     }
 
@@ -689,7 +684,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         GtkStringList *list = gtk_string_list_new(genre_items);
         w->genre_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->genre_combo), 0);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->genre_combo, TRUE);
     }
     gtk_widget_set_sensitive(w->genre_combo, FALSE);
@@ -704,7 +698,6 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo), 0);
         g_signal_connect(w->audio_output_combo, "notify::selected",
                          G_CALLBACK(on_audio_output_changed), w);
-        g_object_unref(list);
         gtk_widget_set_hexpand(w->audio_output_combo, TRUE);
     }
 
@@ -1055,14 +1048,13 @@ static void update_dependent_widgets(AppWidgets *w)
     if (!w || w->shutting_down)
         return;
 
-    char *codec = get_dropdown_text(w->codec_combo);
+    char *codec;
     char *encoder;
     char resolved_codec[sizeof(((ConvertOptions *)0)->codec)] = "";
     gboolean mux_group;
     gboolean hq_group;
     gboolean mux_needs_track;
 
-    g_free(codec);
     codec = get_dropdown_text(w->codec_combo);
     encoder = get_dropdown_text(w->encoder_combo);
     if (w->selection_catalog && codec && encoder)
@@ -1085,40 +1077,29 @@ static void update_dependent_widgets(AppWidgets *w)
             !mux_policy_resolve(&profile, mode, audio_mode,
                                 MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
                                 &policy, policy_error, sizeof(policy_error))) {
-            /* Audio mode not compatible with this mux container */
-            /* Use policy to resolve default audio mode for this container */
             MuxPolicy default_policy;
-            char default_error[256] = {0};
-            const char *default_mode = "pcm";
-            guint selected = 0;
-            
-            if (mux_build_profile_default(&profile) &&
-                mux_policy_resolve(&profile, mode, NULL,
-                                  MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
-                                  &default_policy, default_error, sizeof(default_error))) {
-                /* Get canonical audio mode name from resolved policy */
-                default_mode = mux_audio_mode_name(default_policy.audio_mode);
+            if (mux_policy_resolve(&profile, mode, NULL,
+                                   MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
+                                   &default_policy, NULL, 0)) {
+                const char *default_mode = mux_audio_mode_name(default_policy.audio_mode);
+                GListModel *model = gtk_drop_down_get_model(
+                    GTK_DROP_DOWN(w->audio_output_combo));
+                fprintf(stderr, "Audio mode constraint violation: %s (resetting to %s)\n",
+                        policy_error[0] ? policy_error : "unknown error", default_mode);
+                for (guint i = 0; i < g_list_model_get_n_items(model); i++) {
+                    GtkStringObject *item = g_list_model_get_item(model, i);
+                    gboolean match = g_strcmp0(
+                        gtk_string_object_get_string(item), default_mode) == 0;
+                    g_object_unref(item);
+                    if (match) {
+                        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo), i);
+                        break;
+                    }
+                }
             }
-            
-            fprintf(stderr, "Audio mode constraint violation: %s (resetting to %s)\n",
-                    policy_error[0] ? policy_error : "unknown error", default_mode);
-            
-            /* Set dropdown index based on canonical mode */
-            if (g_strcmp0(default_mode, "fdk_aac_320_ac3_640") == 0)
-                selected = 3;
-            else if (g_strcmp0(default_mode, "fdk_aac_320") == 0)
-                selected = 2;
-            else if (g_strcmp0(default_mode, "copy") == 0)
-                selected = 0;
-            /* else pcm = 1 (default) */
-            gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo),
-                                       selected);
         }
         g_free(audio_mode);
     }
-    /* Update preset combo with presets for the selected codec */
-    populate_preset_combo(w);
-
     /* A codec with one preset has nothing to choose; all multi-preset
      * codecs, including GPU encoders, must expose their preset tiers. */
     gtk_widget_set_sensitive(w->profile_combo,
@@ -1200,6 +1181,7 @@ static void on_codec_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
         return;
     w->updating_selection = TRUE;
     populate_encoder_combo(w);
+    populate_preset_combo(w);
     populate_vulkan_device_combo(w);
     populate_vaapi_device_combo(w);
     w->updating_selection = FALSE;
@@ -1213,6 +1195,7 @@ static void on_encoder_changed(GObject *obj, GParamSpec *pspec, AppWidgets *w)
     if (!w || w->updating_selection)
         return;
     w->updating_selection = TRUE;
+    populate_preset_combo(w);
     populate_vulkan_device_combo(w);
     populate_vaapi_device_combo(w);
     w->updating_selection = FALSE;

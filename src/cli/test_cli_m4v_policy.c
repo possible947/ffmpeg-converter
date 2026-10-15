@@ -1,250 +1,283 @@
-/**
- * test_cli_m4v_policy.c
- *
- * Regression tests for M4V policy integration in CLI.
- * Validates that:
- *  - Both --codec m4v and --codec mux --encoder m4v paths work identically
- *  - audio-output parameter doesn't modify codec, preset, deblock, audio_norm, or video settings
- *  - M4V defaults are applied correctly via mux_policy_resolve()
- */
-
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
 
-#include "converter.h"
 #include "cli_common.h"
+#include "converter_platform.h"
 #include "mux_policy.h"
+#include "progress.h"
 
-static int failures = 0;
+static int failures, audio_checks;
+static char checked_audio[32];
+static const char *unavailable_audio, *unavailable_codec;
 
-#define CHECK(condition, message) do { \
+#define CHECK(condition) do { \
     if (!(condition)) { \
-        fprintf(stderr, "FAIL: %s\n", message); \
+        fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #condition); \
         failures++; \
-    } else { \
-        printf("PASS: %s\n", message); \
     } \
 } while (0)
 
-/**
- * Mock platform functions needed by parse_args
- */
-int platform_audio_mode_is_available(const char* mode) {
-    return mode && (strcmp(mode, "copy") == 0 ||
-                   strcmp(mode, "pcm") == 0 ||
-                   strcmp(mode, "fdk_aac_320") == 0 ||
-                   strcmp(mode, "fdk_aac_320_ac3_640") == 0);
+/* Only runtime availability, filesystem access and progress output are mocked.
+ * Selection, presets, parsing, policy and video flags use production code. */
+int platform_codec_is_available(const CliPlatformHandle *h, const char *codec)
+{
+    (void)h;
+    return codec && (!unavailable_codec || strcmp(codec, unavailable_codec));
 }
-
-int platform_mux_is_supported(void) {
+int platform_audio_mode_is_available(const char *mode)
+{
+    audio_checks++;
+    snprintf(checked_audio, sizeof(checked_audio), "%s", mode ? mode : "");
+    return mode && (!unavailable_audio || strcmp(mode, unavailable_audio)) &&
+           (!strcmp(mode, "copy") || !strcmp(mode, "pcm") ||
+            !strcmp(mode, "fdk_aac_320") || !strcmp(mode, "fdk_aac_320_ac3_640"));
+}
+int platform_mux_is_supported(void) { return 1; }
+int platform_m4v_is_supported(void) { return 1; }
+int platform_hq_is_available(void) { return 0; }
+int platform_get_default_vulkan_device(const CliPlatformHandle *h, const char *codec)
+{
+    (void)h;
+    (void)codec;
     return 1;
 }
+int platform_file_is_regular_readable(const char *path) { return path != NULL; }
+int platform_ensure_output_dir(const char *path) { return path != NULL; }
+int cli_get_presets_v2_path(char *path, size_t size)
+{
+    return snprintf(path, size, "%s", CLI_TEST_PRESETS_PATH) < (int)size;
+}
+void progress_end(void) {}
+void progress_update(double percent, double fps, double eta)
+{
+    (void)percent;
+    (void)fps;
+    (void)eta;
+}
 
-/**
- * Test scenario 1: --codec m4v with no explicit audio-output
- * Expected: audio_output_mode = "fdk_aac_320_ac3_640" (default via policy)
- */
-void test_m4v_no_explicit_audio(void) {
+static int parse(int argc, char **argv, ConvertOptions *opts, CliM4VOptions *m4v)
+{
+    const char *files[32] = {0};
+    int count = -1, result;
+    audio_checks = 0;
+    checked_audio[0] = '\0';
+    result = parse_args(argc, argv, NULL, opts, m4v, files, &count);
+    if (result) {
+        CHECK(count == 1);
+        CHECK(files[0] && !strcmp(files[0], "input.mov"));
+    }
+    return result;
+}
+
+static void test_m4v_audio(void)
+{
+    static const struct {
+        const char *requested, *canonical;
+        int accepted, audio_mode;
+    } cases[] = {
+        {NULL, "fdk_aac_320_ac3_640", 1, 0},
+        {"aac", "fdk_aac_320", 1, 1},
+        {"fdk_aac_320", "fdk_aac_320", 1, 1},
+        {"aac+ac3", "fdk_aac_320_ac3_640", 1, 0},
+        {"fdk_aac_320_ac3_640", "fdk_aac_320_ac3_640", 1, 0},
+        {"pcm", "pcm", 0, 0}, {"copy", "copy", 0, 0}
+    };
+    MuxBuildProfile profile;
+    MuxPolicy policy;
+    char error[256];
+    size_t i;
+    CHECK(mux_build_profile_default(&profile));
+    CHECK(mux_policy_resolve(&profile, MUX_MODE_M4V, NULL,
+                            MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
+                            &policy, error, sizeof(error)));
+    CHECK(policy.audio_mode_was_defaulted);
+    CHECK(policy.audio_mode == MUX_AUDIO_AAC_AC3);
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        ConvertOptions opts;
+        CliM4VOptions m4v;
+        char *argv[16] = {"cli", "--codec", "mux", "--encoder", "m4v"};
+        int argc = 5;
+        if (cases[i].requested) {
+            argv[argc++] = "--audio-output";
+            argv[argc++] = (char *)cases[i].requested;
+        }
+        argv[argc++] = "input.mov";
+        CHECK(parse(argc, argv, &opts, &m4v) == cases[i].accepted);
+        CHECK(audio_checks == (cases[i].requested ? 1 : 0));
+        if (cases[i].requested)
+            CHECK(!strcmp(checked_audio, cases[i].canonical));
+        if (!cases[i].accepted)
+            continue;
+        CHECK(!strcmp(opts.codec, "mux"));
+        CHECK(!strcmp(opts.preset, "m4v"));
+        CHECK(!strcmp(opts.audio_output_mode, cases[i].canonical));
+        CHECK(m4v.audio_mode == cases[i].audio_mode);
+        if (!cases[i].requested)
+            CHECK(!strcmp(opts.audio_output_mode, mux_audio_mode_name(policy.audio_mode)));
+    }
+    {
+        ConvertOptions opts;
+        CliM4VOptions m4v;
+        /* Explicit preset, not raw encoder selection, determines the container. */
+        char *argv[] = {"cli", "--codec", "mux", "--encoder", "mkv",
+                        "--preset", "m4v", "input.mov"};
+        CHECK(parse(8, argv, &opts, &m4v));
+        CHECK(!strcmp(opts.audio_output_mode, "fdk_aac_320_ac3_640"));
+        CHECK(m4v.audio_mode == 0);
+    }
+    {
+        ConvertOptions opts;
+        char *argv[] = {"cli", "--codec", "mux", "--encoder", "m4v", "input.mov"};
+        CHECK(parse(6, argv, &opts, NULL));
+        CHECK(!strcmp(opts.audio_output_mode, "fdk_aac_320_ac3_640"));
+    }
+}
+
+static void test_container_defaults(void)
+{
+    const char *containers[] = {"mkv", "mov"};
+    size_t i;
+    for (i = 0; i < sizeof(containers) / sizeof(containers[0]); i++) {
+        ConvertOptions opts;
+        CliM4VOptions m4v;
+        char *argv[] = {"cli", "--codec", "mux", "--encoder",
+                        (char *)containers[i], "input.mov"};
+        CHECK(parse(6, argv, &opts, &m4v));
+        CHECK(!strcmp(opts.codec, "mux"));
+        CHECK(!strcmp(opts.preset, containers[i]));
+        CHECK(!strcmp(opts.audio_output_mode, "pcm"));
+        CHECK(audio_checks == 0);
+    }
+    {
+        ConvertOptions opts;
+        CliM4VOptions m4v;
+        char *argv[] = {"cli", "--codec", "mux", "--encoder", "m4v",
+                        "--preset", "mov", "input.mov"};
+        CHECK(parse(8, argv, &opts, &m4v));
+        CHECK(!strcmp(opts.preset, "mov"));
+        CHECK(!strcmp(opts.audio_output_mode, "pcm"));
+    }
+}
+
+static void test_audio_video_isolation(void)
+{
+    static const struct {
+        const char *group, *encoder, *codec, *preset, *deblock;
+    } selections[] = {
+        {"software", "prores", "prores", "hq", "weak"},
+        {"software", "prores_ks", "prores_ks", "4444", "strong"},
+        {"vaapi", "hevc_10bit", "hevc_vaapi_10bit", "quality", NULL},
+        {"nvenc", "h264", "h264_nvenc", "speed", NULL},
+        {"qsv", "hevc", "hevc_qsv", "balance", NULL},
+        {"amf", "h264", "h264_amf", "quality", NULL},
+        {"vulkan", "prores_ks", "prores_ks_vulkan", "hq", NULL},
+        {"vulkan", "hevc", "hevc_vulkan", "quality", NULL}
+    };
+    static const struct {
+        const char *requested, *canonical;
+    } audio[] = {
+        {"pcm", "pcm"}, {"aac", "fdk_aac_320"}, {"fdk_aac_320", "fdk_aac_320"},
+        {"aac+ac3", "fdk_aac_320_ac3_640"},
+        {"fdk_aac_320_ac3_640", "fdk_aac_320_ac3_640"}
+    };
+    size_t i, j;
+    for (i = 0; i < sizeof(selections) / sizeof(selections[0]); i++) {
+        ConvertOptions baseline;
+        char baseline_flags[1024] = "";
+        for (j = 0; j < sizeof(audio) / sizeof(audio[0]); j++) {
+            ConvertOptions opts;
+            CliM4VOptions m4v;
+            const char *flags;
+            char *argv[32] = {"cli", "--codec", (char *)selections[i].group,
+                             "--encoder", (char *)selections[i].encoder,
+                             "--preset", (char *)selections[i].preset,
+                             "--audio-norm", "loudnorm2", "--genre", "rock",
+                             "--hw_device", "/dev/dri/renderD129",
+                             "--vk_device", "2", "--overwrite", "--dry-run"};
+            int argc = 17;
+            if (selections[i].deblock) {
+                argv[argc++] = "--deblock";
+                argv[argc++] = (char *)selections[i].deblock;
+            }
+            argv[argc++] = "--audio-output";
+            argv[argc++] = (char *)audio[j].requested;
+            argv[argc++] = "input.mov";
+            CHECK(parse(argc, argv, &opts, &m4v));
+            CHECK(audio_checks == 1);
+            CHECK(!strcmp(checked_audio, audio[j].canonical));
+            CHECK(!strcmp(opts.audio_output_mode, audio[j].canonical));
+            CHECK(!strcmp(opts.codec, selections[i].codec));
+            CHECK(!strcmp(opts.preset, selections[i].preset));
+            CHECK(opts.deblock == (selections[i].deblock ?
+                  (!strcmp(selections[i].deblock, "weak") ? 2 : 3) : 1));
+            CHECK(opts.video_quality == 0);
+            CHECK(opts.vulkan_device == 2);
+            CHECK(!strcmp(opts.hw_device, "/dev/dri/renderD129"));
+            CHECK(!strcmp(opts.audio_norm, "loudness_norm_2pass"));
+            CHECK(opts.genre == 2 && opts.overwrite && opts.dry_run);
+            CHECK(m4v.audio_mode == 0);
+            flags = platform_get_video_codec_flags(opts.codec, NULL, &opts);
+            if (!strcmp(selections[i].group, "software"))
+                CHECK(flags == NULL);
+            else
+                CHECK(flags && flags[0]);
+            if (flags) {
+                if (j == 0)
+                    snprintf(baseline_flags, sizeof(baseline_flags), "%s", flags);
+                else
+                    CHECK(!strcmp(baseline_flags, flags));
+            }
+            /* parse_args zeroes padding: compare every option except audio. */
+            memset(opts.audio_output_mode, 0, sizeof(opts.audio_output_mode));
+            if (j == 0)
+                memcpy(&baseline, &opts, sizeof(baseline));
+            else
+                CHECK(!memcmp(&baseline, &opts, sizeof(opts)));
+        }
+    }
+}
+
+static void test_validation_preserved(void)
+{
     ConvertOptions opts;
-    CliM4VOptions m4v_opts;
-    const char *files[1] = { NULL };
-    int file_count = 0;
-    
-    const char *argv[] = {
-        "ffmpeg_converter",
-        "--codec", "m4v"
-    };
-    int argc = 3;
-    
-    int result = parse_args(argc, (char**)argv, NULL, &opts, &m4v_opts,
-                           files, &file_count);
-    
-    CHECK(result == 0, "--codec m4v without files should fail");
-    CHECK(strcmp(opts.audio_output_mode, "fdk_aac_320_ac3_640") == 0,
-          "--codec m4v applies default audio_output fdk_aac_320_ac3_640");
-    CHECK(strcmp(opts.codec, "m4v") == 0,
-          "codec is m4v");
-    CHECK(strcmp(opts.preset, "m4v") == 0,
-          "preset is set to m4v");
+    CliM4VOptions m4v;
+    char *alias[] = {"cli", "--codec", "mux", "--encoder", "m4v",
+                     "--audio-output", "aac", "input.mov"};
+    char *invalid[] = {"cli", "--audio-output", "unknown", "input.mov"};
+    char *missing[] = {"cli", "--audio-output"};
+    const char *audio[] = {"pcm", "aac", "aac+ac3"};
+    size_t i;
+    unavailable_audio = "fdk_aac_320";
+    CHECK(!parse(8, alias, &opts, &m4v));
+    CHECK(audio_checks == 1 && !strcmp(checked_audio, "fdk_aac_320"));
+    unavailable_audio = NULL;
+    CHECK(!parse(4, invalid, &opts, &m4v));
+    CHECK(audio_checks == 0);
+    CHECK(!parse(2, missing, &opts, &m4v));
+    CHECK(audio_checks == 0);
+    for (i = 0; i < sizeof(audio) / sizeof(audio[0]); i++) {
+        char *hw[] = {"cli", "--codec", "vaapi", "--encoder", "h264",
+                      "--deblock", "weak", "--audio-output", (char *)audio[i], "input.mov"};
+        char *preset[] = {"cli", "--codec", "software", "--encoder", "prores_ks",
+                          "--preset", "invalid", "--audio-output", (char *)audio[i], "input.mov"};
+        CHECK(!parse(10, hw, &opts, &m4v));
+        CHECK(!parse(10, preset, &opts, &m4v));
+    }
+    unavailable_codec = "mux";
+    CHECK(!parse(8, alias, &opts, &m4v));
+    unavailable_codec = NULL;
 }
 
-/**
- * Test scenario 2: --codec mux --encoder m4v with no explicit audio-output
- * Expected: audio_output_mode = "fdk_aac_320_ac3_640" (default via policy)
- *           Same outcome as --codec m4v
- */
-void test_mux_m4v_no_explicit_audio(void) {
-    ConvertOptions opts;
-    CliM4VOptions m4v_opts;
-    const char *files[1] = { NULL };
-    int file_count = 0;
-    
-    const char *argv[] = {
-        "ffmpeg_converter",
-        "--codec", "mux",
-        "--encoder", "m4v"
-    };
-    int argc = 5;
-    
-    int result = parse_args(argc, (char**)argv, NULL, &opts, &m4v_opts,
-                           files, &file_count);
-    
-    CHECK(result == 0, "--codec mux --encoder m4v without files should fail");
-    CHECK(strcmp(opts.audio_output_mode, "fdk_aac_320_ac3_640") == 0,
-          "--codec mux --encoder m4v applies default audio_output fdk_aac_320_ac3_640");
-    CHECK(strcmp(opts.codec, "mux") == 0,
-          "codec is mux");
-    CHECK(strcmp(opts.preset, "m4v") == 0,
-          "preset is set to m4v");
-}
-
-/**
- * Test scenario 3: --codec m4v --audio-output pcm
- * Expected: Fails because M4V rejects PCM (policy validation)
- */
-void test_m4v_explicit_pcm_rejected(void) {
-    ConvertOptions opts;
-    CliM4VOptions m4v_opts;
-    const char *files[1] = { NULL };
-    int file_count = 0;
-    
-    const char *argv[] = {
-        "ffmpeg_converter",
-        "--codec", "m4v",
-        "--audio-output", "pcm"
-    };
-    int argc = 5;
-    
-    int result = parse_args(argc, (char**)argv, NULL, &opts, &m4v_opts,
-                           files, &file_count);
-    
-    CHECK(result == 0, "--codec m4v with pcm should fail due to policy");
-}
-
-/**
- * Test scenario 4: --codec mux --encoder m4v --audio-output fdk_aac_320
- * Expected: Succeeds and applies AAC-only mode
- */
-void test_mux_m4v_explicit_aac(void) {
-    ConvertOptions opts;
-    CliM4VOptions m4v_opts;
-    const char *files[1] = { NULL };
-    int file_count = 0;
-    
-    const char *argv[] = {
-        "ffmpeg_converter",
-        "--codec", "mux",
-        "--encoder", "m4v",
-        "--audio-output", "fdk_aac_320"
-    };
-    int argc = 7;
-    
-    int result = parse_args(argc, (char**)argv, NULL, &opts, &m4v_opts,
-                           files, &file_count);
-    
-    CHECK(result == 0, "--codec mux --encoder m4v with explicit AAC without files should fail");
-    CHECK(strcmp(opts.audio_output_mode, "fdk_aac_320") == 0,
-          "explicit --audio-output fdk_aac_320 is applied");
-    CHECK(strcmp(opts.codec, "mux") == 0,
-          "codec remains mux");
-}
-
-/**
- * Test scenario 5: Verify audio-output changes don't affect codec/preset/deblock
- * Expected: Only audio_output_mode changes, other fields remain unchanged
- */
-void test_audio_output_isolation(void) {
-    ConvertOptions opts1, opts2;
-    CliM4VOptions m4v_opts;
-    const char *files[1] = { NULL };
-    int file_count = 0;
-    
-    /* First call with default audio */
-    const char *argv1[] = {
-        "ffmpeg_converter",
-        "--codec", "m4v",
-        "--deblock", "weak"
-    };
-    parse_args(sizeof(argv1)/sizeof(argv1[0]), (char**)argv1, NULL, &opts1, &m4v_opts,
-              files, &file_count);
-    
-    /* Second call with explicit audio */
-    const char *argv2[] = {
-        "ffmpeg_converter",
-        "--codec", "m4v",
-        "--audio-output", "fdk_aac_320_ac3_640",
-        "--deblock", "weak"
-    };
-    parse_args(sizeof(argv2)/sizeof(argv2[0]), (char**)argv2, NULL, &opts2, &m4v_opts,
-              files, &file_count);
-    
-    /* Verify codec, preset, deblock remain identical */
-    CHECK(strcmp(opts1.codec, opts2.codec) == 0,
-          "codec unchanged when audio-output changes");
-    CHECK(strcmp(opts1.preset, opts2.preset) == 0,
-          "preset unchanged when audio-output changes");
-    CHECK(opts1.deblock == opts2.deblock,
-          "deblock unchanged when audio-output changes");
-    CHECK(strcmp(opts1.audio_norm, opts2.audio_norm) == 0,
-          "audio_norm unchanged when audio-output changes");
-}
-
-/**
- * Test scenario 6: --codec mux --encoder mkv with default audio
- * Expected: Uses PCM default (not AAC+AC3 which is M4V-specific)
- */
-void test_mux_mkv_pcm_default(void) {
-    ConvertOptions opts;
-    CliM4VOptions m4v_opts;
-    const char *files[1] = { NULL };
-    int file_count = 0;
-    
-    const char *argv[] = {
-        "ffmpeg_converter",
-        "--codec", "mux",
-        "--encoder", "mkv"
-    };
-    int argc = 5;
-    
-    int result = parse_args(argc, (char**)argv, NULL, &opts, &m4v_opts,
-                           files, &file_count);
-    
-    CHECK(result == 0, "--codec mux --encoder mkv without files should fail");
-    CHECK(strcmp(opts.audio_output_mode, "pcm") == 0,
-          "--codec mux --encoder mkv applies default audio_output pcm");
-    CHECK(strcmp(opts.codec, "mux") == 0,
-          "codec is mux");
-    CHECK(strcmp(opts.preset, "mkv") == 0,
-          "preset is set to mkv");
-}
-
-int main(void) {
-    printf("=== CLI M4V Policy Regression Tests ===\n\n");
-    
-    test_m4v_no_explicit_audio();
-    printf("\n");
-    
-    test_mux_m4v_no_explicit_audio();
-    printf("\n");
-    
-    test_m4v_explicit_pcm_rejected();
-    printf("\n");
-    
-    test_mux_m4v_explicit_aac();
-    printf("\n");
-    
-    test_audio_output_isolation();
-    printf("\n");
-    
-    test_mux_mkv_pcm_default();
-    printf("\n");
-    
+int main(void)
+{
+    test_m4v_audio();
+    test_container_defaults();
+    test_audio_video_isolation();
+    test_validation_preserved();
     if (failures) {
-        fprintf(stderr, "\n%d test(s) failed.\n", failures);
+        fprintf(stderr, "%d CLI policy assertion(s) failed\n", failures);
         return 1;
     }
-    
-    printf("\nAll CLI M4V policy tests passed.\n");
+    puts("CLI M4V policy and audio/video isolation regressions passed");
     return 0;
 }

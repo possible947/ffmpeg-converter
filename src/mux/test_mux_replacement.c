@@ -111,20 +111,24 @@ static int create_media(const char *ffmpeg, const char *dir, const char *kind,
              "-map 0:v -map 1:a -map 1:a -map 2:s -map 2:s "
              "-map_metadata 3 -map_chapters 3 "
              "-c:v mpeg4 -c:a pcm_s16le -c:s srt "
-             "-metadata:s:v:0 language=eng "
+             "-metadata:s:v:0 language=%s "
+             "-metadata:s:v:0 title=%s_VIDEO_TITLE "
              "-metadata:s:v:0 isolation_marker=%s_VIDEO_TAG "
              "-metadata:s:a:0 isolation_marker=%s_AUDIO_TAG "
              "-metadata:s:s:0 title=%s_SUBTITLE_TRACK "
              "-attach '%s/%s.txt' -metadata:s:t:0 mimetype=text/plain "
              "'%s/%s.mkv'",
-             quoted, width, dir, kind, dir, kind, kind, kind, kind,
+             quoted, width, dir, kind, dir, kind,
+             strcmp(kind, "source") == 0 ? "eng" : "fra",
+             kind, kind, kind, kind,
              dir, kind, dir, kind);
     free(quoted);
     return system(cmd) == 0;
 }
 
 static void verify_output(const char *ffprobe, const char *path, int mov,
-                          int has_title, int expected_subtitles)
+                          int has_title, int expected_subtitles, int has_video_title,
+                          const char *expected_language)
 {
     json_t *data = probe(ffprobe, path);
     json_t *streams;
@@ -147,8 +151,9 @@ static void verify_output(const char *ffprobe, const char *path, int mov,
             ++video;
             expect(json_integer_value(json_object_get(stream, "width")) == 64,
                    "video comes from replacement");
-            expect(language && strcmp(language, "eng") == 0,
-                   "replacement video inherits standard source language");
+            expect((language && strcmp(language, expected_language) == 0) ||
+                   (!language && strcmp(expected_language, "und") == 0),
+                   "replacement video inherits source language or unspecified default");
         } else if (strcmp(type, "audio") == 0) {
             ++audio;
         } else if (strcmp(type, "subtitle") == 0) {
@@ -175,6 +180,8 @@ static void verify_output(const char *ffprobe, const char *path, int mov,
         expect(strstr(text, "source_GLOBAL") != NULL, "source global metadata preserved");
         expect(strstr(text, "source_CHAPTER") != NULL, "source chapter title preserved");
         if (!mov) {
+            expect((strstr(text, "source_VIDEO_TITLE") != NULL) == has_video_title,
+                   "source video track title or its absence preserved");
             expect(strstr(text, "source_AUDIO_TAG") != NULL, "source track tag preserved");
             expect(strstr(text, "source.txt") != NULL, "source attachment preserved");
         }
@@ -226,7 +233,9 @@ int main(void)
         "source_malicious_language.mkv", "output_malicious_language.mkv",
         "replacement.h264", "output_forced_duration.mkv",
         "source_without_subtitles.mkv", "output_without_subtitles.mov",
-        "output_without_subtitles.mov.mux_tmp.mkv"
+        "output_without_subtitles.mov.mux_tmp.mkv",
+        "source_without_video_title.mkv", "output_without_video_title.mkv",
+        "source_without_language.mkv", "output_without_language.mkv"
     };
     char dir[128], output[512], path[512];
     MuxOptions opts = {0};
@@ -266,7 +275,7 @@ int main(void)
         snprintf(opts.output_file, sizeof(opts.output_file), "%s/output.mkv", dir);
         opts.overwrite = 1;
         if (mux_run_postprocess(&opts, &convert_opts, NULL) == ERR_OK) {
-            verify_output(ffprobe, opts.output_file, 0, 1, 2);
+            verify_output(ffprobe, opts.output_file, 0, 1, 2, 1, "eng");
             verify_subtitle(ffmpeg, dir, opts.output_file);
         } else {
             expect(0, "MKV replacement mux succeeds");
@@ -275,7 +284,7 @@ int main(void)
         snprintf(convert_opts.audio_output_mode, sizeof(convert_opts.audio_output_mode), "pcm");
         snprintf(output, sizeof(output), "%s/output.mov", dir);
         if (mux_run_postprocess_for_preset(&opts, &convert_opts, output, NULL) == ERR_OK) {
-            verify_output(ffprobe, output, 1, 1, 2);
+            verify_output(ffprobe, output, 1, 1, 2, 1, "eng");
             verify_subtitle(ffmpeg, dir, output);
         } else {
             expect(0, "MOV replacement mux succeeds");
@@ -292,7 +301,7 @@ int main(void)
             snprintf(opts.output_file, sizeof(opts.output_file),
                      "%s/output_forced_duration.mkv", dir);
             if (mux_run_postprocess(&opts, &convert_opts, &callbacks) == ERR_OK)
-                verify_output(ffprobe, opts.output_file, 0, 1, 2);
+                verify_output(ffprobe, opts.output_file, 0, 1, 2, 1, "eng");
             else
                 expect(0, "replacement mux preserves rational forced FPS");
             expect(quoted_timing_seen, "complete track/rational-FPS argument is shell quoted");
@@ -315,7 +324,7 @@ int main(void)
                 snprintf(output, sizeof(output), "%s/output_without_subtitles.mov", dir);
                 if (mux_run_postprocess_for_preset(&opts, &convert_opts,
                                                   output, NULL) == ERR_OK)
-                    verify_output(ffprobe, output, 1, 1, 0);
+                    verify_output(ffprobe, output, 1, 1, 0, 1, "eng");
                 else
                     expect(0, "MOV replacement mux without subtitles succeeds");
             }
@@ -336,9 +345,59 @@ int main(void)
                 snprintf(opts.output_file, sizeof(opts.output_file),
                          "%s/output_without_title.mkv", dir);
                 if (mux_run_postprocess(&opts, &convert_opts, NULL) == ERR_OK)
-                    verify_output(ffprobe, opts.output_file, 0, 0, 2);
+                    verify_output(ffprobe, opts.output_file, 0, 0, 2, 1, "eng");
                 else
                     expect(0, "replacement mux with untitled source succeeds");
+            }
+            {
+                char cmd[4096];
+                char *quoted = platform_escape_path_for_command(ffmpeg);
+                expect(quoted != NULL, "quote video-title-removal tool");
+                if (quoted) {
+                    snprintf(cmd, sizeof(cmd),
+                             "%s -hide_banner -loglevel error -nostdin -y "
+                             "-i '%s/source.mkv' -map 0 -c copy -metadata:s:v:0 title= "
+                             "'%s/source_without_video_title.mkv'", quoted, dir, dir);
+                    free(quoted);
+                    expect(system(cmd) == 0, "create source without video track title");
+                    snprintf(opts.intermediate_file, sizeof(opts.intermediate_file),
+                             "%s/source_without_video_title.mkv", dir);
+                    snprintf(opts.output_file, sizeof(opts.output_file),
+                             "%s/output_without_video_title.mkv", dir);
+                    if (mux_run_postprocess(&opts, &convert_opts, NULL) == ERR_OK)
+                        verify_output(ffprobe, opts.output_file, 0, 1, 2, 0, "eng");
+                    else
+                        expect(0, "replacement mux with unnamed source video succeeds");
+                }
+                {
+                    char cmd[4096];
+                    char *quoted = platform_escape_path_for_command(ffmpeg);
+                    expect(quoted != NULL, "quote language-removal tool");
+                    if (quoted) {
+                        json_t *untagged;
+                        const char *language;
+                        snprintf(cmd, sizeof(cmd),
+                                 "%s -hide_banner -loglevel error -nostdin -y "
+                                 "-i '%s/source.mkv' -map 0 -c copy -metadata:s:v:0 language= "
+                                 "'%s/source_without_language.mkv'", quoted, dir, dir);
+                        free(quoted);
+                        expect(system(cmd) == 0, "create source without video language");
+                        snprintf(opts.intermediate_file, sizeof(opts.intermediate_file),
+                                 "%s/source_without_language.mkv", dir);
+                        untagged = probe(ffprobe, opts.intermediate_file);
+                        expect(untagged != NULL, "probe untagged source");
+                        language = json_string_value(json_object_get(json_object_get(
+                            json_array_get(json_object_get(untagged, "streams"), 0), "tags"), "language"));
+                        expect(!language || !language[0], "source fixture has no language tag");
+                        json_decref(untagged);
+                        snprintf(opts.output_file, sizeof(opts.output_file),
+                                 "%s/output_without_language.mkv", dir);
+                        if (mux_run_postprocess(&opts, &convert_opts, NULL) == ERR_OK)
+                            verify_output(ffprobe, opts.output_file, 0, 1, 2, 1, "und");
+                        else
+                            expect(0, "replacement mux with untagged source video succeeds");
+                    }
+                }
             }
         }
         {
@@ -363,6 +422,22 @@ int main(void)
                        "mkvmerge rejects invalid language as one literal argument");
                 expect(!language_injection_seen, "language metadata cannot execute shell commands");
             }
+        }
+    }
+    if (created) {
+        const char *configured = getenv("FFPROBE");
+        char *saved = configured ? strdup(configured) : NULL;
+        expect(!configured || saved != NULL, "save configured ffprobe");
+        if (!configured || saved) {
+            expect(setenv("FFPROBE", "/nonexistent/ffprobe-metadata-test", 1) == 0,
+                   "configure unavailable metadata probe");
+            expect(mux_run_postprocess(&opts, &convert_opts, NULL) == ERR_FFPROBE_FAILED,
+                   "probe failure is not treated as absent source metadata");
+            if (saved)
+                setenv("FFPROBE", saved, 1);
+            else
+                unsetenv("FFPROBE");
+            free(saved);
         }
     }
     for (i = 0; i < sizeof(files) / sizeof(files[0]); ++i) {
