@@ -1086,9 +1086,10 @@ ConverterError converter_process_files(
         int i;
         for (i = 0; i < file_count; ++i) {
             MuxPolicy policy;
-            ConverterError file_error = check_file(c, files[i]);
-            if (file_error != ERR_OK)
-                return file_error;
+            if (!files[i] ||
+                !platform_stat_is_regular_file(files[i]) ||
+                !platform_is_file_readable(files[i]))
+                continue;
             if (!resolve_mux_output_policy(files[i], &c->opts, &policy)) {
                 if (c->cb.on_error)
                     c->cb.on_error("Copy mode policy validation failed",
