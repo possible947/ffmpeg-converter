@@ -1,6 +1,6 @@
 # Copilot instructions for ffmpeg-converter
 
-Prefer the executable sources in this repo (CMake, Makefiles, scripts, and platform code) over prose docs when they disagree. This project intentionally keeps two feature-matched implementations in sync: a C/CMake engine in `src/` and a Free Pascal port in `fpc/`.
+Prefer executable sources in this repo (CMake, Makefiles, scripts, and platform code) over prose docs when they disagree. The C/CMake implementation in `src/` is the primary implementation. The Windows Free Pascal port in `fpc/` is deprecated for new development and retained as a legacy implementation; avoid adding new Pascal features unless explicitly requested. The experimental .NET 10 port in `dotnet-experiment/` is planned to replace Pascal as the native Windows implementation, but it is not yet integrated into the release/build pipeline. Older documents may still describe Pascal as actively maintained.
 
 ## ⚠️ Critical Prerequisites (read before building)
 
@@ -43,9 +43,25 @@ Windows (MSVC, from x64 Native Tools Command Prompt):
 cmake --build build-msvc --target windows_cli --config Release
 ```
 
-C validation: there is no C test suite or `ctest` target. The usual validation is to build the relevant target and then run the built binary with `--help` (for example `./build/bin/ffmpeg_converter --help`).
+C/CMake tests are registered with CTest and vary by platform. Build before running them:
+```bash
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
 
-### Free Pascal (Windows only)
+Run one test by building its target and filtering the CTest name, for example:
+```bash
+cmake --build build --target test_preset_loader
+ctest --test-dir build -R '^PresetLoaderTests$' --output-on-failure
+```
+
+For a CLI smoke check, run the platform binary with `--help` (for example `./build/bin/ffmpeg_converter --help`).
+
+### Deprecated Free Pascal port (Windows)
+
+The Pascal port is deprecated for new feature work, but its existing Windows
+CLI, library, and GUI remain in the repository for maintenance. Its Makefile
+currently permits builds only on Windows.
 
 CLI/library build:
 ```bash
@@ -58,36 +74,42 @@ GUI build:
 make -C fpc/build gui
 ```
 
-Test entry point:
+Test entry point (currently skips because `fpc/test/` has no Pascal test sources):
 ```bash
 make -C fpc/build tests
 ```
 
-Run these targets from a supported Windows environment. Linux and macOS Pascal
-targets and packages have been removed; use the C/CMake implementation there.
-
-Single test target:
-```bash
-make -C fpc/build tests TEST_PROGRAMS="test_cmd_builder"
-./fpc/test/test_cmd_builder
-```
-
-Integration/regression scripts, when present:
-```bash
-bash fpc/test/test_cli_args_matrix.sh
-./fpc/test/run_all_regression_and_capture.sh
-```
-
-There is no dedicated lint target in the repo; validation is build-oriented and script-driven.
+Run Pascal targets from Windows; the Makefile rejects Linux and macOS builds.
 
 Pascal build notes: default `FPCFLAGS=-Mobjfpc -Sh -O2`; compiled units land in `fpc/build/.units/`, binaries in `fpc/bin/` (never commit these). On Windows/MSYS2, bash mangles `-Fu` include paths — the Makefile wraps them with `cygpath -w` + double quotes; follow that pattern for any new `-Fu` flag. Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat` (distinct from the MSVC `windows_build.ps1`).
 
+### Experimental .NET port (planned Windows Pascal replacement)
+
+From `dotnet-experiment/`:
+```bash
+dotnet build FfmpegConverter.slnx
+dotnet test FfmpegConverter.Tests/FfmpegConverter.Tests.csproj
+dotnet test FfmpegConverter.Tests/FfmpegConverter.Tests.csproj --filter FullyQualifiedName~CommandBuilderTests
+dotnet run --project FfmpegConverter.Cli/FfmpegConverter.Cli.csproj -- --help
+```
+
+The last `dotnet test` command runs one test class; change the filter to the desired class or test name. There is no repository-defined lint target.
+
 ## Architecture at a glance
 
-This repo has two independent implementations that share the same conversion model and CLI behavior:
+The C/CMake implementation is the primary product implementation:
 
-- `src/` is the primary C/CMake implementation. It contains the converter core, platform-specific code, CLI entry points, and native macOS/Linux GUIs.
-- `fpc/` is the Free Pascal port; it mirrors the C implementation for Linux and Windows and is deliberately kept feature-matched with the C version.
+- `src/` is the primary C/CMake implementation. It contains the converter core, platform-specific code, CLI entry points (including the Windows CLI), and native macOS/Linux GUIs.
+- `fpc/` is the deprecated legacy Pascal port, with existing Windows CLI/GUI/library targets. When maintaining shared behavior or ABI, keep it aligned with C; do not assume it is the preferred place for new features.
+- `dotnet-experiment/` is an exploratory .NET 10 implementation with Core, CLI, Avalonia GUI, and xUnit projects. It is the planned native Windows replacement for the Pascal port, but remains experimental and is not yet wired into the release/build pipeline.
+
+### Version 3.0 Phase 3
+
+Phase 3 is documented in three stages:
+
+- **3.0 — Pre-integration refactor:** isolate shared audio, Add Track, and mux execution paths.
+- **3.1 — HQ Converter integration:** integrate HQ Converter into the C/Linux and C/macOS paths; Windows and Pascal are outside this integration.
+- **3.2 — Mux policy cleanup:** a corrective-refactor specification in `docs/v3.0-Phase3.2.md`, not a new feature phase. It is marked as a draft; check its status before treating requirements as implemented.
 
 Key structure:
 
@@ -96,7 +118,7 @@ Key structure:
 - `src/gui/` and `src/gui_macos_native/` contain the native GUI code.
 - `src/m4v/` and `fpc/converter/apple_m4v_creator.pas` contain the Apple M4V pipeline; both must be kept in sync.
 - `src/platform/{linux,macos,windows}/` and `fpc/platform/` contain runtime probing and OS-specific logic.
-- `presets.json` is the runtime source of truth for codec/preset definitions used by both implementations; doc updates live in `docs/`.
+- The preset catalog is shared runtime data: `presets.json` is consumed by the runtimes, while CMake generates a platform-gated build copy from `presets.json.in`. Keep catalog changes aligned with the C and Pascal command-builder tables; the .NET port has its own preset loader and builder.
 
 Important repo-level behavior:
 
