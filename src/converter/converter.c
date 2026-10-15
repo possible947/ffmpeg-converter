@@ -684,6 +684,10 @@ static void build_ffmpeg_cmd(
     } else {
         if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:a:0 ") < 0) goto overflow;
     }
+    if (strcmp(opts->codec, "copy") == 0) {
+        if (cmd_cat(cmd, sizeof(cmd), &pos, "-map 0:s? -c:s copy ") < 0)
+            goto overflow;
+    }
     if (cmd_cat(cmd, sizeof(cmd), &pos, "-map_metadata 0 ") < 0) goto overflow;
     if (append_color_metadata(cmd, sizeof(cmd), &pos,
                               have_input_info ? &input_info : NULL) < 0)
