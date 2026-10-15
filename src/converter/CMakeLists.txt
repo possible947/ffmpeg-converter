@@ -4,6 +4,7 @@ add_library(converter STATIC
     converter.c
     converter_common.c
     input_video_info.c
+    subtitle_preservation.c
     ${CMAKE_SOURCE_DIR}/src/audio/audio_orchestrator.c
     ${CMAKE_SOURCE_DIR}/src/preset/preset_loader.c
     ${CMAKE_SOURCE_DIR}/src/platform/selection_catalog.c
@@ -67,6 +68,11 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     )
     target_link_libraries(test_linux_preset_args PRIVATE converter)
     add_test(NAME LinuxPresetArgsTests COMMAND test_linux_preset_args)
+
+    add_executable(test_subtitle_preservation test_subtitle_preservation.c)
+    target_link_libraries(test_subtitle_preservation PRIVATE converter)
+    add_test(NAME SubtitlePreservationTests COMMAND test_subtitle_preservation)
+    set_tests_properties(SubtitlePreservationTests PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -95,4 +101,4 @@ target_include_directories(converter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(converter PUBLIC jansson)
+target_link_libraries(converter PUBLIC jansson mux_policy)

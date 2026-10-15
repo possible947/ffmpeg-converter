@@ -100,6 +100,7 @@ void print_usage(const CliPlatformHandle* h) {
     printf("  -d, --deblock <none|weak|strong>\n");
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
     printf("      --audio-output <copy|pcm|fdk_aac_320|fdk_aac_320_ac3_640>\n");
+    printf("      (aliases: aac = fdk_aac_320, aac+ac3 = fdk_aac_320_ac3_640)\n");
     if (platform_mux_is_supported())
         printf("      --video-track <file>  replacement video track for mux mode\n");
     printf("  -g, --genre <edm|rock|hiphop|classical|podcast>\n");
@@ -727,13 +728,18 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         }
 
         if (!strcmp(argv[i], "--audio-output")) {
+            MuxAudioMode audio_mode;
+            const char *canonical_audio_mode;
             if (i + 1 >= argc) return 0;
             i++;
-            if (!platform_audio_mode_is_available(argv[i]))
+            audio_mode = mux_audio_mode_parse(argv[i]);
+            if (audio_mode == MUX_AUDIO_INVALID)
                 return 0;
-            strncpy(opts->audio_output_mode, argv[i],
-                    sizeof(opts->audio_output_mode) - 1);
-            opts->audio_output_mode[sizeof(opts->audio_output_mode) - 1] = '\0';
+            canonical_audio_mode = mux_audio_mode_name(audio_mode);
+            if (!platform_audio_mode_is_available(canonical_audio_mode))
+                return 0;
+            snprintf(opts->audio_output_mode, sizeof(opts->audio_output_mode),
+                     "%s", canonical_audio_mode);
             audio_output_explicit = 1;
             continue;
         }
@@ -892,25 +898,25 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
             strcpy(opts->preset, "default");
     }
 
-    if (!strcmp(opts->codec, "m4v")) {
+    /* Use the resolved pipeline/container, not the raw selection arguments. */
+    int is_m4v_mode = !strcmp(opts->codec, "m4v") ||
+                      (!strcmp(opts->codec, "mux") && !strcmp(opts->preset, "m4v"));
+    if (is_m4v_mode) {
         MuxBuildProfile profile;
         MuxPolicy policy;
         char policy_error[256];
         policy_error[0] = '\0';
-        if (!audio_output_explicit) {
-            strncpy(opts->audio_output_mode, "fdk_aac_320_ac3_640",
-                    sizeof(opts->audio_output_mode) - 1);
-            opts->audio_output_mode[sizeof(opts->audio_output_mode) - 1] = '\0';
-        }
         if (!mux_build_profile_default(&profile) ||
             !mux_policy_resolve(&profile, MUX_MODE_M4V,
-                                opts->audio_output_mode,
+                                audio_output_explicit ? opts->audio_output_mode : NULL,
                                 MUX_VIDEO_UNKNOWN, MUX_VIDEO_UNKNOWN,
                                 &policy, policy_error, sizeof(policy_error))) {
             fprintf(stderr, "Error: %s\n",
                     policy_error[0] ? policy_error : "invalid M4V build profile");
             return 0;
         }
+        snprintf(opts->audio_output_mode, sizeof(opts->audio_output_mode),
+                 "%s", mux_audio_mode_name(policy.audio_mode));
         if (m4v_opts)
             m4v_opts->audio_mode = policy.audio_mode == MUX_AUDIO_AAC ? 1 : 0;
     }

@@ -22,6 +22,39 @@ static int resolve(MuxMode mode, const char *audio, MuxVideoCodec source,
                               policy, error, sizeof(error));
 }
 
+static void test_subtitle_compatibility(void)
+{
+    MuxSubtitlePolicy subtitle;
+    static const char *mkv_copy[] = {
+        "subrip", "ass", "ssa", "webvtt", "dvd_subtitle",
+        "hdmv_pgs_subtitle", "dvb_subtitle"
+    };
+    size_t i;
+    subtitle = mux_subtitle_policy_resolve("mov_text", MUX_CONTAINER_MKV);
+    CHECK(subtitle.action == MUX_SUBTITLE_CONVERT &&
+          strcmp(subtitle.encoder, "srt") == 0,
+          "MKV converts mov_text to SRT");
+    for (i = 0; i < sizeof(mkv_copy) / sizeof(mkv_copy[0]); ++i) {
+        subtitle = mux_subtitle_policy_resolve(mkv_copy[i], MUX_CONTAINER_MKV);
+        CHECK(subtitle.action == MUX_SUBTITLE_COPY,
+              "MKV copies supported text and bitmap subtitles");
+    }
+    subtitle = mux_subtitle_policy_resolve("subrip", MUX_CONTAINER_MOV);
+    CHECK(subtitle.action == MUX_SUBTITLE_CONVERT &&
+          strcmp(subtitle.encoder, "mov_text") == 0,
+          "MOV converts SRT to mov_text");
+    CHECK(mux_subtitle_policy_resolve("mov_text", MUX_CONTAINER_MOV).action ==
+          MUX_SUBTITLE_COPY, "MOV copies mov_text");
+    CHECK(mux_subtitle_policy_resolve("ass", MUX_CONTAINER_M4V).action ==
+          MUX_SUBTITLE_CONVERT, "M4V converts text subtitles");
+    CHECK(mux_subtitle_policy_resolve("hdmv_pgs_subtitle", MUX_CONTAINER_MOV).action ==
+          MUX_SUBTITLE_DROP, "MOV drops unsupported bitmap subtitles");
+    CHECK(mux_subtitle_policy_resolve("unknown", MUX_CONTAINER_MKV).action ==
+          MUX_SUBTITLE_DROP, "unknown subtitle codecs are never copied blindly");
+    CHECK(mux_subtitle_policy_resolve(NULL, MUX_CONTAINER_MKV).action ==
+          MUX_SUBTITLE_DROP, "missing subtitle codecs are never copied blindly");
+}
+
 int main(void)
 {
     MuxBuildProfile profile;
@@ -32,6 +65,7 @@ int main(void)
     size_t p;
     size_t v;
 
+    test_subtitle_compatibility();
     CHECK(mux_build_profile_resolve("linux", "8.1", &profile),
           "resolve Linux/FFmpeg 8.1 profile");
     CHECK(profile.platform == MUX_PLATFORM_LINUX &&
@@ -82,6 +116,12 @@ int main(void)
     CHECK(resolve(MUX_MODE_M4V, "fdk_aac_320", MUX_VIDEO_UNKNOWN,
                   MUX_VIDEO_H264, &policy),
           "M4V accepts AAC-only");
+    CHECK(resolve(MUX_MODE_M4V, "aac", MUX_VIDEO_UNKNOWN,
+                  MUX_VIDEO_H264, &policy) &&
+          policy.audio_mode == MUX_AUDIO_AAC && !policy.audio_mode_was_defaulted,
+          "M4V preserves explicit AAC alias");
+    CHECK(!resolve(MUX_MODE_M4V, "copy", MUX_VIDEO_UNKNOWN,
+                   MUX_VIDEO_H264, &policy), "M4V rejects audio copy");
     CHECK(!resolve(MUX_MODE_M4V, "pcm", MUX_VIDEO_UNKNOWN,
                    MUX_VIDEO_H264, &policy),
           "M4V rejects PCM");

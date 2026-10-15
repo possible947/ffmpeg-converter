@@ -53,6 +53,17 @@ typedef enum {
     MUX_VIDEO_UNSUPPORTED
 } MuxVideoCodec;
 
+typedef enum {
+    MUX_SUBTITLE_COPY = 0,
+    MUX_SUBTITLE_CONVERT,
+    MUX_SUBTITLE_DROP
+} MuxSubtitleAction;
+
+typedef struct {
+    MuxSubtitleAction action;
+    const char *encoder;
+} MuxSubtitlePolicy;
+
 typedef struct {
     MuxMode mode;
     MuxContainer container;
@@ -94,6 +105,8 @@ int mux_policy_resolve(const MuxBuildProfile *profile,
 const char *mux_mode_name(MuxMode mode);
 const char *mux_container_name(MuxContainer container);
 const char *mux_audio_mode_name(MuxAudioMode mode);
+MuxSubtitlePolicy mux_subtitle_policy_resolve(const char *codec,
+                                              MuxContainer container);
 
 #ifdef __cplusplus
 }
