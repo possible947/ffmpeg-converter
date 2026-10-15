@@ -238,7 +238,7 @@ static void test_cross_platform_consistency(void) {
         // All platforms should have 'copy' codec with 'default' preset
         const char *platforms[] = {"linux", "macos"};
         
-        for (int i = 0; i < 3; i++) {
+        for (size_t i = 0; i < sizeof(platforms) / sizeof(platforms[0]); i++) {
             const PresetInfo *preset = preset_db_get(db, platforms[i], "copy", "default");
             char msg[256];
             snprintf(msg, sizeof(msg), "%s has copy/default preset", platforms[i]);
