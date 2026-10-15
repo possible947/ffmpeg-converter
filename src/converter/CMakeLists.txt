@@ -45,6 +45,12 @@ elseif (APPLE)
     )
 endif()
 
+add_executable(test_input_video_info
+    ${CMAKE_SOURCE_DIR}/src/converter/test_input_video_info.c
+)
+target_link_libraries(test_input_video_info PRIVATE converter)
+add_test(NAME InputVideoInfoTests COMMAND test_input_video_info)
+
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(test_runtime_capabilities
         ${CMAKE_SOURCE_DIR}/src/platform/linux/test_runtime_capabilities.c
@@ -53,12 +59,6 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         ${CMAKE_SOURCE_DIR}/src/platform/linux
     )
     target_link_libraries(test_runtime_capabilities PRIVATE converter)
-
-    add_executable(test_input_video_info
-        ${CMAKE_SOURCE_DIR}/src/converter/test_input_video_info.c
-    )
-    target_link_libraries(test_input_video_info PRIVATE converter)
-    add_test(NAME InputVideoInfoTests COMMAND test_input_video_info)
 
     add_executable(test_linux_preset_args
         ${CMAKE_SOURCE_DIR}/src/converter/test_linux_preset_args.c
@@ -69,10 +69,26 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(test_linux_preset_args PRIVATE converter)
     add_test(NAME LinuxPresetArgsTests COMMAND test_linux_preset_args)
 
+endif()
+
+if (UNIX)
     add_executable(test_subtitle_preservation test_subtitle_preservation.c)
     target_link_libraries(test_subtitle_preservation PRIVATE converter)
     add_test(NAME SubtitlePreservationTests COMMAND test_subtitle_preservation)
     set_tests_properties(SubtitlePreservationTests PROPERTIES SKIP_RETURN_CODE 77)
+    if (APPLE)
+        set_tests_properties(SubtitlePreservationTests PROPERTIES
+            ENVIRONMENT
+                "FFMPEG=${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffmpeg;FFPROBE=${CMAKE_SOURCE_DIR}/src/platform/macos/bin/ffprobe"
+        )
+    elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+            EXISTS "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffmpeg" AND
+            EXISTS "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffprobe")
+        set_tests_properties(SubtitlePreservationTests PROPERTIES
+            ENVIRONMENT
+                "FFMPEG=${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffmpeg;FFPROBE=${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffprobe"
+        )
+    endif()
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")

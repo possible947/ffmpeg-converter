@@ -272,7 +272,9 @@ int main(void)
 {
     test_m4v_audio();
     test_container_defaults();
+#ifndef FFMPEG_CONVERTER_CLI_PORTABLE_POLICY_ONLY
     test_audio_video_isolation();
+#endif
     test_validation_preserved();
     if (failures) {
         fprintf(stderr, "%d CLI policy assertion(s) failed\n", failures);

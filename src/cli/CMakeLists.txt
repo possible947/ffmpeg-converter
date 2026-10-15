@@ -13,7 +13,7 @@ set(CLI_COMMON_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/cli_common.c
 )
 
-if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if (UNIX)
     add_executable(test_cli_m4v_policy test_cli_m4v_policy.c cli_common.c)
     target_include_directories(test_cli_m4v_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(test_cli_m4v_policy PRIVATE
@@ -26,6 +26,11 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set_tests_properties(CliM4VPolicyTests PROPERTIES
         ENVIRONMENT "PRESETS_V2_PATH=${GENERATED_PRESETS_DIR}/presets.json;PRESETS_PATH=${GENERATED_PRESETS_DIR}"
     )
+    if (APPLE)
+        target_compile_definitions(test_cli_m4v_policy PRIVATE
+            FFMPEG_CONVERTER_CLI_PORTABLE_POLICY_ONLY=1
+        )
+    endif()
 endif()
 
 set(LINUX_BUNDLED_FFMPEG "${CMAKE_SOURCE_DIR}/src/platform/linux/bin/ffmpeg")
@@ -215,4 +220,3 @@ if (APPLE)
         )
     endif()
 endif()
-
