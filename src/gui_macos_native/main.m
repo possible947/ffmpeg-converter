@@ -6,6 +6,7 @@
 #include "hq_adapter.h"
 #include "hq_catalog.h"
 #include "input_video_info.h"
+#include "mux.h"
 #include "mux_policy.h"
 #include <string.h>
 
@@ -932,6 +933,7 @@ static int macSelectionCapability(void *context,
         if (url.path.length > 0) {
             self.videoTrackPath = url.path;
             [self.videoTrackLabel setStringValue:self.videoTrackPath];
+            [self updateDependentControls];
         }
     }
 }
@@ -1065,6 +1067,7 @@ static int macSelectionCapability(void *context,
     }
 
     if (macGuiIsHqGroup(group)) {
+        NSString *selectedPreset = self.profilePopup.titleOfSelectedItem;
         [self.profilePopup removeAllItems];
         if (encoder.length > 0 && macGuiHqCatalogReady()) {
             size_t presetCount = hq_catalog_preset_count(encoder.UTF8String);
@@ -1073,7 +1076,11 @@ static int macSelectionCapability(void *context,
         }
         if (self.profilePopup.numberOfItems == 0)
             [self.profilePopup addItemWithTitle:@"default"];
-        [self.profilePopup selectItemAtIndex:0];
+        if (selectedPreset.length > 0 &&
+            [self.profilePopup itemWithTitle:selectedPreset])
+            [self.profilePopup selectItemWithTitle:selectedPreset];
+        else
+            [self.profilePopup selectItemAtIndex:0];
         return;
     }
 
@@ -1107,6 +1114,7 @@ static int macSelectionCapability(void *context,
     BOOL muxNeedsTrack = NO;
     BOOL muxPolicyValid = YES;
     BOOL muxCopy = NO;
+    BOOL hqProRes = NO;
     if (isMux) {
         MuxBuildProfile profile;
         MuxPolicy policy;
@@ -1116,32 +1124,42 @@ static int macSelectionCapability(void *context,
         NSString *currentAudio = self.audioOutputPopup.titleOfSelectedItem ?: @"pcm";
         MuxAudioMode audioModes[4];
         size_t audioModeCount = 0;
+        MuxVideoCodec replacementCodec = MUX_VIDEO_UNKNOWN;
         muxCopy = mode == MUX_MODE_COPY;
         muxPolicyValid = mux_build_profile_default(&profile) &&
                          mode != MUX_MODE_INVALID;
+        muxNeedsTrack = muxPolicyValid && mode != MUX_MODE_COPY;
+        if (muxPolicyValid && muxNeedsTrack &&
+            self.videoTrackPath.length > 0) {
+            if (mux_probe_video_codec(self.videoTrackPath.UTF8String,
+                                      &replacementCodec) != ERR_OK ||
+                replacementCodec == MUX_VIDEO_UNKNOWN ||
+                replacementCodec == MUX_VIDEO_UNSUPPORTED)
+                muxPolicyValid = NO;
+        }
         if (muxPolicyValid && muxCopy && self.filePaths.count > 0) {
-            sourceCount = self.filePaths.count;
-            sources = calloc(sourceCount, sizeof(*sources));
+            sources = calloc(self.filePaths.count, sizeof(*sources));
             if (!sources) {
                 muxPolicyValid = NO;
             } else {
                 for (NSUInteger index = 0; index < self.filePaths.count; index++) {
                     InputVideoInfo info;
                     NSString *path = self.filePaths[index];
-                    if (!input_video_info_probe(path.UTF8String, &info)) {
-                        muxPolicyValid = NO;
-                        break;
-                    }
-                    sources[index] = mux_video_codec_parse(info.codec_name);
+                    if (input_video_info_probe(path.UTF8String, &info))
+                        sources[sourceCount++] =
+                            mux_video_codec_parse(info.codec_name);
                 }
+                if (sourceCount == 0)
+                    muxPolicyValid = NO;
             }
         }
         if (muxPolicyValid)
             audioModeCount = mux_policy_list_audio_modes(
-                &profile, mode, sources, sourceCount, MUX_VIDEO_UNKNOWN,
+                &profile, mode, sources, sourceCount, replacementCodec,
                 audioModes, sizeof(audioModes) / sizeof(audioModes[0]));
         if (audioModeCount == 0) {
             muxPolicyValid = NO;
+            [self.audioOutputPopup removeAllItems];
         } else {
             NSMutableArray<NSString *> *titles =
                 [NSMutableArray arrayWithCapacity:audioModeCount];
@@ -1164,7 +1182,7 @@ static int macSelectionCapability(void *context,
                 muxCopy && sourceCount ? sources[0] : MUX_VIDEO_UNKNOWN;
             if (!mux_policy_resolve(&profile, mode,
                                     self.audioOutputPopup.titleOfSelectedItem.UTF8String,
-                                    source, MUX_VIDEO_UNKNOWN,
+                                    source, replacementCodec,
                                     &policy, NULL, 0)) {
                 muxPolicyValid = NO;
             } else {
@@ -1179,26 +1197,38 @@ static int macSelectionCapability(void *context,
         MuxBuildProfile profile;
         MuxAudioMode audioModes[4];
         if (mux_build_profile_default(&profile)) {
-            size_t count = mux_policy_list_audio_modes(
-                &profile, MUX_MODE_MKV, NULL, 0, MUX_VIDEO_UNKNOWN,
-                audioModes, sizeof(audioModes) / sizeof(audioModes[0]));
+            size_t count;
+            if (macGuiIsHqGroup(codec)) {
+                MuxVideoCodec hqCodec =
+                    mux_video_codec_parse(encoder.UTF8String);
+                count = mux_policy_list_hq_audio_modes(
+                    &profile, hqCodec, audioModes,
+                    sizeof(audioModes) / sizeof(audioModes[0]));
+                hqProRes = hqCodec == MUX_VIDEO_PRORES;
+            } else {
+                count = mux_policy_list_audio_modes(
+                    &profile, MUX_MODE_MKV, NULL, 0, MUX_VIDEO_UNKNOWN,
+                    audioModes, sizeof(audioModes) / sizeof(audioModes[0]));
+            }
             if (count > 0) {
                 NSMutableArray<NSString *> *titles =
                     [NSMutableArray arrayWithCapacity:count];
+                NSUInteger selectedIndex = NSNotFound;
                 for (size_t index = 0; index < count; index++) {
-                    [titles addObject:[NSString stringWithUTF8String:
-                        mux_audio_mode_name(audioModes[index])]];
+                    NSString *title = [NSString stringWithUTF8String:
+                        mux_audio_mode_name(audioModes[index])];
+                    [titles addObject:title];
+                    if ([title isEqualToString:
+                         self.audioOutputPopup.titleOfSelectedItem])
+                        selectedIndex = index;
                 }
                 if (![self.audioOutputPopup.itemTitles isEqualToArray:titles]) {
-                    NSString *current = self.audioOutputPopup.titleOfSelectedItem;
                     [self.audioOutputPopup removeAllItems];
                     [self.audioOutputPopup addItemsWithTitles:titles];
-                    if (current.length > 0 &&
-                        [titles containsObject:current])
-                        [self.audioOutputPopup selectItemWithTitle:current];
-                    else
-                        [self.audioOutputPopup selectItemAtIndex:0];
                 }
+                if (selectedIndex == NSNotFound)
+                    selectedIndex = 0;
+                [self.audioOutputPopup selectItemAtIndex:(NSInteger)selectedIndex];
             }
         }
     }
@@ -1212,6 +1242,7 @@ static int macSelectionCapability(void *context,
     [self.addFilesButton setEnabled:!isMux || muxCopy];
     [self.addTrackButton setEnabled:muxNeedsTrack && self.filePaths.count == 1];
     [self.startButton setEnabled:muxPolicyValid];
+    [self.audioOutputPopup setEnabled:!hqProRes];
 
     NSString *audioNorm = self.audioPopup.titleOfSelectedItem ?: @"";
     BOOL genreEnabled = [audioNorm isEqualToString:@"loudness_norm_2pass"];
