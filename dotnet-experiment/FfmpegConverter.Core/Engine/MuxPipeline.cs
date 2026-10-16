@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -27,25 +28,40 @@ public class MuxPipeline
         if (string.IsNullOrEmpty(ffprobePath) || !File.Exists(ffprobePath) || !File.Exists(inputFile))
             return "";
 
-        string args = $"-v error -select_streams v:0 -show_entries stream=avg_frame_rate -of default=noprint_wrappers=1:nokey=1 \"{inputFile}\"";
         try
         {
-            string output = await RunCaptureOutputAsync(ffprobePath, args, cancellationToken);
+            string output = await RunCaptureOutputAsync(ffprobePath, new[]
+            {
+                "-v", "error", "-select_streams", "v:0", "-show_entries",
+                "stream=avg_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1",
+                inputFile
+            }, cancellationToken);
             output = output.Trim();
             if (!string.IsNullOrEmpty(output) && output != "0/0")
             {
                 return output;
             }
 
-            string rArgs = $"-v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 \"{inputFile}\"";
-            string rOut = await RunCaptureOutputAsync(ffprobePath, rArgs, cancellationToken);
+            string rOut = await RunCaptureOutputAsync(ffprobePath, new[]
+            {
+                "-v", "error", "-select_streams", "v:0", "-show_entries",
+                "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1",
+                inputFile
+            }, cancellationToken);
             rOut = rOut.Trim();
             if (!string.IsNullOrEmpty(rOut) && rOut != "0/0")
             {
                 return rOut;
             }
         }
-        catch { }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            return "";
+        }
 
         return "";
     }
@@ -55,17 +71,28 @@ public class MuxPipeline
         if (string.IsNullOrEmpty(ffprobePath) || !File.Exists(ffprobePath) || !File.Exists(inputFile))
             return "";
 
-        string args = $"-v error -select_streams v:0 -show_entries stream_tags=language -of default=noprint_wrappers=1:nokey=1 \"{inputFile}\"";
         try
         {
-            string output = await RunCaptureOutputAsync(ffprobePath, args, cancellationToken);
+            string output = await RunCaptureOutputAsync(ffprobePath, new[]
+            {
+                "-v", "error", "-select_streams", "v:0", "-show_entries",
+                "stream_tags=language", "-of", "default=noprint_wrappers=1:nokey=1",
+                inputFile
+            }, cancellationToken);
             output = output.Trim();
             if (!string.IsNullOrEmpty(output))
             {
                 return output;
             }
         }
-        catch { }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            return "";
+        }
 
         return "";
     }
@@ -75,10 +102,13 @@ public class MuxPipeline
         if (!File.Exists(outputFile))
             return false;
 
-        string args = $"-v error -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 \"{outputFile}\"";
         try
         {
-            string output = await RunCaptureOutputAsync(ffprobePath, args, cancellationToken);
+            string output = await RunCaptureOutputAsync(ffprobePath, new[]
+            {
+                "-v", "error", "-show_entries", "stream=codec_type",
+                "-of", "default=noprint_wrappers=1:nokey=1", outputFile
+            }, cancellationToken);
             bool hasVideo = output.Contains("video", StringComparison.OrdinalIgnoreCase);
             bool hasAudio = output.Contains("audio", StringComparison.OrdinalIgnoreCase);
             return hasVideo && hasAudio;
@@ -198,30 +228,37 @@ public class MuxPipeline
         string tempOutput = $"{finalOutputFile}.postmux.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp.mkv";
         try
         {
-            string timingArg = "";
+            string rate = "";
             if (VideoTrackNeedsForcedFps(videoTrackFile))
             {
-                string rate = await ProbeVideoRateStringAsync(tools.Ffprobe, intermediateFile, cancellationToken);
+                rate = await ProbeVideoRateStringAsync(tools.Ffprobe, intermediateFile, cancellationToken);
                 if (string.IsNullOrEmpty(rate))
                 {
                     EmitError("post-mux failed: could not probe source FPS", ConverterError.FfprobeFailed);
                     return ConverterError.FfprobeFailed;
                 }
-                timingArg = $"--default-duration 0:{rate}fps ";
             }
 
-            string langArg = "";
-            string lang = await ProbeVideoTrackLanguageAsync(tools.Ffprobe, intermediateFile, cancellationToken);
-            if (!string.IsNullOrEmpty(lang))
+            MuxSourceMetadataResult sourceMetadataResult =
+                await MuxSourceMetadataProbe.ProbeAsync(
+                    tools.Ffprobe, intermediateFile, cancellationToken);
+            if (!sourceMetadataResult.Success)
             {
-                langArg = $"--language 0:{lang} ";
+                string message = sourceMetadataResult.Error ??
+                                 "post-mux failed: could not probe source metadata";
+                EmitError(message, ConverterError.FfprobeFailed);
+                return ConverterError.FfprobeFailed;
             }
 
-            string mkvmergeArgs = $"-o \"{tempOutput}\" --no-audio --no-subtitles --no-buttons --no-attachments " +
-                                  $"--no-chapters --no-global-tags --no-track-tags {timingArg}{langArg}--video-tracks 0 \"{videoTrackFile}\" --no-video \"{intermediateFile}\"";
+            IReadOnlyList<string> mkvmergeArgs = BuildMkvmergeArguments(
+                tempOutput,
+                videoTrackFile,
+                intermediateFile,
+                sourceMetadataResult.Metadata!,
+                rate);
 
             EmitStage("Post-mux (mkvmerge)");
-            EmitMessage($"Executing: \"{tools.Mkvmerge}\" {mkvmergeArgs}");
+            EmitMessage($"Executing: \"{tools.Mkvmerge}\" {string.Join(" ", mkvmergeArgs)}");
 
             int rc = await RunProcessAsync(tools.Mkvmerge, mkvmergeArgs, cancellationToken);
             if (rc != 0)
@@ -255,8 +292,11 @@ public class MuxPipeline
             else if (preset == "mov")
             {
                 EmitStage("Post-mux: remux to .mov");
-                string remuxArgs = $"-y -nostdin -i \"{tempOutput}\" -c copy -f mov \"{finalOutputFile}\"";
-                int remuxRc = await RunProcessAsync(tools.Ffmpeg, remuxArgs, cancellationToken);
+                int remuxRc = await RunProcessAsync(tools.Ffmpeg, new[]
+                {
+                    "-y", "-nostdin", "-i", tempOutput, "-c", "copy", "-f", "mov",
+                    finalOutputFile
+                }, cancellationToken);
                 if (remuxRc != 0)
                 {
                     EmitError("post-mux failed: container remux returned error", ConverterError.FfmpegFailed);
@@ -300,19 +340,56 @@ public class MuxPipeline
         }
     }
 
-    private async Task<int> RunProcessAsync(string executable, string arguments, CancellationToken cancellationToken)
+    public static IReadOnlyList<string> BuildMkvmergeArguments(
+        string tempOutput,
+        string videoTrackFile,
+        string intermediateFile,
+        MuxSourceMetadata sourceMetadata,
+        string rate)
     {
+        var arguments = new List<string>
+        {
+            "-o", tempOutput,
+            "--title", sourceMetadata.SegmentTitle,
+            "--no-audio", "--no-subtitles", "--no-buttons", "--no-attachments",
+            "--no-chapters", "--no-global-tags", "--no-track-tags"
+        };
+        if (!string.IsNullOrEmpty(rate))
+        {
+            arguments.Add("--default-duration");
+            arguments.Add($"0:{rate}fps");
+        }
+        arguments.Add("--language");
+        arguments.Add($"0:{sourceMetadata.VideoLanguage}");
+        arguments.Add("--track-name");
+        arguments.Add($"0:{sourceMetadata.VideoTitle}");
+        arguments.Add("--video-tracks");
+        arguments.Add("0");
+        arguments.Add(videoTrackFile);
+        arguments.Add("--no-video");
+        arguments.Add(intermediateFile);
+        return arguments;
+    }
+
+    private async Task<int> RunProcessAsync(
+        string executable,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (string argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
         using var process = new Process
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = executable,
-                Arguments = arguments,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            }
+            StartInfo = startInfo
         };
 
         process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) EmitMessage(e.Data); };
@@ -322,28 +399,71 @@ public class MuxPipeline
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException) { }
+                catch (Win32Exception) { }
+            }
+            await process.WaitForExitAsync(CancellationToken.None);
+            throw;
+        }
         return process.ExitCode;
     }
 
-    private static async Task<string> RunCaptureOutputAsync(string executable, string arguments, CancellationToken cancellationToken)
+    private static async Task<string> RunCaptureOutputAsync(
+        string executable,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
     {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (string argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
         using var process = new Process
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = executable,
-                Arguments = arguments,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            }
+            StartInfo = startInfo
         };
 
         process.Start();
-        string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> errorTask = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException) { }
+                catch (Win32Exception) { }
+            }
+            await process.WaitForExitAsync(CancellationToken.None);
+            throw;
+        }
+        string output = await outputTask;
+        _ = await errorTask;
         return output;
     }
 

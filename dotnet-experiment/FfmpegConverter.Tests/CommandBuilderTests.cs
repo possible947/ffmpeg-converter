@@ -159,6 +159,33 @@ public class CommandBuilderTests
     }
 
     [Fact]
+    public void BuildFfmpegArgs_AddTrackPreservesMkvSourceSubtitlesChaptersAndAttachments()
+    {
+        PolicyResult policyResult = AudioModePolicy.ResolveSourcePreparationPolicy(
+            "linux", AudioOutputMode.Copy);
+        Assert.True(policyResult.Success);
+        MuxSourcePreservationResult preservation = MuxSourcePreservation.ParseProbeJson(
+            """{ "streams": [{ "index": 3, "codec_name": "mov_text" }] }""",
+            policyResult.Policy!);
+        Assert.True(preservation.Success);
+        var options = new ConvertOptions
+        {
+            Codec = "copy",
+            Preset = "mkv",
+            AudioOutputMode = AudioOutputMode.Copy
+        };
+
+        string arguments = CommandBuilder.BuildFfmpegArgs(
+            "input.mov", "intermediate.mkv", options, "linux", _presetDb,
+            null, null, preservation.Plan);
+
+        Assert.Contains("-map 0:3 -c:s:0 srt", arguments);
+        Assert.Contains("-map_chapters 0", arguments);
+        Assert.Contains("-map 0:t?", arguments);
+        Assert.Contains("-map_metadata 0", arguments);
+    }
+
+    [Fact]
     public void BuildFfmpegArgs_ColorMetadata_AppendedWhenAvailable()
     {
         var opts = new ConvertOptions { Codec = "prores_ks", Preset = "standard" };

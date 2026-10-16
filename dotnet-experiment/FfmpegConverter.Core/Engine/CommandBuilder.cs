@@ -137,7 +137,8 @@ public static class CommandBuilder
         string platform,
         PresetDb presetDb,
         InputVideoInfo? videoInfo,
-        HardwareProbeResult? probeResult)
+        HardwareProbeResult? probeResult,
+        MuxSourcePreservationPlan? sourcePreservationPlan = null)
     {
         if (!Enum.IsDefined(opts.AudioOutputMode))
             throw new ArgumentOutOfRangeException(nameof(opts.AudioOutputMode));
@@ -229,6 +230,8 @@ public static class CommandBuilder
         }
 
         sb.Append("-map_metadata 0 ");
+        if (sourcePreservationPlan != null)
+            sb.Append(sourcePreservationPlan.BuildFfmpegArguments());
 
         // 5. Color metadata
         if (videoInfo != null)

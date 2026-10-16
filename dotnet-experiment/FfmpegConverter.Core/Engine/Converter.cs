@@ -546,7 +546,7 @@ public class Converter
         var intermediateOptions = new ConvertOptions
         {
             Codec = "copy",
-            Preset = "default",
+            Preset = "mkv",
             Deblock = 1,
             AudioNorm = audioOptions.AudioNorm,
             AudioOutputMode = request.Policy.AudioMode,
@@ -569,6 +569,32 @@ public class Converter
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            PolicyResult sourcePolicyResult = AudioModePolicy.ResolveSourcePreparationPolicy(
+                platform, request.Policy.AudioMode);
+            if (!sourcePolicyResult.Success)
+            {
+                RaiseError(sourcePolicyResult.ErrorMessage, ConverterError.InvalidOptions);
+                return AddTrackResult.Failed(
+                    ConverterError.InvalidOptions,
+                    AddTrackStage.SourcePreparation,
+                    sourcePolicyResult.ErrorMessage);
+            }
+
+            MuxSourcePreservationResult preservationResult =
+                await MuxSourcePreservation.ProbeAsync(
+                    _tools.Ffprobe, input, sourcePolicyResult.Policy!, cancellationToken);
+            if (!preservationResult.Success)
+            {
+                string message = preservationResult.Error ?? "Could not resolve source stream preservation.";
+                RaiseError(message, ConverterError.FfprobeFailed);
+                return AddTrackResult.Failed(
+                    ConverterError.FfprobeFailed,
+                    AddTrackStage.SourcePreparation,
+                    message);
+            }
+            foreach (string warning in preservationResult.Warnings)
+                RaiseMessage(warning);
+
             double duration = await GetDurationAsync(input);
             string norm = intermediateOptions.AudioNorm.ToLowerInvariant();
             bool copyAudio = intermediateOptions.AudioOutputMode == AudioOutputMode.Copy;
@@ -598,7 +624,8 @@ public class Converter
 
             StageChanged?.Invoke(this, "encoding intermediate");
             string arguments = CommandBuilder.BuildFfmpegArgs(input, intermediateFile,
-                intermediateOptions, platform, _presetDb, null, _probeResult);
+                intermediateOptions, platform, _presetDb, null, _probeResult,
+                preservationResult.Plan);
             ConverterError conversionError = await RunFfmpegEncodeAsync(arguments, duration, cancellationToken);
             if (conversionError != ConverterError.Ok)
                 return AddTrackResult.Failed(

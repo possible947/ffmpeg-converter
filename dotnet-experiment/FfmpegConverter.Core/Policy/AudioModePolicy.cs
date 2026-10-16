@@ -179,6 +179,16 @@ public static class AudioModePolicy
         return result.Policy;
     }
 
+    public static PolicyResult ResolveSourcePreparationPolicy(
+        string platform,
+        AudioOutputMode audioMode) =>
+        MuxPolicyResolver.Resolve(
+            CreateProfile(platform),
+            MuxOperationalMode.Mkv,
+            audioMode,
+            MuxVideoCodec.Unknown,
+            MuxVideoCodec.Unknown);
+
     public static PolicyResult ResolveHqPolicy(
         ConvertOptions options,
         string platform,
