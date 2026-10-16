@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Presets;
 
 namespace FfmpegConverter.Core.Engine;
 
@@ -30,20 +31,40 @@ public sealed class HqAdapter
         if (cancellationToken.IsCancellationRequested)
             return (1, "HQ job cancelled.");
 
+        HqRuntimeLayout layout;
+        try
+        {
+            layout = new HqRuntimeLayout(runtimeRoot);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            return (2, $"HQ runtime root is invalid: {ex.Message}");
+        }
+        string? layoutError = layout.GetValidationError();
+        if (layoutError != null)
+            return (2, layoutError);
+
+        string absoluteInputPath = Path.GetFullPath(inputPath);
+        string absoluteWorkDir = Path.GetFullPath(workDir);
         string pipeName = $"ffmpeg-converter-hq-{Environment.ProcessId}-{Guid.NewGuid():N}";
         await using var pipe = new NamedPipeServerStream(
             pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
         ProcessStartInfo startInfo = CreateWorkerStartInfo();
+        startInfo.WorkingDirectory = layout.Root;
+        startInfo.Environment["HQ_PROJECT_ROOT"] = layout.Root;
+        startInfo.Environment["HQ_ENCODER_V2_TOOLCHAIN_INI"] = layout.ConfigurationPath;
+        startInfo.Environment["HQ_ENCODER_TOOLCHAIN_INI"] = layout.ConfigurationPath;
+        startInfo.Environment["HQ_SEGMENTATOR_TOOLCHAIN_INI"] = layout.SegmentatorConfigurationPath;
         startInfo.RedirectStandardInput = true;
         startInfo.RedirectStandardOutput = true;
         startInfo.RedirectStandardError = true;
         startInfo.UseShellExecute = false;
         startInfo.ArgumentList.Add("--hq-worker");
-        startInfo.ArgumentList.Add(runtimeRoot);
+        startInfo.ArgumentList.Add(layout.Root);
         startInfo.ArgumentList.Add(pipeName);
-        startInfo.ArgumentList.Add(inputPath);
-        startInfo.ArgumentList.Add(workDir);
+        startInfo.ArgumentList.Add(absoluteInputPath);
+        startInfo.ArgumentList.Add(absoluteWorkDir);
         startInfo.ArgumentList.Add(codec);
         startInfo.ArgumentList.Add(preset);
 
@@ -70,7 +91,16 @@ public sealed class HqAdapter
 
         try
         {
-            await pipe.WaitForConnectionAsync(cancellationToken);
+            Task connectionTask = pipe.WaitForConnectionAsync(cancellationToken);
+            Task workerExitTask = process.WaitForExitAsync(cancellationToken);
+            Task firstTask = await Task.WhenAny(connectionTask, workerExitTask);
+            if (firstTask == workerExitTask && !pipe.IsConnected)
+            {
+                await workerExitTask;
+                await Task.WhenAll(stdoutPump, stderrPump);
+                return (2, $"HQ worker exited with code {process.ExitCode} before connecting.");
+            }
+            await connectionTask;
             using var reader = new StreamReader(pipe);
             while (await reader.ReadLineAsync(cancellationToken) is { } line)
             {

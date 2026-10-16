@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using FfmpegConverter.Core.Presets;
 
 namespace FfmpegConverter.Core.Engine;
 
@@ -45,14 +46,20 @@ public static class HqWorker
         string workDir = args[4];
         string codec = args[5];
         string preset = args[6];
-        string libraryName = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
-            ? "libhq_converter.dylib"
-            : "libhq_converter.so";
-        string libraryPath = Path.Combine(runtimeRoot, "modules", "library", "bin", libraryName);
+        HqRuntimeLayout layout;
+        try
+        {
+            layout = new HqRuntimeLayout(runtimeRoot);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            return 2;
+        }
 
-        Environment.SetEnvironmentVariable("HQ_PROJECT_ROOT", runtimeRoot);
-        Environment.SetEnvironmentVariable("HQ_SEGMENTATOR_TOOLCHAIN_INI",
-            Path.Combine(runtimeRoot, "modules", "segmentator", "config", "toolchain_runtime.ini"));
+        Environment.SetEnvironmentVariable("HQ_PROJECT_ROOT", layout.Root);
+        Environment.SetEnvironmentVariable("HQ_ENCODER_V2_TOOLCHAIN_INI", layout.ConfigurationPath);
+        Environment.SetEnvironmentVariable("HQ_ENCODER_TOOLCHAIN_INI", layout.ConfigurationPath);
+        Environment.SetEnvironmentVariable("HQ_SEGMENTATOR_TOOLCHAIN_INI", layout.SegmentatorConfigurationPath);
 
         await using var pipe = new System.IO.Pipes.NamedPipeClientStream(
             ".", pipeName, System.IO.Pipes.PipeDirection.Out,
@@ -80,11 +87,17 @@ public static class HqWorker
         RequestKill? requestKill = null;
         object handleLock = new();
         CancellationTokenSource stopReaderCancellation = new();
-        Task? stopTask = null;
 
         try
         {
-            library = NativeLibrary.Load(libraryPath);
+            string? layoutError = layout.GetValidationError();
+            if (layoutError != null)
+            {
+                Send(new { type = "result", result = 2, error = layoutError });
+                return 0;
+            }
+
+            library = NativeLibrary.Load(layout.LibraryPath);
             var createHandle = Load<CreateHandle>(library, "hqclib_create_handle");
             var destroyHandle = Load<DestroyHandle>(library, "hqclib_destroy_handle");
             var runJob = Load<RunJob>(library, "hqclib_run_job");
@@ -98,7 +111,7 @@ public static class HqWorker
             IntPtr jobHandle = handle;
             RequestStop stopFunction = requestStop;
             RequestKill killFunction = requestKill;
-            stopTask = Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 try
                 {
@@ -120,6 +133,8 @@ public static class HqWorker
                     }
                 }
                 catch (OperationCanceledException) { }
+                catch (IOException) { }
+                catch (InvalidOperationException) { }
             });
 
             var callback = new StatusCallback((payload, length, _) =>
@@ -146,7 +161,6 @@ public static class HqWorker
                 handle = IntPtr.Zero;
             destroyHandle(jobHandle);
             stopReaderCancellation.Cancel();
-            await stopTask;
             Send(new { type = "result", result, error });
             return 0;
         }
@@ -158,10 +172,6 @@ public static class HqWorker
         finally
         {
             stopReaderCancellation.Cancel();
-            if (stopTask != null)
-            {
-                try { await stopTask; } catch { }
-            }
             if (handle != IntPtr.Zero && library != IntPtr.Zero)
             {
                 try

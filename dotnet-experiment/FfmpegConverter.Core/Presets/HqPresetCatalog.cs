@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace FfmpegConverter.Core.Presets;
@@ -19,27 +18,28 @@ public sealed class HqPresetCatalog
 
     public static HqPresetCatalog? LoadAvailable(string? runtimeRoot = null)
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) &&
-            !RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
             return null;
 
         string? root = runtimeRoot ?? ResolveRuntimeRoot();
         if (string.IsNullOrWhiteSpace(root))
             return null;
 
-        string libraryName = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
-            ? "libhq_converter.dylib"
-            : "libhq_converter.so";
-        string libraryPath = Path.Combine(root, "modules", "library", "bin", libraryName);
-        string catalogPath = Path.Combine(root, "modules", "encoder_orchestrator_v2",
-            "config", "presets", "encoder_presets_v2.json");
-        string toolchainPath = Path.Combine(root, "modules", "segmentator", "config", "toolchain_runtime.ini");
-        if (!File.Exists(libraryPath) || !File.Exists(catalogPath) || !File.Exists(toolchainPath))
+        HqRuntimeLayout layout;
+        try
+        {
+            layout = new HqRuntimeLayout(root);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            return null;
+        }
+        if (layout.GetValidationError() != null)
             return null;
 
         try
         {
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(catalogPath));
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(layout.PresetCatalogPath));
             if (!document.RootElement.TryGetProperty("encoders", out JsonElement encodersJson) ||
                 encodersJson.ValueKind != JsonValueKind.Object)
                 return null;
@@ -113,11 +113,17 @@ public sealed class HqPresetCatalog
             Path.Combine(executableDirectory, "hq_converter"),
             Path.GetFullPath(Path.Combine(executableDirectory, "..", "Resources", "hq_converter"))
         };
-        string libraryName = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
-            ? "libhq_converter.dylib"
-            : "libhq_converter.so";
         return candidates.FirstOrDefault(candidate =>
-            File.Exists(Path.Combine(candidate, "modules", "library", "bin", libraryName)));
+        {
+            try
+            {
+                return new HqRuntimeLayout(candidate).GetValidationError() == null;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+            {
+                return false;
+            }
+        });
     }
 
     private sealed record HqEncoder(string DefaultPreset, string[] Presets);

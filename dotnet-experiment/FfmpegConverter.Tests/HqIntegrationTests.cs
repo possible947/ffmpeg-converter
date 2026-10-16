@@ -1,10 +1,14 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using FfmpegConverter.Cli;
 using FfmpegConverter.Core.Engine;
+using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
+using FfmpegConverter.Core.Probing;
 using Xunit;
 
 namespace FfmpegConverter.Tests;
@@ -25,6 +29,80 @@ public class HqIntegrationTests
         Assert.Equal("hq_converter", finalCodec);
         Assert.Equal("FullHD", db.HqCatalog!.GetDefaultPreset("x264"));
         Assert.Equal(new[] { "FullHD", "UltraHD" }, db.GetSelectionPresets("linux", "hq_converter", "x264"));
+    }
+
+    [Fact]
+    public async Task HqAdapter_MissingOrchestratorConfigFailsPromptlyWithoutCreatingTaskFiles()
+    {
+        using var runtime = new HqRuntimeFixture();
+        if (!runtime.Supported)
+            return;
+
+        string configPath = Path.Combine(runtime.Root, "modules", "encoder_orchestrator_v2",
+            "config", "toolchain_runtime.ini");
+        File.Delete(configPath);
+        string workDir = Path.Combine(Path.GetTempPath(), $"hq-missing-config-{Guid.NewGuid():N}");
+        var adapter = new HqAdapter();
+        var timer = Stopwatch.StartNew();
+
+        (int Result, string Error) result = await adapter.RunJobAsync(
+            runtime.Root, "input.mkv", workDir, "x264", "FullHD");
+
+        Assert.NotEqual(0, result.Result);
+        Assert.Contains("toolchain_runtime.ini", result.Error);
+        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(5), $"HQ initialization took {timer.Elapsed}.");
+        Assert.False(Directory.Exists(workDir));
+    }
+
+    [Fact]
+    public async Task Converter_HqMissingConfigCleansTaskDirectoryAndReportsFailure()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        using var runtime = new HqRuntimeFixture();
+        PresetDb db = PresetDb.Load(hqRuntimeRoot: runtime.Root);
+        string root = Path.Combine(Path.GetTempPath(), $"hq-converter-config-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string input = Path.Combine(root, "input.mkv");
+        string outputDir = Path.Combine(root, "output");
+        File.WriteAllText(input, "HQ preflight fixture");
+        string configPath = Path.Combine(runtime.Root, "modules", "encoder_orchestrator_v2",
+            "config", "toolchain_runtime.ini");
+        File.Delete(configPath);
+        var converter = new Converter(
+            new ToolPaths { Ffmpeg = "/bin/true", Mkvmerge = "/bin/true" },
+            db,
+            new HardwareProbeResult());
+        var options = new ConvertOptions
+        {
+            Codec = "hq_converter",
+            SelectionGroup = "hq_converter",
+            SelectionEncoder = "x264",
+            Preset = "FullHD",
+            AudioOutputMode = AudioOutputMode.Pcm,
+            OutputDir = outputDir,
+            Overwrite = true
+        };
+        var errors = new System.Collections.Generic.List<string>();
+        ConverterError? fileStatus = null;
+        converter.ErrorOccurred += (_, error) => errors.Add(error.Text);
+        converter.FileEnd += (_, args) => fileStatus = args.Status;
+
+        try
+        {
+            await converter.ProcessFilesAsync([input], options);
+
+            Assert.Equal(ConverterError.FfmpegFailed, fileStatus);
+            Assert.Contains(errors, error => error.Contains("toolchain_runtime.ini", StringComparison.Ordinal));
+            Assert.False(Directory.Exists(Path.Combine(outputDir, "task_1")));
+            Assert.Empty(Directory.GetFiles(outputDir));
+            Assert.False(File.Exists(Path.Combine(outputDir, "input_converted.mkv")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -116,11 +194,14 @@ public class HqIntegrationTests
                 : "libhq_converter.so";
             string libraryDir = Path.Combine(Root, "modules", "library", "bin");
             string catalogDir = Path.Combine(Root, "modules", "encoder_orchestrator_v2", "config", "presets");
+            string orchestratorConfigDir = Path.Combine(Root, "modules", "encoder_orchestrator_v2", "config");
             string toolchainDir = Path.Combine(Root, "modules", "segmentator", "config");
             Directory.CreateDirectory(libraryDir);
             Directory.CreateDirectory(catalogDir);
+            Directory.CreateDirectory(orchestratorConfigDir);
             Directory.CreateDirectory(toolchainDir);
             File.WriteAllText(Path.Combine(libraryDir, libraryName), "");
+            File.WriteAllText(Path.Combine(orchestratorConfigDir, "toolchain_runtime.ini"), "");
             File.WriteAllText(Path.Combine(toolchainDir, "toolchain_runtime.ini"), "");
             File.WriteAllText(Path.Combine(catalogDir, "encoder_presets_v2.json"),
                 """
