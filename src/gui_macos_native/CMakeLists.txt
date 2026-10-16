@@ -53,6 +53,14 @@ target_link_libraries(macos_gui_native
     PRIVATE "-framework Cocoa"
 )
 
+add_executable(test_macos_audio_availability
+    test_macos_audio_availability.m converter_bridge.m apple_m4v_creator.m)
+target_compile_options(test_macos_audio_availability PRIVATE -fobjc-arc)
+target_link_libraries(test_macos_audio_availability PRIVATE
+    converter mux add_track hq_adapter jansson "-framework Cocoa")
+add_test(NAME MacosAudioAvailabilityTests COMMAND test_macos_audio_availability)
+set_tests_properties(MacosAudioAvailabilityTests PROPERTIES TIMEOUT 30)
+
 if (EXISTS "${BUNDLED_FFMPEG}" AND EXISTS "${BUNDLED_FFPROBE}")
     # Copy the whole bin/ dir (not just ffmpeg/ffprobe): ffmpeg's @rpath deps
     # (libxcb, libvulkan, etc.) resolve via @loader_path, so they must sit

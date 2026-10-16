@@ -5,6 +5,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — Context-aware audio availability
+
+- C GTK/macOS audio controls and CLI/pre-execution validation share one
+  default-first availability result. Legacy Software offers PCM, AAC and
+  AAC+AC3, not Copy; Mux and HQ use the existing Mux Policy, including
+  PCM-only HQ ProRes and the AAC+AC3 M4V default.
+- Audio-control refreshes preserve valid audio selections and do not rebuild
+  video/HQ preset controls. This pass does not change mux/remux execution,
+  stream preservation, MOV/M4V execution behavior or Pascal code.
+
 ## [3.0b] — Active beta development (2026-09-11)
 
 Version 3.0b is an active beta, not a completed stable release. The Linux CLI

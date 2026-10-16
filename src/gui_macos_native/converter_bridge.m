@@ -3,6 +3,7 @@
 #include "add_track.h"
 #include "hq_adapter.h"
 #include "hq_catalog.h"
+#include "converter_common.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -389,6 +390,16 @@ static int locale_is_utf8(const char *value) {
         ConvertOptions workOpts = optsCopy;
 
         if (codec_is_hq(optsCopy.codec)) {
+            AudioModeAvailability available =
+                converter_audio_mode_availability(&optsCopy, MUX_VIDEO_UNKNOWN);
+            if (!available.count ||
+                (optsCopy.audio_output_mode[0] && !audio_mode_availability_contains(
+                    &available, mux_audio_mode_parse(optsCopy.audio_output_mode)))) {
+                err = ERR_INVALID_OPTIONS;
+                [self emitLog:@"Audio mode is not available for this workflow."];
+                [self emitStatus:@"Invalid audio mode."];
+                goto finish_conversion;
+            }
             /* HQ Converter execution path — queue iteration per spec Section 19. */
             HqAdapter *hq_adapter = NULL;
             const char *hq_encoder = optsCopy.hw_device[0] != '\0' ? optsCopy.hw_device : NULL;

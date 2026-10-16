@@ -7,6 +7,7 @@
 #include "add_track.h"
 #include "hq_adapter.h"
 #include "hq_catalog.h"
+#include "converter_common.h"
 #include <glib.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -593,6 +594,16 @@ static gpointer run_converter(gpointer user_data)
     converter_set_callbacks(c, &cb);
 
     if (codec_is_hq(opts.codec)) {
+        AudioModeAvailability available =
+            converter_audio_mode_availability(&opts, MUX_VIDEO_UNKNOWN);
+        if (!available.count ||
+            (opts.audio_output_mode[0] && !audio_mode_availability_contains(
+                &available, mux_audio_mode_parse(opts.audio_output_mode)))) {
+            cb.on_error("audio mode is not available for this workflow",
+                        ERR_INVALID_OPTIONS);
+            err = ERR_INVALID_OPTIONS;
+            goto cleanup;
+        }
         /* HQ Converter execution path — queue iteration per spec Section 19. */
         HqAdapter *hq_adapter = NULL;
         const char *hq_encoder = opts.hw_device[0] != '\0' ? opts.hw_device : NULL;

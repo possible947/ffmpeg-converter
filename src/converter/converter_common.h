@@ -6,6 +6,9 @@
 #ifndef CONVERTER_COMMON_H
 #define CONVERTER_COMMON_H
 
+#include "converter.h"
+#include "mux_policy.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -21,6 +24,10 @@ int    get_filter_threads(void);
  * POSIX: starts with '/'
  */
 int    is_path_absolute(const char* path);
+
+/* Source codec may be unknown until the input is probed. */
+AudioModeAvailability converter_audio_mode_availability(
+    const ConvertOptions *opts, MuxVideoCodec source_codec);
 
 #ifdef __cplusplus
 }

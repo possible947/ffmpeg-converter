@@ -287,6 +287,17 @@ ConverterError converter_set_options(
     if (!audio_output_mode_is_valid(c->opts.audio_output_mode))
         return ERR_INVALID_OPTIONS;
 
+    AudioModeAvailability available =
+        converter_audio_mode_availability(opts, MUX_VIDEO_UNKNOWN);
+    if (!available.count ||
+        (opts->audio_output_mode[0] && !audio_mode_availability_contains(
+            &available, mux_audio_mode_parse(opts->audio_output_mode)))) {
+        if (c->cb.on_error)
+            c->cb.on_error("audio mode is not available for this workflow",
+                           ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
+
     /* COPY mode does no audio encoding or filtering; skip validation. */
     AudioOutputMode audio_mode = audio_output_mode_parse(c->opts.audio_output_mode);
     if (audio_mode != AUDIO_MODE_COPY) {

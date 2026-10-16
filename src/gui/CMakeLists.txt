@@ -91,6 +91,7 @@ add_executable(test_gtk_audio_isolation test_gtk_audio_isolation.c)
 target_link_libraries(test_gtk_audio_isolation PRIVATE gui_lib PkgConfig::GTK4)
 target_compile_definitions(test_gtk_audio_isolation PRIVATE
     FFMPEG_CONVERTER_PRESETS_DIR="${GENERATED_PRESETS_DIR}"
+    FFMPEG_CONVERTER_HQ_TEST_ROOT="${HQ_CONVERTER_RELEASE_DIR}"
 )
 find_program(XVFB_RUN xvfb-run)
 if (XVFB_RUN)

@@ -322,6 +322,43 @@ size_t mux_policy_list_hq_audio_modes(const MuxBuildProfile *profile,
     return result_count;
 }
 
+AudioModeAvailability audio_mode_availability(
+    const MuxBuildProfile *profile,
+    AudioWorkflow workflow,
+    MuxMode mux_mode,
+    const MuxVideoCodec *source_video_codecs,
+    size_t source_count,
+    MuxVideoCodec replacement_video_codec)
+{
+    AudioModeAvailability available = {{0}, 0};
+    if (workflow == AUDIO_WORKFLOW_SOFTWARE) {
+        available.modes[0] = MUX_AUDIO_PCM;
+        available.modes[1] = MUX_AUDIO_AAC;
+        available.modes[2] = MUX_AUDIO_AAC_AC3;
+        available.count = 3;
+    } else if (workflow == AUDIO_WORKFLOW_MUX) {
+        available.count = mux_policy_list_audio_modes(
+            profile, mux_mode, source_video_codecs, source_count,
+            replacement_video_codec, available.modes, 4);
+    } else if (workflow == AUDIO_WORKFLOW_HQ) {
+        available.count = mux_policy_list_hq_audio_modes(
+            profile, replacement_video_codec, available.modes, 4);
+    }
+    return available;
+}
+
+int audio_mode_availability_contains(const AudioModeAvailability *available,
+                                      MuxAudioMode mode)
+{
+    if (!available)
+        return 0;
+    for (size_t i = 0; i < available->count; ++i) {
+        if (available->modes[i] == mode)
+            return 1;
+    }
+    return 0;
+}
+
 const char *mux_mode_name(MuxMode mode)
 {
     switch (mode) {

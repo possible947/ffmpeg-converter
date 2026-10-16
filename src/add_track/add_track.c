@@ -173,6 +173,22 @@ ConverterError add_track_execute(Converter *converter,
             return ERR_INVALID_OPTIONS;
         }
     }
+    AudioModeAvailability available = audio_mode_availability(
+        &profile,
+        !strcmp(request->convert_options->codec, "hq_converter")
+            ? AUDIO_WORKFLOW_HQ : AUDIO_WORKFLOW_MUX,
+        mux_mode, NULL, 0, replacement_codec);
+    if (!available.count ||
+        (request->convert_options->audio_output_mode[0] &&
+         !audio_mode_availability_contains(
+             &available, mux_audio_mode_parse(
+                 request->convert_options->audio_output_mode)))) {
+        const ConverterCallbacks *callbacks = converter_get_callbacks(converter);
+        if (callbacks && callbacks->on_error)
+            callbacks->on_error("audio mode is not available for this workflow",
+                                ERR_INVALID_OPTIONS);
+        return ERR_INVALID_OPTIONS;
+    }
     if (!platform_get_mkvmerge_bin() ||
         platform_get_mkvmerge_bin()[0] == '\0' ||
         (policy.container == MUX_CONTAINER_M4V &&

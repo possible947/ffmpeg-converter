@@ -691,10 +691,7 @@ GtkWidget* create_main_window(GtkApplication *app, AppWidgets *w)
 
     /* ---------- Audio output combo ---------- */
     {
-        static const char *output_items[] = {
-            "pcm", "copy", "fdk_aac_320", "fdk_aac_320_ac3_640", NULL
-        };
-        GtkStringList *list = gtk_string_list_new(output_items);
+        GtkStringList *list = gtk_string_list_new(NULL);
         w->audio_output_combo = gtk_drop_down_new(G_LIST_MODEL(list), NULL);
         gtk_drop_down_set_selected(GTK_DROP_DOWN(w->audio_output_combo), 0);
         g_signal_connect(w->audio_output_combo, "notify::selected",
@@ -1116,17 +1113,16 @@ static void update_dependent_widgets(AppWidgets *w)
             }
         }
 
-        MuxAudioMode audio_modes[4];
-        size_t audio_mode_count = mux_policy_valid
-            ? mux_policy_list_audio_modes(&profile, mode, sources,
-                                          source_count, MUX_VIDEO_UNKNOWN,
-                                          audio_modes,
-                                          sizeof(audio_modes) / sizeof(audio_modes[0]))
-            : 0;
-        if (audio_mode_count == 0) {
+        AudioModeAvailability available = {{0}, 0};
+        if (mux_policy_valid)
+            available = audio_mode_availability(
+                &profile, AUDIO_WORKFLOW_MUX, mode, sources,
+                source_count, MUX_VIDEO_UNKNOWN);
+        if (available.count == 0) {
             mux_policy_valid = FALSE;
-        } else {
-            update_audio_output_options(w, audio_modes, audio_mode_count);
+        }
+        update_audio_output_options(w, available.modes, available.count);
+        if (available.count > 0) {
             char *resolved_audio = get_dropdown_text(w->audio_output_combo);
             if (mux_policy_resolve(&profile, mode,
                                    resolved_audio,
@@ -1144,13 +1140,14 @@ static void update_dependent_widgets(AppWidgets *w)
     }
     if (!mux_group) {
         MuxBuildProfile profile;
-        MuxAudioMode audio_modes[4];
         if (mux_build_profile_default(&profile)) {
-            size_t count = mux_policy_list_audio_modes(
-                &profile, MUX_MODE_MKV, NULL, 0, MUX_VIDEO_UNKNOWN,
-                audio_modes, sizeof(audio_modes) / sizeof(audio_modes[0]));
-            if (count > 0)
-                update_audio_output_options(w, audio_modes, count);
+            AudioModeAvailability available = audio_mode_availability(
+                &profile, hq_group ? AUDIO_WORKFLOW_HQ : AUDIO_WORKFLOW_SOFTWARE,
+                MUX_MODE_INVALID, NULL, 0,
+                hq_group ? mux_video_codec_parse(encoder) : MUX_VIDEO_UNKNOWN);
+            update_audio_output_options(w, available.modes, available.count);
+            if (!available.count)
+                mux_policy_valid = FALSE;
         }
     }
     /* A codec with one preset has nothing to choose; all multi-preset
@@ -1279,6 +1276,8 @@ static void on_audio_output_changed(GObject *obj,
 {
     (void)obj;
     (void)pspec;
+    if (!w || w->updating_selection)
+        return;
     schedule_update_dependent_widgets(w);
 }
 

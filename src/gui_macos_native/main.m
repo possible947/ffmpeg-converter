@@ -397,8 +397,6 @@ static int macSelectionCapability(void *context,
     [content addSubview:audioOutLabel];
 
     self.audioOutputPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(380, 486, 200, 28) pullsDown:NO];
-    [self.audioOutputPopup addItemsWithTitles:@[@"pcm", @"copy", @"fdk_aac_320", @"fdk_aac_320_ac3_640"]];
-    [self.audioOutputPopup selectItemAtIndex:0];
     [self.audioOutputPopup setTarget:self];
     [self.audioOutputPopup setAction:@selector(onAudioOutputChanged:)];
     [content addSubview:self.audioOutputPopup];
@@ -981,11 +979,13 @@ static int macSelectionCapability(void *context,
 - (void)onCodecChanged:(id)sender {
     (void)sender;
     [self populateEncoderPopup];
+    [self populatePresetPopup];
     [self updateDependentControls];
 }
 
 - (void)onEncoderChanged:(id)sender {
     (void)sender;
+    [self populatePresetPopup];
     [self updateDependentControls];
 }
 
@@ -1122,8 +1122,7 @@ static int macSelectionCapability(void *context,
         MuxVideoCodec *sources = NULL;
         size_t sourceCount = 0;
         NSString *currentAudio = self.audioOutputPopup.titleOfSelectedItem ?: @"pcm";
-        MuxAudioMode audioModes[4];
-        size_t audioModeCount = 0;
+        AudioModeAvailability available = {{0}, 0};
         MuxVideoCodec replacementCodec = MUX_VIDEO_UNKNOWN;
         muxCopy = mode == MUX_MODE_COPY;
         muxPolicyValid = mux_build_profile_default(&profile) &&
@@ -1154,9 +1153,10 @@ static int macSelectionCapability(void *context,
             }
         }
         if (muxPolicyValid)
-            audioModeCount = mux_policy_list_audio_modes(
-                &profile, mode, sources, sourceCount, replacementCodec,
-                audioModes, sizeof(audioModes) / sizeof(audioModes[0]));
+            available = audio_mode_availability(
+                &profile, AUDIO_WORKFLOW_MUX, mode, sources, sourceCount,
+                replacementCodec);
+        size_t audioModeCount = available.count;
         if (audioModeCount == 0) {
             muxPolicyValid = NO;
             [self.audioOutputPopup removeAllItems];
@@ -1166,7 +1166,7 @@ static int macSelectionCapability(void *context,
             NSUInteger selectedIndex = NSNotFound;
             for (size_t index = 0; index < audioModeCount; index++) {
                 NSString *title = [NSString stringWithUTF8String:
-                    mux_audio_mode_name(audioModes[index])];
+                    mux_audio_mode_name(available.modes[index])];
                 [titles addObject:title];
                 if ([title isEqualToString:currentAudio])
                     selectedIndex = index;
@@ -1195,28 +1195,21 @@ static int macSelectionCapability(void *context,
     }
     if (!isMux) {
         MuxBuildProfile profile;
-        MuxAudioMode audioModes[4];
         if (mux_build_profile_default(&profile)) {
-            size_t count;
-            if (macGuiIsHqGroup(codec)) {
-                MuxVideoCodec hqCodec =
-                    mux_video_codec_parse(encoder.UTF8String);
-                count = mux_policy_list_hq_audio_modes(
-                    &profile, hqCodec, audioModes,
-                    sizeof(audioModes) / sizeof(audioModes[0]));
-                hqProRes = hqCodec == MUX_VIDEO_PRORES;
-            } else {
-                count = mux_policy_list_audio_modes(
-                    &profile, MUX_MODE_MKV, NULL, 0, MUX_VIDEO_UNKNOWN,
-                    audioModes, sizeof(audioModes) / sizeof(audioModes[0]));
-            }
+            BOOL isHq = macGuiIsHqGroup(codec);
+            MuxVideoCodec hqCodec = mux_video_codec_parse(encoder.UTF8String);
+            AudioModeAvailability available = audio_mode_availability(
+                &profile, isHq ? AUDIO_WORKFLOW_HQ : AUDIO_WORKFLOW_SOFTWARE,
+                MUX_MODE_INVALID, NULL, 0, hqCodec);
+            size_t count = available.count;
+            hqProRes = isHq && hqCodec == MUX_VIDEO_PRORES;
             if (count > 0) {
                 NSMutableArray<NSString *> *titles =
                     [NSMutableArray arrayWithCapacity:count];
                 NSUInteger selectedIndex = NSNotFound;
                 for (size_t index = 0; index < count; index++) {
                     NSString *title = [NSString stringWithUTF8String:
-                        mux_audio_mode_name(audioModes[index])];
+                        mux_audio_mode_name(available.modes[index])];
                     [titles addObject:title];
                     if ([title isEqualToString:
                          self.audioOutputPopup.titleOfSelectedItem])
@@ -1229,10 +1222,12 @@ static int macSelectionCapability(void *context,
                 if (selectedIndex == NSNotFound)
                     selectedIndex = 0;
                 [self.audioOutputPopup selectItemAtIndex:(NSInteger)selectedIndex];
+            } else {
+                [self.audioOutputPopup removeAllItems];
+                muxPolicyValid = NO;
             }
         }
     }
-    [self populatePresetPopup];
     BOOL profileEnabled = !isMux && self.profilePopup.numberOfItems > 1;
     // Deblock: software prores encoders only; hardware encoders skip
     BOOL deblockEnabled = ([resolvedCodec isEqualToString:@"prores"] ||

@@ -33,6 +33,10 @@ add_executable(test_mux_policy
 target_link_libraries(test_mux_policy PRIVATE mux_policy)
 add_test(NAME MuxPolicyTests COMMAND test_mux_policy)
 
+add_executable(test_audio_mode_availability policy/test_audio_mode_availability.c)
+target_link_libraries(test_audio_mode_availability PRIVATE mux_policy)
+add_test(NAME AudioModeAvailabilityTests COMMAND test_audio_mode_availability)
+
 if (UNIX)
     add_executable(test_mux_replacement test_mux_replacement.c)
     target_link_libraries(test_mux_replacement PRIVATE mux add_track)

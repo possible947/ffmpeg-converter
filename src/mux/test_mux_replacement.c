@@ -384,9 +384,14 @@ static void test_production_add_track(const char *ffmpeg,
         platform_file_is_regular(source_prores)) {
         const char *hq_sources[] = {source_h264, source_av1};
         for (i = 0; i < sizeof(hq_sources) / sizeof(hq_sources[0]); ++i) {
+            AddTrackResult rejected = {0};
+            expect(run_hq_add_track(
+                       converter, hq_sources[i], source_prores, dir, "prores_ks",
+                       "aac", &rejected) == ERR_INVALID_OPTIONS,
+                   "HQ ProRes rejects audio outside its PCM-only availability");
             ConverterError err = run_hq_add_track(
                 converter, hq_sources[i], source_prores, dir, "prores_ks",
-                "aac", &result);
+                "pcm", &result);
             expect(err == ERR_OK,
                    "HQ ProRes handoff resolves MOV+PCM after source preparation");
             if (err == ERR_OK) {

@@ -141,6 +141,29 @@ size_t mux_policy_list_hq_audio_modes(const MuxBuildProfile *profile,
                                       MuxAudioMode *audio_modes,
                                       size_t audio_modes_capacity);
 
+typedef enum {
+    /* Legacy conversion pipeline, including hardware encoders. */
+    AUDIO_WORKFLOW_SOFTWARE = 0,
+    AUDIO_WORKFLOW_MUX,
+    AUDIO_WORKFLOW_HQ
+} AudioWorkflow;
+
+/* Default-first canonical modes, shared by controls and validation. */
+typedef struct {
+    MuxAudioMode modes[4];
+    size_t count;
+} AudioModeAvailability;
+
+AudioModeAvailability audio_mode_availability(
+    const MuxBuildProfile *profile,
+    AudioWorkflow workflow,
+    MuxMode mux_mode,
+    const MuxVideoCodec *source_video_codecs,
+    size_t source_count,
+    MuxVideoCodec replacement_video_codec);
+int audio_mode_availability_contains(const AudioModeAvailability *available,
+                                      MuxAudioMode mode);
+
 const char *mux_mode_name(MuxMode mode);
 const char *mux_container_name(MuxContainer container);
 const char *mux_container_extension(MuxContainer container);

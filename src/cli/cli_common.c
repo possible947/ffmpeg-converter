@@ -14,6 +14,7 @@
 #include <stddef.h>
 
 #include "converter.h"
+#include "converter_common.h"
 #include "progress.h"
 #include "cli_common.h"
 #include "mux_policy.h"
@@ -101,6 +102,8 @@ void print_usage(const CliPlatformHandle* h) {
     printf("  -a, --audio-norm <none|peak|peak2|loudnorm|loudnorm2>\n");
     printf("      --audio-output <copy|pcm|fdk_aac_320|fdk_aac_320_ac3_640>\n");
     printf("      (aliases: aac = fdk_aac_320, aac+ac3 = fdk_aac_320_ac3_640)\n");
+    printf("      Audio choices depend on workflow: Copy is Mux/HQ only;\n");
+    printf("      HQ ProRes is PCM only. Mux defaults/restrictions follow Policy.\n");
     if (platform_mux_is_supported())
         printf("      --video-track <file>  replacement video track for mux mode\n");
     printf("  -g, --genre <edm|rock|hiphop|classical|podcast>\n");
@@ -897,6 +900,20 @@ int parse_args(int argc, char** argv, const CliPlatformHandle* h,
         else
             strcpy(opts->preset, "default");
     }
+
+    AudioModeAvailability available =
+        converter_audio_mode_availability(opts, MUX_VIDEO_UNKNOWN);
+    if (!available.count ||
+        (audio_output_explicit &&
+         !audio_mode_availability_contains(
+             &available, mux_audio_mode_parse(opts->audio_output_mode)))) {
+        fprintf(stderr, "Error: audio mode '%s' is not available for %s/%s\n",
+                opts->audio_output_mode, selection_group, selection_encoder);
+        return 0;
+    }
+    if (!audio_output_explicit)
+        snprintf(opts->audio_output_mode, sizeof(opts->audio_output_mode),
+                 "%s", mux_audio_mode_name(available.modes[0]));
 
     /* Use the resolved pipeline/container, not the raw selection arguments. */
     int is_m4v_mode = !strcmp(opts->codec, "m4v") ||

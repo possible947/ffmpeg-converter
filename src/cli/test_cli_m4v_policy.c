@@ -6,7 +6,7 @@
 #include "mux_policy.h"
 #include "progress.h"
 
-static int failures, audio_checks;
+static int failures, audio_checks, hq_available;
 static char checked_audio[32];
 static const char *unavailable_audio, *unavailable_codec;
 
@@ -34,7 +34,7 @@ int platform_audio_mode_is_available(const char *mode)
 }
 int platform_mux_is_supported(void) { return 1; }
 int platform_m4v_is_supported(void) { return 1; }
-int platform_hq_is_available(void) { return 0; }
+int platform_hq_is_available(void) { return hq_available; }
 int platform_get_default_vulkan_device(const CliPlatformHandle *h, const char *codec)
 {
     (void)h;
@@ -159,6 +159,41 @@ static void test_container_defaults(void)
     }
 }
 
+static void test_context_availability(void)
+{
+    ConvertOptions opts;
+    CliM4VOptions m4v;
+    const char *audio[] = {"pcm", "copy", "aac", "aac+ac3"};
+    hq_available = 1;
+    for (size_t i = 0; i < sizeof(audio) / sizeof(audio[0]); i++) {
+        char *software[] = {"cli", "--codec", "software", "--encoder", "prores_ks",
+                             "--audio-output", (char *)audio[i], "input.mov"};
+        char *mov[] = {"cli", "--codec", "mux", "--encoder", "mov",
+                       "--audio-output", (char *)audio[i], "input.mov"};
+        char *mkv[] = {"cli", "--codec", "mux", "--encoder", "mkv",
+                       "--audio-output", (char *)audio[i], "input.mov"};
+        char *hq_prores[] = {"cli", "--codec", "hq_converter", "--encoder", "ffmpeg-prores",
+                             "--audio-output", (char *)audio[i], "input.mov"};
+        char *hq_mkv[] = {"cli", "--codec", "hq_converter", "--encoder", "x264",
+                          "--preset", "hq-test", "--audio-output", (char *)audio[i],
+                          "input.mov"};
+        CHECK(parse(8, software, &opts, &m4v) == (i != 1));
+        CHECK(parse(8, mov, &opts, &m4v) == (i == 0));
+        CHECK(parse(8, mkv, &opts, &m4v));
+        CHECK(parse(8, hq_prores, &opts, &m4v) == (i == 0));
+        CHECK(parse(10, hq_mkv, &opts, &m4v));
+        CHECK(!strcmp(opts.hw_device, "x264"));
+        CHECK(!strcmp(opts.preset, "hq-test"));
+    }
+    {
+        char *hq_default[] = {"cli", "--codec", "hq_converter", "--encoder",
+                              "ffmpeg-prores", "input.mov"};
+        CHECK(parse(6, hq_default, &opts, &m4v));
+        CHECK(!strcmp(opts.audio_output_mode, "pcm"));
+    }
+    hq_available = 0;
+}
+
 static void test_audio_video_isolation(void)
 {
     static const struct {
@@ -272,6 +307,7 @@ int main(void)
 {
     test_m4v_audio();
     test_container_defaults();
+    test_context_availability();
 #ifndef FFMPEG_CONVERTER_CLI_PORTABLE_POLICY_ONLY
     test_audio_video_isolation();
 #endif

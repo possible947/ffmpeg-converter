@@ -1,6 +1,7 @@
 #include "gui_window.h"
 #include "converter_platform.h"
 #include "mux_policy.h"
+#include "hq_catalog.h"
 
 #include <string.h>
 
@@ -96,12 +97,13 @@ static void assert_video_unchanged(AppWidgets *w, const ConvertOptions *before,
 static void test_audio_changes(AppWidgets *w, const char *group,
                                const char *encoder, const char *preset)
 {
-    static const char *audio_modes[] = {"pcm", "fdk_aac_320", "fdk_aac_320_ac3_640", "copy"};
+    static const char *audio_modes[] = {"pcm", "fdk_aac_320", "fdk_aac_320_ac3_640"};
     static const char *normalizations[] = {
         "none", "peak_norm", "peak_norm_2pass", "loudness_norm", "loudness_norm_2pass"
     };
     select_text(w->codec_combo, group);
     select_text(w->encoder_combo, encoder);
+    g_assert_false(dropdown_has_text(w->audio_output_combo, "copy"));
     assert_preset_model(w, group, encoder);
     select_text(w->filter_combo, "strong");
     select_text(w->deblock_combo, "strong");
@@ -153,6 +155,47 @@ static void test_audio_changes(AppWidgets *w, const char *group,
     g_free(video_args);
 }
 
+static void test_hq_audio(AppWidgets *w)
+{
+    /* Load only the data catalog; no HQ library or hardware probe is needed. */
+    g_assert_cmpint(hq_catalog_load(FFMPEG_CONVERTER_HQ_TEST_ROOT), ==, 0);
+    if (!dropdown_has_text(w->codec_combo, "hq_converter"))
+        gtk_string_list_append(w->codec_list, "hq_converter");
+    select_text(w->codec_combo, "hq_converter");
+    for (size_t i = 0; i < hq_catalog_codec_count(); i++) {
+        const char *encoder = hq_catalog_codec_name(i);
+        select_text(w->encoder_combo, encoder);
+        MuxBuildProfile profile;
+        g_assert_true(mux_build_profile_default(&profile));
+        AudioModeAvailability available = audio_mode_availability(
+            &profile, AUDIO_WORKFLOW_HQ, MUX_MODE_INVALID, NULL, 0,
+            mux_video_codec_parse(encoder));
+        GListModel *model = gtk_drop_down_get_model(GTK_DROP_DOWN(w->audio_output_combo));
+        g_assert_cmpuint(g_list_model_get_n_items(model), ==, available.count);
+        g_assert_cmpuint(available.count, >, 0);
+        if (hq_catalog_is_prores_codec(encoder)) {
+            g_assert_cmpuint(available.count, ==, 1);
+            g_assert_cmpstr(selected_text(w->audio_output_combo), ==, "pcm");
+        }
+        guint presets = g_list_model_get_n_items(G_LIST_MODEL(w->preset_list));
+        g_assert_cmpuint(presets, >, 0);
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(w->profile_combo), presets - 1);
+        drain_updates();
+        char *preset = g_strdup(selected_text(w->profile_combo));
+        for (size_t a = 0; a < available.count; a++) {
+            const char *mode = mux_audio_mode_name(available.modes[a]);
+            select_text(w->audio_output_combo, mode);
+            select_text(w->audio_norm_combo, "none");
+            g_assert_cmpstr(selected_text(w->audio_output_combo), ==, mode);
+            g_assert_cmpstr(selected_text(w->profile_combo), ==, preset);
+            ConvertOptions opts = collect_options(w);
+            g_assert_cmpstr(opts.hw_device, ==, encoder);
+            g_assert_cmpstr(opts.preset, ==, preset);
+        }
+        g_free(preset);
+    }
+}
+
 static void test_mux_default(AppWidgets *w)
 {
     MuxBuildProfile profile;
@@ -179,6 +222,8 @@ static void test_mux_default(AppWidgets *w)
     select_text(w->audio_output_combo, "fdk_aac_320_ac3_640");
     g_assert_cmpstr(selected_text(w->audio_output_combo), ==, "fdk_aac_320_ac3_640");
     select_text(w->codec_combo, "software");
+    g_assert_cmpstr(selected_text(w->audio_output_combo), ==, "fdk_aac_320_ac3_640");
+    g_assert_false(dropdown_has_text(w->audio_output_combo, "copy"));
     select_text(w->encoder_combo, "prores");
     assert_preset_model(w, "software", "prores");
     select_text(w->profile_combo, "hq");
@@ -223,6 +268,7 @@ int main(void)
     test_audio_changes(&w, "nvenc", "hevc", "quality");
     test_audio_changes(&w, "qsv", "h264", "speed");
     test_mux_default(&w);
+    test_hq_audio(&w);
     w.shutting_down = TRUE;
     if (w.dependent_update_source_id)
         g_source_remove(w.dependent_update_source_id);
