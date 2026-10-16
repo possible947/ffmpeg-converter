@@ -160,6 +160,11 @@ if (EXISTS "${CMAKE_SOURCE_DIR}/third_party/hq_converter")
 endif()
 
  install(TARGETS linux_gui RUNTIME DESTINATION bin)
+ if (HQ_CONVERTER_ENABLED)
+     install(TARGETS hq_worker RUNTIME DESTINATION bin)
+     install(DIRECTORY "${HQ_CONVERTER_RELEASE_DIR}/"
+         DESTINATION bin/hq_converter USE_SOURCE_PERMISSIONS)
+ endif()
 
  # Desktop entry + icon so `make install` also gets correct dock/taskbar
  # icon resolution (GNOME/Wayland match the running app-id to a desktop

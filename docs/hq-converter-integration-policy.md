@@ -34,6 +34,15 @@ The `ffmpeg-converter` build consumes the prepared release as an input:
 The application must use the copied runtime tree and must not depend on the
 original source checkout after installation or packaging.
 
+On Linux, AppImage staging consumes `bin/hq_converter/` from the selected build
+directory, not a separate source-tree release. The AppDir contains
+`usr/bin/ffmpeg_converter_gui`, `usr/bin/hq_worker`, and the complete
+`usr/bin/hq_converter/` tree. The helper is required because Converter executes
+HQ jobs through an executable-adjacent `hq_worker`. Linux GUI installation also
+installs both the helper and the prepared HQ release. Runtime discovery uses
+the existing executable-adjacent layout, without an AppImage-specific HQ path
+override, Nix wrappers, or modifications to HQ executable library paths.
+
 The generated program preset file contains the runtime capability flag
 `features.hq_converter`. Its default value is `false`. During Linux/macOS
 CMake configuration it becomes `true` only when the prepared release passes the

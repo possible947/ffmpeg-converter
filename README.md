@@ -340,8 +340,14 @@ cmake --build build --target linux_gui
 cmake --build build --target package_appimage
 # Output: build/bin/FFMpeg-Converter-x86_64.AppImage
 ```
-Requires `appimagetool` in PATH. The script `src/gui/package_appimage.sh` can
-also be invoked directly with custom output directory.
+Requires `appimagetool` (or `appimagetool.AppImage`) and `jq` in PATH. The script
+`src/gui/package_appimage.sh` can also be invoked directly with a build directory
+and an optional output directory. Staging is created at `<build_dir>/AppDir`.
+When the generated catalog enables HQ, packaging copies the complete prepared
+`<build_dir>/bin/hq_converter/` release unchanged and includes `hq_worker` beside
+the GUI in `AppDir/usr/bin/`. Required HQ executables, configurations and runtime
+assets are checked before AppImage generation; no Nix runtime or HQ-specific
+library-path rewriting is needed.
 
 ### C/CMake — macOS (native Cocoa GUI)
 

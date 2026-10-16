@@ -30,7 +30,7 @@ echo "Script dir: ${SCRIPT_DIR}"
 BIN_DIR="${ABS_BUILD_DIR}/bin"
 GUI_BIN="${BIN_DIR}/ffmpeg_converter_gui"
 PROJECT_TOOLS_DIR="${SCRIPT_DIR}/../platform/linux/bin"
-HQ_RELEASE_DIR="${SCRIPT_DIR}/../../third_party/hq_converter"
+HQ_RELEASE_DIR="${BIN_DIR}/hq_converter"
 
 if [ -n "${OUTPUT_DIR_ARG}" ]; then
     OUTPUT_DIR="${OUTPUT_DIR_ARG}"
@@ -39,9 +39,10 @@ else
 fi
 
 mkdir -p "${OUTPUT_DIR}"
+OUTPUT_DIR="$(cd "${OUTPUT_DIR}" && pwd)"
 APPIMAGE_NAME="FFMpeg-Converter-$(uname -m).AppImage"
 APPIMAGE_PATH="${OUTPUT_DIR}/${APPIMAGE_NAME}"
-APPDIR="${SCRIPT_DIR}/AppDir"
+APPDIR="${ABS_BUILD_DIR}/AppDir"
 # Freedesktop icon/desktop basename — MUST match the GApplication id
 # (APP_ID in gui_main.c) so GNOME/Wayland can match the running window's
 # app-id to this desktop file and show the correct dock/taskbar icon.
@@ -122,16 +123,45 @@ done
 # generated catalog, preserve the complete release beside the application
 # binaries rather than selecting individual files.
 HQ_ENABLED="false"
-if [ -f "${BIN_DIR}/presets.json" ] && command -v jq >/dev/null 2>&1; then
-    HQ_ENABLED="$(jq -r '.features.hq_converter // false' "${BIN_DIR}/presets.json")"
+if ! command -v jq >/dev/null 2>&1; then
+    echo "ERROR: jq is required to read the build-generated HQ runtime feature flag."
+    exit 1
 fi
+if [ ! -f "${BIN_DIR}/presets.json" ]; then
+    echo "ERROR: build-generated presets.json is missing from ${BIN_DIR}"
+    exit 1
+fi
+HQ_ENABLED="$(jq -r '.features.hq_converter // false' "${BIN_DIR}/presets.json")"
 if [ "${HQ_ENABLED}" = "true" ]; then
     if [ ! -d "${HQ_RELEASE_DIR}" ]; then
         echo "ERROR: presets.json enables HQ_converter but release tree is missing: ${HQ_RELEASE_DIR}"
         exit 1
     fi
+    if [ ! -x "${BIN_DIR}/hq_worker" ]; then
+        echo "ERROR: HQ_converter requires the executable-adjacent helper: ${BIN_DIR}/hq_worker"
+        exit 1
+    fi
+    cp -a "${BIN_DIR}/hq_worker" "${APPDIR}/usr/bin/hq_worker"
     echo "Copying complete HQ_converter runtime tree..."
     cp -a "${HQ_RELEASE_DIR}" "${APPDIR}/usr/bin/hq_converter"
+    for executable in bin/ffmpeg bin/ffprobe bin/mkvmerge \
+        modules/encoder_orchestrator_v2/runner/encoder_orchestrator_v2_runner; do
+        if [ ! -x "${APPDIR}/usr/bin/hq_converter/${executable}" ]; then
+            echo "ERROR: staged HQ executable missing or not executable: ${executable}"
+            exit 1
+        fi
+    done
+    for asset in modules/library/bin/libhq_converter.so \
+        bin/libseg_native.so.1 \
+        modules/segmentator/config/toolchain_runtime.ini \
+        modules/encoder_orchestrator_v2/config/toolchain_runtime.ini \
+        modules/encoder_orchestrator_v2/config/presets/encoder_presets_v2.json \
+        modules/encoder_orchestrator_v2/config/presets/encoder_param_schema_v1.json; do
+        if [ ! -s "${APPDIR}/usr/bin/hq_converter/${asset}" ]; then
+            echo "ERROR: staged HQ runtime asset missing or empty: ${asset}"
+            exit 1
+        fi
+    done
 else
     echo "HQ_converter runtime disabled; no HQ tree staged"
 fi
@@ -193,6 +223,9 @@ add_binary_deps() {
 }
 
 add_binary_deps "${APPDIR}/usr/bin/ffmpeg_converter_gui"
+if [ "${HQ_ENABLED}" = "true" ]; then
+    add_binary_deps "${APPDIR}/usr/bin/hq_worker"
+fi
 for tool in ffmpeg ffprobe mkvmerge MP4Box; do
     if [ -x "${APPDIR}/usr/bin/${tool}" ]; then
         add_binary_deps "${APPDIR}/usr/bin/${tool}"
@@ -237,10 +270,6 @@ if [ -x "${APPDIR}/usr/bin/MP4Box" ]; then
     export MP4BOX="${APPDIR}/usr/bin/MP4Box"
     export MP4BOX_BIN="${APPDIR}/usr/bin/MP4Box"
 fi
-if [ -d "${APPDIR}/usr/bin/hq_converter" ]; then
-    export HQ_CONVERTER_DIR="${APPDIR}/usr/bin/hq_converter"
-fi
-
 # Set preset search path to bundled presets
 if [ -f "${APPDIR}/usr/share/ffmpeg_converter/presets.json" ]; then
     export PRESETS_PATH="${APPDIR}/usr/share/ffmpeg_converter"
@@ -301,4 +330,3 @@ else
     echo "ERROR: appimagetool failed"
     exit 1
 fi
-
