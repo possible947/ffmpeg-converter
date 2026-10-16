@@ -118,4 +118,30 @@ public class AudioModePolicyTests
         Assert.Empty(AudioModePolicy.GetAvailableModes(options, "macos"));
         Assert.Null(AudioModePolicy.Validate(options, "macos"));
     }
+
+    [Theory]
+    [InlineData("mkv", MuxVideoCodec.Av1, null)]
+    [InlineData("mov", MuxVideoCodec.Av1, "Av1 video is not supported in Mov output.")]
+    [InlineData("m4v", MuxVideoCodec.H264, null)]
+    [InlineData("m4v", MuxVideoCodec.Hevc, null)]
+    [InlineData("m4v", MuxVideoCodec.ProRes, "ProRes video is not supported in M4v output.")]
+    [InlineData("mkv", MuxVideoCodec.Unsupported, "Unsupported video is not supported in Mkv output.")]
+    public void Validate_UsesReplacementCodecPolicyBeforeAudioAvailability(
+        string mode,
+        MuxVideoCodec replacementCodec,
+        string? expectedError)
+    {
+        var options = new ConvertOptions
+        {
+            SelectionGroup = "mux",
+            SelectionEncoder = mode,
+            Codec = "mux",
+            Preset = mode,
+            AudioOutputMode = mode == "m4v" ? AudioOutputMode.Aac : AudioOutputMode.Pcm
+        };
+
+        Assert.Equal(
+            expectedError,
+            AudioModePolicy.Validate(options, "linux", replacementVideoCodec: replacementCodec));
+    }
 }

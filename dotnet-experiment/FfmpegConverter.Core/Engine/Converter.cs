@@ -71,12 +71,19 @@ public class Converter
 
     private readonly ToolPaths _tools;
     private readonly PresetDb _presetDb;
+    private readonly IReplacementVideoProbe _replacementVideoProbe;
     private HardwareProbeResult? _probeResult;
 
-    public Converter()
+    public Converter(
+        ToolPaths? tools = null,
+        PresetDb? presetDb = null,
+        HardwareProbeResult? probeResult = null,
+        IReplacementVideoProbe? replacementVideoProbe = null)
     {
-        _tools = ToolDiscovery.ResolveAll();
-        _presetDb = PresetDb.Load();
+        _tools = tools ?? ToolDiscovery.ResolveAll();
+        _presetDb = presetDb ?? PresetDb.Load();
+        _probeResult = probeResult;
+        _replacementVideoProbe = replacementVideoProbe ?? new ReplacementVideoProbe();
     }
 
     public async Task<ConverterError> ProcessFilesAsync(IEnumerable<string> files, ConvertOptions opts, CancellationToken cancellationToken = default)
@@ -186,15 +193,33 @@ public class Converter
 
                     if (!opts.DryRun)
                     {
-                        var replacementInfo = await InputVideoInfo.ProbeAsync(
+                        InputVideoProbeResult replacementProbe = await _replacementVideoProbe.ProbeAsync(
                             _tools.Ffprobe, opts.VideoTrackPath, cancellationToken);
-                        if (replacementInfo == null || string.IsNullOrEmpty(replacementInfo.CodecName))
+                        if (!replacementProbe.Success)
                         {
-                            RaiseError("Could not probe the replacement video codec.", ConverterError.FfprobeFailed);
-                            FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.FfprobeFailed));
+                            ConverterError probeError = replacementProbe.Failure switch
+                            {
+                                InputVideoProbeFailure.InputNotFound => ConverterError.InputNotFound,
+                                InputVideoProbeFailure.InputNotReadable => ConverterError.InputNotReadable,
+                                _ => ConverterError.FfprobeFailed
+                            };
+                            string probeMessage = replacementProbe.Failure switch
+                            {
+                                InputVideoProbeFailure.ProbeToolMissing => "ffprobe binary not found.",
+                                InputVideoProbeFailure.InputNotFound => "Replacement video track was not found.",
+                                InputVideoProbeFailure.InputNotReadable => "Replacement video track is not readable.",
+                                InputVideoProbeFailure.NoVideoStream => "Replacement file contains no video stream.",
+                                InputVideoProbeFailure.MissingCodec => "Could not determine the replacement video codec.",
+                                InputVideoProbeFailure.ProcessStartFailed => "Could not start ffprobe for the replacement video track.",
+                                _ => "ffprobe could not read the replacement video track."
+                            };
+                            if (!string.IsNullOrEmpty(replacementProbe.Detail))
+                                probeMessage += $" {replacementProbe.Detail}";
+                            RaiseError(probeMessage, probeError);
+                            FileEnd?.Invoke(this, new FileEndEventArgs(input, probeError));
                             continue;
                         }
-                        replacementVideoCodec = MuxPolicyResolver.ParseVideoCodec(replacementInfo.CodecName);
+                        replacementVideoCodec = replacementProbe.Codec;
                     }
                 }
             }

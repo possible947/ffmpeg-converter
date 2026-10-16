@@ -125,6 +125,15 @@ public static class AudioModePolicy
         if (workflow == AudioWorkflowContext.DirectM4v)
             return null;
 
+        if (workflow == AudioWorkflowContext.Mux &&
+            TryGetMuxMode(options, out MuxOperationalMode muxMode))
+        {
+            PolicyResult muxResult = MuxPolicyResolver.Resolve(
+                CreateProfile(platform), muxMode, options.AudioOutputMode,
+                sourceVideoCodec, replacementVideoCodec);
+            return muxResult.Success ? null : muxResult.ErrorMessage;
+        }
+
         IReadOnlyList<AudioOutputMode> available = GetAvailableModes(
             options, platform, [sourceVideoCodec], replacementVideoCodec);
         if (!available.Contains(options.AudioOutputMode))
@@ -145,15 +154,6 @@ public static class AudioModePolicy
                 MuxPolicyResolver.ParseVideoCodec(options.SelectionEncoder),
                 options.AudioOutputMode);
             return hqResult.Success ? null : hqResult.ErrorMessage;
-        }
-
-        if (workflow == AudioWorkflowContext.Mux &&
-            TryGetMuxMode(options, out MuxOperationalMode mode))
-        {
-            PolicyResult result = MuxPolicyResolver.Resolve(
-                CreateProfile(platform), mode, options.AudioOutputMode,
-                sourceVideoCodec, replacementVideoCodec);
-            return result.Success ? null : result.ErrorMessage;
         }
 
         return null;

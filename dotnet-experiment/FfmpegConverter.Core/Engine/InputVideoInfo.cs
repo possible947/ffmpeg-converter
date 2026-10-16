@@ -1,10 +1,55 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using FfmpegConverter.Core.Policy;
 
 namespace FfmpegConverter.Core.Engine;
+
+public enum InputVideoProbeFailure
+{
+    None,
+    ProbeToolMissing,
+    InputNotFound,
+    InputNotReadable,
+    ProcessStartFailed,
+    ProbeFailed,
+    NoVideoStream,
+    MissingCodec
+}
+
+public sealed record InputVideoProbeResult(
+    InputVideoInfo? VideoInfo,
+    MuxVideoCodec Codec,
+    InputVideoProbeFailure Failure,
+    string? Detail)
+{
+    public bool Success => Failure == InputVideoProbeFailure.None && VideoInfo != null;
+
+    public static InputVideoProbeResult FromProcessResult(int exitCode, string output, string error)
+    {
+        if (exitCode != 0)
+            return Failed(InputVideoProbeFailure.ProbeFailed, string.IsNullOrWhiteSpace(error) ? null : error.Trim());
+
+        if (string.IsNullOrWhiteSpace(output))
+            return Failed(InputVideoProbeFailure.NoVideoStream, null);
+
+        InputVideoInfo info = InputVideoInfo.ParseText(output);
+        if (string.IsNullOrWhiteSpace(info.CodecName))
+            return Failed(InputVideoProbeFailure.MissingCodec, null);
+
+        return new InputVideoProbeResult(
+            info,
+            MuxPolicyResolver.ParseVideoCodec(info.CodecName),
+            InputVideoProbeFailure.None,
+            null);
+    }
+
+    public static InputVideoProbeResult Failed(InputVideoProbeFailure failure, string? detail) =>
+        new(null, MuxVideoCodec.Unknown, failure, detail);
+}
 
 public class InputVideoInfo
 {
@@ -126,42 +171,91 @@ public class InputVideoInfo
 
     public static async Task<InputVideoInfo?> ProbeAsync(string ffprobePath, string inputPath, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(ffprobePath) || !File.Exists(ffprobePath) || !File.Exists(inputPath))
-            return null;
+        InputVideoProbeResult result = await ProbeDetailedAsync(ffprobePath, inputPath, cancellationToken);
+        return result.Success ? result.VideoInfo : null;
+    }
 
-        string args = $"-v error -select_streams v:0 " +
-                      $"-show_entries stream=codec_name,pix_fmt,bits_per_raw_sample,profile,width,height,avg_frame_rate,color_range,color_primaries,color_transfer,color_space " +
-                      $"-of default=noprint_wrappers=1 \"{inputPath}\"";
+    public static async Task<InputVideoProbeResult> ProbeDetailedAsync(
+        string ffprobePath,
+        string inputPath,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(ffprobePath) || !File.Exists(ffprobePath))
+            return InputVideoProbeResult.Failed(InputVideoProbeFailure.ProbeToolMissing, null);
+        if (string.IsNullOrEmpty(inputPath) || !File.Exists(inputPath))
+        {
+            InputVideoProbeFailure failure = !string.IsNullOrEmpty(inputPath) && Directory.Exists(inputPath)
+                ? InputVideoProbeFailure.InputNotReadable
+                : InputVideoProbeFailure.InputNotFound;
+            return InputVideoProbeResult.Failed(failure, null);
+        }
 
         try
         {
-            using var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = ffprobePath,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                }
-            };
-
-            process.Start();
-            string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-
-            if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
-            {
-                return ParseText(output);
-            }
+            using var input = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         }
-        catch
+        catch (IOException ex)
         {
-            // ignore probing failures, return null
+            return InputVideoProbeResult.Failed(InputVideoProbeFailure.InputNotReadable, ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return InputVideoProbeResult.Failed(InputVideoProbeFailure.InputNotReadable, ex.Message);
         }
 
-        return null;
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffprobePath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (string argument in new[]
+        {
+            "-v", "error", "-select_streams", "v:0", "-show_entries",
+            "stream=codec_name,pix_fmt,bits_per_raw_sample,profile,width,height,avg_frame_rate,color_range,color_primaries,color_transfer,color_space",
+            "-of", "default=noprint_wrappers=1", inputPath
+        })
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = startInfo };
+        try
+        {
+            if (!process.Start())
+                return InputVideoProbeResult.Failed(InputVideoProbeFailure.ProcessStartFailed, "ffprobe process did not start.");
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                if (!process.HasExited)
+                {
+                    try
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    catch (InvalidOperationException) { }
+                    catch (Win32Exception) { }
+                }
+                await process.WaitForExitAsync(CancellationToken.None);
+                throw;
+            }
+
+            string output = await outputTask;
+            string error = await errorTask;
+            return InputVideoProbeResult.FromProcessResult(process.ExitCode, output, error);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            return InputVideoProbeResult.Failed(InputVideoProbeFailure.ProcessStartFailed, ex.Message);
+        }
     }
 }

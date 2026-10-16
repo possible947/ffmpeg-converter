@@ -80,11 +80,20 @@ public class MuxPolicyTests
     }
 
     [Theory]
+    [InlineData(MuxOperationalMode.Mkv, MuxVideoCodec.H264, true)]
+    [InlineData(MuxOperationalMode.Mkv, MuxVideoCodec.Hevc, true)]
+    [InlineData(MuxOperationalMode.Mkv, MuxVideoCodec.ProRes, true)]
     [InlineData(MuxOperationalMode.Mkv, MuxVideoCodec.Av1, true)]
+    [InlineData(MuxOperationalMode.Mov, MuxVideoCodec.H264, true)]
+    [InlineData(MuxOperationalMode.Mov, MuxVideoCodec.Hevc, true)]
+    [InlineData(MuxOperationalMode.Mov, MuxVideoCodec.ProRes, true)]
     [InlineData(MuxOperationalMode.Mov, MuxVideoCodec.Av1, false)]
     [InlineData(MuxOperationalMode.M4v, MuxVideoCodec.H264, true)]
     [InlineData(MuxOperationalMode.M4v, MuxVideoCodec.Hevc, true)]
     [InlineData(MuxOperationalMode.M4v, MuxVideoCodec.ProRes, false)]
+    [InlineData(MuxOperationalMode.Mkv, MuxVideoCodec.Unsupported, false)]
+    [InlineData(MuxOperationalMode.Mov, MuxVideoCodec.Unsupported, false)]
+    [InlineData(MuxOperationalMode.M4v, MuxVideoCodec.Unsupported, false)]
     public void Resolve_ValidatesReplacementCodec(
         MuxOperationalMode mode,
         MuxVideoCodec replacement,

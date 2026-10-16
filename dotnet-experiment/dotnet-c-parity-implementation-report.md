@@ -21,7 +21,7 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 | A — Contract fixtures and typed policy model | PASS | Added typed policy enums, profile/result records, pure resolver, policy and subtitle tests. |
 | B — Shared audio availability and Copy isolation | PASS | Wired policy-based choices and validation into Core, CLI, interactive menu, and Avalonia; separated Mux M4V selection from Direct M4V. |
 | C — Catalog and tool-resolution parity | PASS | Made catalog/tool resolution inputs deterministic and covered precedence, fallback, malformed catalogs, platform catalogs, and environment aliases. |
-| D — Replacement codec probe and early validation | PARTIAL | Core probes replacement media once before Add Track execution and validates its codec; comprehensive malformed/no-video/multi-stream probe tests remain. |
+| D — Replacement codec probe and early validation | PASS | Added a typed one-probe result, explicit missing/unreadable/corrupt/no-video failures, C-derived container codec acceptance, and rejection before Add Track preparation. |
 | E — Shared Add Track contract | PARTIAL | Existing safe unique-MKV preparation and cleanup remain; shared request/result contract and final-output pipeline work remain. |
 
 ## 4. Files changed by phase
@@ -31,6 +31,8 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 **Phase B:** `FfmpegConverter.Core/Policy/AudioModePolicy.cs`; `FfmpegConverter.Core/Models/ConvertOptions.cs`; `FfmpegConverter.Core/Engine/CommandBuilder.cs`; `FfmpegConverter.Core/Engine/Converter.cs`; CLI `CliSummary.cs`, `CommandLineParser.cs`, `InteractiveMenu.cs`, `Program.cs`; GUI `MainWindow.axaml`, `MainWindow.axaml.cs`; related Core, CLI, and GUI tests.
 
 **Phase C:** `FfmpegConverter.Core/Presets/PresetDb.cs`; `FfmpegConverter.Core/Probing/ToolDiscovery.cs`; `FfmpegConverter.Tests/PresetDbTests.cs`; `FfmpegConverter.Tests/ToolDiscoveryTests.cs`.
+
+**Phase D:** `FfmpegConverter.Core/Engine/InputVideoInfo.cs`; `FfmpegConverter.Core/Engine/ReplacementVideoProbe.cs`; `FfmpegConverter.Core/Engine/Converter.cs`; `FfmpegConverter.Core/Policy/AudioModePolicy.cs`; `FfmpegConverter.Tests/InputVideoInfoTests.cs`; `FfmpegConverter.Tests/MuxPolicyTests.cs`; `FfmpegConverter.Tests/AudioModePolicyTests.cs`; `FfmpegConverter.Tests/MuxPipelineTests.cs`.
 
 ## 5. Policy parity status
 
@@ -72,7 +74,7 @@ CLI parsing and Core validation use the shared availability resolver. The intera
 
 **Status: PASS**
 
-After phase C, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 206/206. Catalog and tool-resolution tests passed 51/51.
+After phase D, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 231/231. The focused replacement-probe, policy, and converter tests passed 107/107.
 
 ## 12. Real-media results
 
@@ -100,7 +102,6 @@ Native Windows release validation is intentionally deferred until the non-Window
 
 ## 16. Remaining known gaps
 
-- Replacement probing needs focused corrupt/no-video/multiple-stream coverage.
 - Add Track needs a reusable Core contract and verified finalizer integration.
 - MKV, MOV, and M4V need production preservation, subtitle, chapter, metadata, disposition, attachment, and replacement-isolation parity.
 - Mux M4V AAC-only, dual-audio, and default behavior need a dedicated finalizer path and real-media tests.
@@ -113,6 +114,7 @@ Native Windows release validation is intentionally deferred until the non-Window
 |---|---|
 | `f9eec6f` | Add typed .NET mux policy |
 | `31daad5` | Enforce shared .NET audio mode policy |
+| `6bbbcb9` | Make catalog and tool discovery deterministic |
 
 ## 18. Confirmation that C and Pascal remain unchanged
 
