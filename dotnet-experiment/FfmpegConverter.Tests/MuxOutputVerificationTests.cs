@@ -234,6 +234,48 @@ public class MuxOutputVerificationTests
     }
 
     [Fact]
+    public void VerifyFinalMov_AcceptsMuxerDefaultForFirstAudioWhenSourceHasNoDefault()
+    {
+        PolicyResult policyResult = MuxPolicyResolver.Resolve(
+            Profile, MuxOperationalMode.Mov, AudioOutputMode.Pcm,
+            MuxVideoCodec.Unknown, MuxVideoCodec.H264);
+        Assert.True(policyResult.Success);
+        MuxOutputSnapshot assembled = new(
+            "matroska,webm",
+            [
+                new("video", "h264", null, true, false),
+                new("audio", "pcm_s16le", "eng", false, false)
+            ],
+            0);
+        MuxOutputSnapshot replacement = new(
+            "matroska,webm", [new("video", "h264", null, true, false)], 0);
+        MuxOutputSnapshot final = new(
+            "mov,mp4,m4a,3gp,3g2,mj2",
+            [
+                new("video", "h264", null, true, false),
+                new("audio", "pcm_s16le", "eng", true, false)
+            ],
+            0);
+
+        MuxOutputVerificationResult result = MuxOutputVerification.VerifyFinalOutput(
+            assembled, replacement, final, policyResult.Policy!);
+
+        Assert.True(result.Success, result.Error);
+
+        MuxOutputSnapshot missingMuxerDefault = final with
+        {
+            Streams = final.Streams.Select(stream => stream.CodecType == "audio"
+                ? stream with { IsDefault = false }
+                : stream).ToArray()
+        };
+        result = MuxOutputVerification.VerifyFinalOutput(
+            assembled, replacement, missingMuxerDefault, policyResult.Policy!);
+
+        Assert.False(result.Success);
+        Assert.Contains("default/forced", result.Error);
+    }
+
+    [Fact]
     public void ParseJson_FailsClosedWhenContainerMetadataIsMissing()
     {
         MuxOutputProbeResult result = MuxOutputVerification.ParseJson(

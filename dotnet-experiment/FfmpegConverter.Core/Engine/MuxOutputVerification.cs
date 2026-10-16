@@ -228,6 +228,12 @@ public static class MuxOutputVerification
                 ? [new("audio", "aac", null, true, false), new("audio", "ac3", null, false, false)]
                 : [new("audio", "aac", null, true, false)]
             : assembled.Streams.Where(stream => stream.CodecType == "audio").ToArray();
+        if (policy.Container == MuxContainer.Mov &&
+            expectedAudio.Length > 0 &&
+            !expectedAudio.Any(stream => stream.IsDefault))
+        {
+            expectedAudio[0] = expectedAudio[0] with { IsDefault = true };
+        }
         MuxOutputVerificationResult audioResult = CompareStreams(
             expectedAudio,
             output.Streams.Where(stream => stream.CodecType == "audio").ToArray(),

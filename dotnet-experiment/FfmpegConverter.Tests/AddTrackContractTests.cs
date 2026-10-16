@@ -21,36 +21,54 @@ public class AddTrackContractTests
         Assert.Equal(AddTrackStage.Complete, result.Stage);
     }
 
-    [Fact]
-    public void Validate_AcceptsHqRequestThroughTheSameContract()
+    [Theory]
+    [InlineData("x264", MuxVideoCodec.H264, AudioOutputMode.Pcm, MuxContainer.Mkv)]
+    [InlineData("x265", MuxVideoCodec.Hevc, AudioOutputMode.Aac, MuxContainer.Mkv)]
+    [InlineData("ffmpeg-prores", MuxVideoCodec.ProRes, AudioOutputMode.Pcm, MuxContainer.Mov)]
+    public void Validate_AcceptsHqReplacementThroughSharedMuxContract(
+        string encoder,
+        MuxVideoCodec replacementCodec,
+        AudioOutputMode audioMode,
+        MuxContainer container)
     {
         using var layout = new TemporaryLayout();
         string source = layout.CreateFile("hq-source.mkv");
-        string replacement = layout.CreateFile("hq-video.h264");
+        string replacement = layout.CreateFile("hq-video.mkv");
         var sourceOptions = new ConvertOptions
         {
             Codec = "hq_converter",
             SelectionGroup = "hq_converter",
-            SelectionEncoder = "x264",
-            AudioOutputMode = AudioOutputMode.Pcm
+            SelectionEncoder = encoder,
+            AudioOutputMode = audioMode
         };
         PolicyResult policyResult = AudioModePolicy.ResolveHqPolicy(
-            sourceOptions, "macos", MuxVideoCodec.H264);
+            sourceOptions, "macos", replacementCodec);
+        Assert.True(policyResult.Success, policyResult.ErrorMessage);
+        MuxPolicy hqPolicy = policyResult.Policy!;
         var muxOptions = new ConvertOptions
         {
             Codec = "mux",
-            Preset = "mkv",
-            AudioOutputMode = AudioOutputMode.Pcm,
+            Preset = container == MuxContainer.Mov ? "mov" : "mkv",
+            AudioOutputMode = hqPolicy.AudioMode,
             VideoTrackPath = replacement
         };
         var request = new AddTrackRequest(
-            source, replacement, Path.Combine(layout.Root, "hq-output.mkv"), layout.Root,
-            sourceOptions, muxOptions, "macos", policyResult.Policy!,
-            InputVideoProbeResult.FromProcessResult(0, "codec_name=h264\n", ""));
+            source, replacement,
+            Path.Combine(layout.Root, $"hq-output{hqPolicy.OutputExtension}"), layout.Root,
+            sourceOptions, muxOptions, "macos", hqPolicy,
+            InputVideoProbeResult.FromProcessResult(
+                0, $"codec_name={CodecName(replacementCodec)}\n", ""));
 
         AddTrackResult result = AddTrackContract.Validate(request);
 
         Assert.True(result.Success, result.Message);
+        Assert.Equal(AudioWorkflowContext.Hq, hqPolicy.Workflow);
+        Assert.Equal(container, hqPolicy.Container);
+        Assert.Equal(audioMode, hqPolicy.AudioMode);
+        Assert.Equal(audioMode, muxOptions.AudioOutputMode);
+        Assert.True(hqPolicy.RequiresAddTrack);
+        Assert.Equal(audioMode, AudioModePolicy.ResolveSourcePreparationPolicy(
+            "macos", hqPolicy.AudioMode).Policy!.AudioMode);
     }
 
     [Fact]
