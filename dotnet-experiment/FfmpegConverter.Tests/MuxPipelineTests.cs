@@ -173,6 +173,151 @@ public class MuxPipelineTests
     }
 
     [Fact]
+    public async Task Converter_SingleCorruptMuxSource_ReturnsFailureWithoutStartingTools()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        string root = Path.Combine(Path.GetTempPath(), $"mux-preflight-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string input = Path.Combine(root, "corrupt.mkv");
+        string replacement = Path.Combine(root, "replacement.mkv");
+        string outputDir = Path.Combine(root, "output");
+        string ffprobe = CreateExecutable(root, "ffprobe", "#!/bin/sh\nexit 1\n");
+        string ffmpegMarker = Path.Combine(root, "ffmpeg-started");
+        string mkvmergeMarker = Path.Combine(root, "mkvmerge-started");
+        string ffmpeg = CreateExecutable(root, "ffmpeg",
+            $"#!/bin/sh\nprintf started > '{ffmpegMarker}'\n");
+        string mkvmerge = CreateExecutable(root, "mkvmerge",
+            $"#!/bin/sh\nprintf started > '{mkvmergeMarker}'\n");
+        File.WriteAllText(input, "not a media file");
+        File.WriteAllText(replacement, "replacement video fixture");
+        var replacementProbe = new StubReplacementVideoProbe(
+            InputVideoProbeResult.FromProcessResult(0, "codec_name=h264\n", ""));
+        var converter = new Converter(
+            new ToolPaths { Ffmpeg = ffmpeg, Ffprobe = ffprobe, Mkvmerge = mkvmerge },
+            PresetDb.Load(),
+            new HardwareProbeResult(),
+            replacementProbe);
+        var options = new ConvertOptions
+        {
+            Codec = "mux",
+            SelectionGroup = "mux",
+            SelectionEncoder = "mkv",
+            Preset = "mkv",
+            AudioOutputMode = AudioOutputMode.Copy,
+            VideoTrackPath = replacement,
+            OutputDir = outputDir,
+            Overwrite = true
+        };
+        ConverterError? fileStatus = null;
+        converter.FileEnd += (_, args) => fileStatus = args.Status;
+
+        try
+        {
+            ConverterError result = await converter.ProcessFilesAsync([input], options);
+
+            Assert.Equal(ConverterError.FfprobeFailed, fileStatus);
+            Assert.NotEqual(ConverterError.Ok, result);
+            Assert.False(File.Exists(ffmpegMarker));
+            Assert.False(File.Exists(mkvmergeMarker));
+            Assert.Empty(Directory.GetFiles(outputDir));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Converter_SingleMissingMuxSource_ReturnsFailure()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"mux-missing-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var converter = new Converter(
+                new ToolPaths { Ffmpeg = "/bin/true" },
+                PresetDb.Load(),
+                new HardwareProbeResult());
+            var options = new ConvertOptions
+            {
+                Codec = "mux",
+                Preset = "mkv",
+                AudioOutputMode = AudioOutputMode.Copy,
+                OutputDir = Path.Combine(root, "output")
+            };
+
+            ConverterError result = await converter.ProcessFilesAsync(
+                [Path.Combine(root, "missing.mkv")], options);
+
+            Assert.Equal(ConverterError.InputNotFound, result);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Converter_OnePassQueueContinuesAfterFfmpegFailure(bool corruptFirst)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        string root = Path.Combine(Path.GetTempPath(), $"conversion-queue-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string valid = Path.Combine(root, "valid.mkv");
+        string corrupt = Path.Combine(root, "corrupt.mkv");
+        string outputDir = Path.Combine(root, "output");
+        string ffprobe = CreateExecutable(root, "ffprobe",
+            "#!/bin/sh\ncase \"$*\" in *format=duration*) echo 1;; *) printf 'codec_name=h264\\npix_fmt=yuv420p\\nwidth=16\\nheight=16\\navg_frame_rate=25/1\\n';; esac\n");
+        string ffmpeg = CreateExecutable(root, "ffmpeg",
+            "#!/bin/sh\ncase \"$*\" in *corrupt.mkv*) exit 1;; esac\nfor output do :; done\n: > \"$output\"\nexit 0\n");
+        File.WriteAllText(valid, "valid source fixture");
+        File.WriteAllText(corrupt, "corrupt source fixture");
+        var converter = new Converter(
+            new ToolPaths { Ffmpeg = ffmpeg, Ffprobe = ffprobe },
+            PresetDb.Load(),
+            new HardwareProbeResult());
+        var options = new ConvertOptions
+        {
+            Codec = "prores_ks",
+            SelectionGroup = "software",
+            SelectionEncoder = "prores_ks",
+            Preset = "standard",
+            AudioOutputMode = AudioOutputMode.Pcm,
+            OutputDir = outputDir,
+            Overwrite = true
+        };
+        var statuses = new List<ConverterError>();
+        converter.FileEnd += (_, args) => statuses.Add(args.Status);
+        string[] inputs = corruptFirst ? [corrupt, valid] : [valid, corrupt];
+        string successfulOutput = CommandBuilder.BuildOutputFilePath(
+            valid, options, "linux", PresetDb.Load());
+
+        try
+        {
+            ConverterError result = await converter.ProcessFilesAsync(inputs, options);
+
+            Assert.Equal(ConverterError.Ok, result);
+            Assert.Equal(corruptFirst
+                ? new[] { ConverterError.FfmpegFailed, ConverterError.Ok }
+                : new[] { ConverterError.Ok, ConverterError.FfmpegFailed }, statuses);
+            Assert.True(File.Exists(successfulOutput));
+            string failedOutput = CommandBuilder.BuildOutputFilePath(
+                corrupt, options, "linux", PresetDb.Load());
+            Assert.False(File.Exists(failedOutput));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Converter_MuxM4vDryRun_UsesReplacementTrackWorkflow()
     {
         string tempInput = Path.GetTempFileName();
@@ -297,5 +442,17 @@ public class MuxPipelineTests
             CallCount++;
             return Task.FromResult(result);
         }
+    }
+
+    private static string CreateExecutable(string directory, string name, string contents)
+    {
+        if (!OperatingSystem.IsLinux())
+            throw new PlatformNotSupportedException("Executable fixtures require Linux.");
+
+        string path = Path.Combine(directory, name);
+        File.WriteAllText(path, contents);
+        File.SetUnixFileMode(path,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
     }
 }

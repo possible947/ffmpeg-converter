@@ -147,6 +147,9 @@ public class Converter
         int index = 0;
         var fileList = new List<string>(files);
         int total = fileList.Count;
+        bool singleMuxWorkflow = total == 1 &&
+                                 AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.Mux;
+        ConverterError singleMuxResult = ConverterError.Ok;
 
         foreach (var input in fileList)
         {
@@ -163,6 +166,8 @@ public class Converter
             {
                 RaiseError($"Input file not found: {input}", ConverterError.InputNotFound);
                 FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InputNotFound));
+                if (singleMuxWorkflow)
+                    singleMuxResult = ConverterError.InputNotFound;
                 continue;
             }
 
@@ -189,6 +194,8 @@ public class Converter
                     {
                         RaiseError("Could not probe the source video codec for Copy mode.", ConverterError.FfprobeFailed);
                         FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.FfprobeFailed));
+                        if (singleMuxWorkflow)
+                            singleMuxResult = ConverterError.FfprobeFailed;
                         continue;
                     }
                     sourceVideoCodec = MuxPolicyResolver.ParseVideoCodec(sourceInfo.CodecName);
@@ -316,6 +323,10 @@ public class Converter
                     input, opts.VideoTrackPath, output, effectiveOutputDir,
                     opts, opts, platform, muxPolicy, replacementProbeResult);
                 AddTrackResult addTrackResult = await ExecuteAddTrackAsync(addTrackRequest, cancellationToken);
+                if (singleMuxWorkflow &&
+                    addTrackResult.Stage == AddTrackStage.SourcePreparation &&
+                    addTrackResult.Error is ConverterError.FfprobeFailed or ConverterError.InputNotFound or ConverterError.InputNotReadable)
+                    singleMuxResult = addTrackResult.Error;
                 FileEnd?.Invoke(this, new FileEndEventArgs(input, addTrackResult.Error));
                 continue;
             }
@@ -354,7 +365,7 @@ public class Converter
                     continue;
                 }
 
-                string taskDir = Path.Combine(effectiveOutputDir, $"task_{index}");
+                string taskDir = Path.GetFullPath(Path.Combine(effectiveOutputDir, $"task_{index}"));
                 if (Directory.Exists(taskDir) || File.Exists(taskDir))
                 {
                     RaiseError($"HQ task directory already exists: {taskDir}", ConverterError.InvalidOptions);
@@ -531,7 +542,7 @@ public class Converter
         }
 
         Completed?.Invoke(this, EventArgs.Empty);
-        return ConverterError.Ok;
+        return singleMuxWorkflow ? singleMuxResult : ConverterError.Ok;
     }
 
     public async Task<ConverterError> ProcessDirectM4vFilesWithEditBeforeMuxAsync(
