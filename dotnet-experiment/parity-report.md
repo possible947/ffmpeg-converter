@@ -1,5 +1,11 @@
 # C core and .NET experiment: functional-parity assessment
 
+> **Historical assessment:** this report predates the Linux behavioral-parity
+> remediation for `fra`/`fre` output verification, corrupt single-source Mux
+> results, and HQ runtime discovery/worker lifecycle. Those three cases were
+> revalidated and closed; see [parity-fix-report.md](./parity-fix-report.md).
+> Other findings below were not revisited by that scoped follow-up.
+
 ## Executive summary
 
 **Functional parity is feasible.** The .NET experiment already implements most of the
