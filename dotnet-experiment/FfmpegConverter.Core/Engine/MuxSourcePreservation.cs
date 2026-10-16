@@ -33,6 +33,7 @@ public sealed record MuxSourcePreservationPlan(
 public sealed record MuxSourcePreservationResult(
     MuxSourcePreservationPlan? Plan,
     IReadOnlyList<string> Warnings,
+    bool HasAttachments,
     string? Error)
 {
     public bool Success => Plan != null && Error == null;
@@ -53,8 +54,19 @@ public static class MuxSourcePreservation
 
             var mappings = new List<SubtitleStreamMapping>();
             var warnings = new List<string>();
+            bool hasAttachments = false;
             foreach (JsonElement stream in streams.EnumerateArray())
             {
+                string? streamType = stream.TryGetProperty("codec_type", out JsonElement typeElement) &&
+                                     typeElement.ValueKind == JsonValueKind.String
+                    ? typeElement.GetString()
+                    : null;
+                if (string.Equals(streamType, "attachment", StringComparison.OrdinalIgnoreCase))
+                    hasAttachments = true;
+                if (streamType != null &&
+                    !string.Equals(streamType, "subtitle", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 if (!stream.TryGetProperty("index", out JsonElement indexElement) ||
                     !indexElement.TryGetInt32(out int index) || index < 0)
                     return Failed("ffprobe returned a subtitle stream without a valid index.");
@@ -63,8 +75,9 @@ public static class MuxSourcePreservation
                                 codecElement.ValueKind == JsonValueKind.String
                     ? codecElement.GetString()?.ToLowerInvariant()
                     : null;
-                SubtitlePolicy subtitlePolicy = MuxPolicyResolver.ResolveSubtitle(
-                    codec, policy.Container);
+                SubtitlePolicy subtitlePolicy = policy.PreserveSubtitlesWhenSupported
+                    ? MuxPolicyResolver.ResolveSubtitle(codec, policy.Container)
+                    : new SubtitlePolicy(SubtitleAction.Drop, null);
 
                 if (subtitlePolicy.Action != SubtitleAction.Copy)
                 {
@@ -89,6 +102,7 @@ public static class MuxSourcePreservation
                     policy.AttachmentAction == StreamAction.Preserve,
                     mappings),
                 warnings,
+                hasAttachments,
                 null);
         }
         catch (JsonException ex)
@@ -118,8 +132,8 @@ public static class MuxSourcePreservation
         };
         foreach (string argument in new[]
         {
-            "-v", "error", "-select_streams", "s", "-show_entries",
-            "stream=index,codec_name", "-of", "json", inputPath
+            "-v", "error", "-show_entries",
+            "stream=index,codec_name,codec_type", "-of", "json", inputPath
         })
             startInfo.ArgumentList.Add(argument);
 
@@ -170,5 +184,5 @@ public static class MuxSourcePreservation
     }
 
     private static MuxSourcePreservationResult Failed(string error) =>
-        new(null, Array.Empty<string>(), error);
+        new(null, Array.Empty<string>(), false, error);
 }

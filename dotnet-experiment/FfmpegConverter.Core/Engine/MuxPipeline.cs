@@ -6,6 +6,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Probing;
 
 namespace FfmpegConverter.Core.Engine;
@@ -205,7 +206,8 @@ public class MuxPipeline
         ConvertOptions opts,
         ToolPaths tools,
         HardwareProbeResult? probeResult,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        MuxPolicy? policy = null)
     {
         if (!File.Exists(intermediateFile))
         {
@@ -291,17 +293,15 @@ public class MuxPipeline
             }
             else if (preset == "mov")
             {
-                EmitStage("Post-mux: remux to .mov");
-                int remuxRc = await RunProcessAsync(tools.Ffmpeg, new[]
+                if (policy == null || policy.Container != MuxContainer.Mov)
                 {
-                    "-y", "-nostdin", "-i", tempOutput, "-c", "copy", "-f", "mov",
-                    finalOutputFile
-                }, cancellationToken);
-                if (remuxRc != 0)
-                {
-                    EmitError("post-mux failed: container remux returned error", ConverterError.FfmpegFailed);
-                    return ConverterError.FfmpegFailed;
+                    EmitError("post-mux failed: MOV stream policy is unavailable", ConverterError.InvalidOptions);
+                    return ConverterError.InvalidOptions;
                 }
+                ConverterError remuxError = await RunMovRemuxAsync(
+                    tempOutput, finalOutputFile, tools, policy, cancellationToken);
+                if (remuxError != ConverterError.Ok)
+                    return remuxError;
             }
             else if (preset == "m4v")
             {
@@ -369,6 +369,69 @@ public class MuxPipeline
         arguments.Add("--no-video");
         arguments.Add(intermediateFile);
         return arguments;
+    }
+
+    public static IReadOnlyList<string> BuildMovRemuxArguments(
+        string inputFile,
+        string outputFile,
+        MuxSourcePreservationPlan sourcePlan,
+        MuxPolicy policy)
+    {
+        var arguments = new List<string>
+        {
+            "-y", "-nostdin", "-i", inputFile,
+            "-map", "0:v:0", "-map", "0:a?"
+        };
+        foreach (SubtitleStreamMapping subtitle in sourcePlan.SubtitleStreams)
+        {
+            arguments.Add("-map");
+            arguments.Add($"0:{subtitle.StreamIndex}");
+            arguments.Add($"-c:s:{subtitle.OutputIndex}");
+            arguments.Add(subtitle.Encoder);
+        }
+        if (policy.MetadataAction == StreamAction.Preserve)
+            arguments.AddRange(new[] { "-map_metadata", "0" });
+        if (sourcePlan.PreserveChapters)
+            arguments.AddRange(new[] { "-map_chapters", "0" });
+        arguments.AddRange(new[] { "-c", "copy" });
+        if (policy.MetadataAction == StreamAction.Preserve)
+            arguments.AddRange(new[] { "-movflags", "use_metadata_tags" });
+        arguments.AddRange(new[] { "-f", "mov", outputFile });
+        return arguments;
+    }
+
+    private async Task<ConverterError> RunMovRemuxAsync(
+        string inputFile,
+        string outputFile,
+        ToolPaths tools,
+        MuxPolicy policy,
+        CancellationToken cancellationToken)
+    {
+        MuxSourcePreservationResult preservationResult =
+            await MuxSourcePreservation.ProbeAsync(
+                tools.Ffprobe, inputFile, policy, cancellationToken);
+        if (!preservationResult.Success)
+        {
+            string message = preservationResult.Error ??
+                             "post-mux failed: could not probe source streams";
+            EmitError(message, ConverterError.FfprobeFailed);
+            return ConverterError.FfprobeFailed;
+        }
+        foreach (string warning in preservationResult.Warnings)
+            EmitMessage(warning);
+        if (preservationResult.HasAttachments &&
+            policy.AttachmentAction == StreamAction.Drop)
+            EmitMessage("Warning: input attachments are dropped by the selected output container.");
+
+        EmitStage("Post-mux: remux to .mov");
+        IReadOnlyList<string> arguments = BuildMovRemuxArguments(
+            inputFile, outputFile, preservationResult.Plan!, policy);
+        int result = await RunProcessAsync(tools.Ffmpeg, arguments, cancellationToken);
+        if (result == 0)
+            return ConverterError.Ok;
+
+        EmitError("post-mux failed: container remux returned error", ConverterError.FfmpegFailed);
+        return ConverterError.FfmpegFailed;
     }
 
     private async Task<int> RunProcessAsync(

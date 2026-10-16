@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using FfmpegConverter.Core.Engine;
 using FfmpegConverter.Core.Policy;
@@ -18,10 +19,11 @@ public class MuxSourcePreservationTests
             """
             {
               "streams": [
-                { "index": 2, "codec_name": "subrip" },
-                { "index": 4, "codec_name": "mov_text" },
-                { "index": 5, "codec_name": "hdmv_pgs_subtitle" },
-                { "index": 6, "codec_name": "unknown_subtitle" }
+                { "index": 2, "codec_type": "subtitle", "codec_name": "subrip" },
+                { "index": 4, "codec_type": "subtitle", "codec_name": "mov_text" },
+                { "index": 5, "codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle" },
+                { "index": 6, "codec_type": "subtitle", "codec_name": "unknown_subtitle" },
+                { "index": 7, "codec_type": "attachment", "codec_name": "ttf" }
               ]
             }
             """,
@@ -38,6 +40,7 @@ public class MuxSourcePreservationTests
             result.Plan!.SubtitleStreams);
         Assert.True(result.Plan.PreserveChapters);
         Assert.True(result.Plan.PreserveAttachments);
+        Assert.True(result.HasAttachments);
         Assert.Equal(2, result.Warnings.Count);
         Assert.Contains("-map 0:2 -c:s:0 copy", result.Plan.BuildFfmpegArguments());
         Assert.Contains("-map 0:4 -c:s:1 srt", result.Plan.BuildFfmpegArguments());
@@ -88,6 +91,52 @@ public class MuxSourcePreservationTests
 
         Assert.False(result.Success);
         Assert.Contains("invalid subtitle JSON", result.Error);
+    }
+
+    [Fact]
+    public void MovRemuxArguments_ConvertTextSubtitlesAndDropAttachments()
+    {
+        var profile = new MuxBuildProfile(MuxPlatform.Linux, MuxFfmpegVersion.V8_1);
+        PolicyResult policyResult = MuxPolicyResolver.Resolve(
+            profile, MuxOperationalMode.Mov, AudioOutputMode.Pcm,
+            MuxVideoCodec.Unknown, MuxVideoCodec.H264);
+        Assert.True(policyResult.Success);
+        MuxSourcePreservationResult preservation = MuxSourcePreservation.ParseProbeJson(
+            """
+            {
+              "streams": [
+                { "index": 2, "codec_type": "subtitle", "codec_name": "subrip" },
+                { "index": 3, "codec_type": "subtitle", "codec_name": "mov_text" },
+                { "index": 4, "codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle" },
+                { "index": 5, "codec_type": "attachment", "codec_name": "ttf" }
+              ]
+            }
+            """,
+            policyResult.Policy!);
+
+        IReadOnlyList<string> arguments = MuxPipeline.BuildMovRemuxArguments(
+            "/input with spaces/source.mkv",
+            "/output with spaces/final.mov",
+            preservation.Plan!,
+            policyResult.Policy!);
+
+        Assert.Equal(new[]
+        {
+            new SubtitleStreamMapping(2, 0, "mov_text"),
+            new SubtitleStreamMapping(3, 1, "copy")
+        }, preservation.Plan!.SubtitleStreams);
+        Assert.True(preservation.HasAttachments);
+        Assert.False(preservation.Plan.PreserveAttachments);
+        Assert.Contains("-map", arguments);
+        Assert.Contains("0:2", arguments);
+        Assert.Contains("0:3", arguments);
+        Assert.Contains("mov_text", arguments);
+        Assert.Contains("copy", arguments);
+        Assert.Contains("-map_metadata", arguments);
+        Assert.Contains("-map_chapters", arguments);
+        Assert.Contains("-movflags", arguments);
+        Assert.DoesNotContain("-map 0:t?", string.Join(" ", arguments));
+        Assert.Equal("/output with spaces/final.mov", arguments[^1]);
     }
 
     [Fact]
