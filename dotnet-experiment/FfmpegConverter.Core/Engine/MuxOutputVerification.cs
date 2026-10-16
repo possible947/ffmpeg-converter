@@ -132,10 +132,16 @@ public static class MuxOutputVerification
             foreach (JsonElement stream in streamsElement.EnumerateArray())
             {
                 if (!stream.TryGetProperty("codec_type", out JsonElement typeElement) ||
-                    typeElement.ValueKind != JsonValueKind.String ||
-                    !stream.TryGetProperty("codec_name", out JsonElement codecElement) ||
-                    codecElement.ValueKind != JsonValueKind.String)
-                    return new(null, "ffprobe returned a stream without a codec type or name.");
+                    typeElement.ValueKind != JsonValueKind.String)
+                    return new(null, "ffprobe returned a stream without a codec type.");
+
+                string codecType = typeElement.GetString()!.ToLowerInvariant();
+                string codecName = stream.TryGetProperty("codec_name", out JsonElement codecElement) &&
+                                   codecElement.ValueKind == JsonValueKind.String
+                    ? codecElement.GetString()!.ToLowerInvariant()
+                    : "";
+                if (codecName.Length == 0 && codecType != "attachment")
+                    return new(null, "ffprobe returned a stream without a codec name.");
 
                 string? language = null;
                 if (stream.TryGetProperty("tags", out JsonElement tagsElement) &&
@@ -147,8 +153,8 @@ public static class MuxOutputVerification
                 bool isDefault = ReadDisposition(stream, "default");
                 bool isForced = ReadDisposition(stream, "forced");
                 streams.Add(new MuxOutputStream(
-                    typeElement.GetString()!.ToLowerInvariant(),
-                    codecElement.GetString()!.ToLowerInvariant(),
+                    codecType,
+                    codecName,
                     language,
                     isDefault,
                     isForced));
@@ -216,10 +222,11 @@ public static class MuxOutputVerification
         if (!videoResult.Success)
             return videoResult;
 
+        // The native Mux M4V final remux reports MP4Box language tags as "und".
         MuxOutputStream[] expectedAudio = policy.Container == MuxContainer.M4v
             ? policy.AudioMode == AudioOutputMode.AacAc3
-                ? [new("audio", "aac", "rus", true, false), new("audio", "ac3", "rus", false, false)]
-                : [new("audio", "aac", "rus", true, false)]
+                ? [new("audio", "aac", null, true, false), new("audio", "ac3", null, false, false)]
+                : [new("audio", "aac", null, true, false)]
             : assembled.Streams.Where(stream => stream.CodecType == "audio").ToArray();
         MuxOutputVerificationResult audioResult = CompareStreams(
             expectedAudio,
@@ -275,11 +282,23 @@ public static class MuxOutputVerification
                     return streamResult;
             }
         }
-        else if (output.Streams.Any(stream =>
-                     stream.CodecType is not ("video" or "audio" or "subtitle")))
+        else
         {
-            return MuxOutputVerificationResult.Failed(
-                "Final MOV/M4V contains an unsupported auxiliary stream.");
+            // The native MOV/M4V remux can expose preserved text tracks as bin_data.
+            MuxOutputStream[] unsupportedAuxiliary = output.Streams
+                .Where(stream =>
+                    stream.CodecType is not ("video" or "audio" or "subtitle") &&
+                    !((policy.Container is MuxContainer.Mov or MuxContainer.M4v) &&
+                      stream.CodecType == "data" &&
+                      stream.CodecName == "bin_data"))
+                .ToArray();
+            if (unsupportedAuxiliary.Length > 0)
+            {
+                string streamNames = string.Join(", ", unsupportedAuxiliary.Select(
+                    stream => $"{stream.CodecType}/{stream.CodecName}"));
+                return MuxOutputVerificationResult.Failed(
+                    $"Final {policy.Container} contains unsupported auxiliary streams: {streamNames}.");
+            }
         }
 
         return MuxOutputVerificationResult.Verified();
@@ -305,8 +324,17 @@ public static class MuxOutputVerification
             {
                 CodecName = subtitlePolicy.Action == SubtitleAction.Copy
                     ? subtitle.CodecName
-                    : subtitlePolicy.Encoder!.ToLowerInvariant()
+                    : subtitlePolicy.Encoder!.ToLowerInvariant(),
+                Language = policy.Container == MuxContainer.M4v
+                    ? null
+                    : subtitle.Language
             });
+        }
+        if ((policy.Container is MuxContainer.Mov or MuxContainer.M4v) &&
+            expected.Count > 0 &&
+            !expected.Exists(subtitle => subtitle.IsDefault))
+        {
+            expected[0] = expected[0] with { IsDefault = true };
         }
         return expected.ToArray();
     }
@@ -360,7 +388,12 @@ public static class MuxOutputVerification
         {
             MuxOutputStream wanted = expected[index];
             MuxOutputStream found = actual[index];
-            if (!string.Equals(wanted.CodecName, found.CodecName, StringComparison.OrdinalIgnoreCase))
+            bool attachmentCodecKnown =
+                wanted.CodecType != "attachment" ||
+                (!string.IsNullOrEmpty(wanted.CodecName) &&
+                 !string.IsNullOrEmpty(found.CodecName));
+            if (attachmentCodecKnown &&
+                !string.Equals(wanted.CodecName, found.CodecName, StringComparison.OrdinalIgnoreCase))
                 return MuxOutputVerificationResult.Failed(
                     $"{description} codec {index} is {found.CodecName}; expected {wanted.CodecName}.");
             if (!string.IsNullOrEmpty(wanted.Language) &&

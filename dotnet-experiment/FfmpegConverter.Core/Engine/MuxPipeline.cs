@@ -523,8 +523,6 @@ public class MuxPipeline
             {
                 arguments.Add("-map");
                 arguments.Add($"0:{subtitle.StreamIndex}");
-                arguments.Add($"-c:s:{subtitle.OutputIndex}");
-                arguments.Add(subtitle.Encoder);
             }
         }
         if (sourcePlan.PreserveAttachments)
@@ -534,6 +532,15 @@ public class MuxPipeline
         if (sourcePlan.PreserveChapters)
             arguments.AddRange(new[] { "-map_chapters", "0" });
         arguments.AddRange(new[] { "-c", "copy" });
+        if (sourcePlan.SubtitleAction != StreamAction.Drop)
+        {
+            foreach (SubtitleStreamMapping subtitle in sourcePlan.SubtitleStreams)
+                arguments.AddRange(new[]
+                {
+                    $"-c:s:{subtitle.OutputIndex}",
+                    subtitle.Encoder
+                });
+        }
         if (sourcePlan.PreserveMetadata)
             arguments.AddRange(new[] { "-movflags", "use_metadata_tags" });
         arguments.AddRange(new[] { "-f", "mov", outputFile });

@@ -38,6 +38,25 @@ public class MuxOutputVerificationTests
     }
 
     [Fact]
+    public void ParseJson_AllowsMissingCodecNameForMatroskaAttachments()
+    {
+        MuxOutputProbeResult result = MuxOutputVerification.ParseJson(
+            """
+            {
+              "streams": [
+                { "codec_type": "attachment", "tags": { "filename": "font.ttf" } }
+              ],
+              "chapters": [],
+              "format": { "format_name": "matroska,webm" }
+            }
+            """);
+
+        Assert.True(result.Success, result.Error);
+        Assert.Equal("attachment", result.Snapshot!.Streams[0].CodecType);
+        Assert.Empty(result.Snapshot.Streams[0].CodecName);
+    }
+
+    [Fact]
     public void VerifyAssembly_PreservesSourceStreamsAndExcludesReplacementAuxiliaries()
     {
         MuxOutputSnapshot source = new(
@@ -102,8 +121,9 @@ public class MuxOutputVerificationTests
             "mov,mp4,m4a,3gp,3g2,mj2",
             [
                 new("video", "h264", null, true, false),
-                new("audio", "aac", "rus", true, false),
-                new("subtitle", "mov_text", "eng", false, true)
+                new("audio", "aac", "und", true, false),
+                new("subtitle", "mov_text", "und", true, true),
+                new("data", "bin_data", "eng", false, false)
             ],
             1);
 
@@ -120,6 +140,15 @@ public class MuxOutputVerificationTests
             assembled, replacement, wrongDisposition, policyResult.Policy!);
         Assert.False(result.Success);
         Assert.Contains("default/forced", result.Error);
+
+        MuxOutputSnapshot unsupportedData = final with
+        {
+            Streams = [.. final.Streams, new("data", "scte_35", null, false, false)]
+        };
+        result = MuxOutputVerification.VerifyFinalOutput(
+            assembled, replacement, unsupportedData, policyResult.Policy!);
+        Assert.False(result.Success);
+        Assert.Contains("data/scte_35", result.Error);
     }
 
     [Fact]
@@ -142,8 +171,8 @@ public class MuxOutputVerificationTests
             "mov,mp4,m4a,3gp,3g2,mj2",
             [
                 new("video", "hevc", null, true, false),
-                new("audio", "aac", "rus", true, false),
-                new("audio", "ac3", "rus", false, false)
+                new("audio", "aac", "und", true, false),
+                new("audio", "ac3", "und", false, false)
             ],
             0);
 
@@ -185,7 +214,8 @@ public class MuxOutputVerificationTests
             [
                 new("video", "h264", null, true, false),
                 new("audio", "pcm_s24le", "eng", true, false),
-                new("subtitle", "mov_text", "eng", false, true)
+                new("subtitle", "mov_text", "eng", true, true),
+                new("data", "bin_data", "eng", false, false)
             ],
             0);
 

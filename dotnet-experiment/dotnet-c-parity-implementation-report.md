@@ -24,13 +24,13 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 | D — Replacement codec probe and early validation | PASS | Added a typed one-probe result, explicit missing/unreadable/corrupt/no-video failures, C-derived container codec acceptance, and rejection before Add Track preparation. |
 | E — Shared Add Track contract | PARTIAL | Added a reusable validated request/result contract shared by ordinary Mux and HQ, verifies the prepared MKV has video and audio, and retains unique intermediate cleanup. Final-container verification remains for Phase J. |
 | F — MKV preservation and replacement isolation | PARTIAL | Source preparation now maps supported subtitles, chapters, attachments, and metadata into the MKV intermediate; mkvmerge explicitly takes only replacement video and assigns source segment/video metadata. Real-media ownership verification remains. |
-| G — MOV finalization and subtitle compatibility | PARTIAL | MOV remux now explicitly maps video/audio, applies per-subtitle compatibility conversions, preserves chapters/metadata, uses MOV metadata tags, and warns when attachments are dropped. Real-media output verification remains. |
-| H — Mux M4V finalization | PARTIAL | Mux M4V now distinguishes AAC-only from AAC+AC3/default, requires libfdk_aac, preserves chapters/subtitles/metadata, assigns AAC-only default disposition, uses argument lists, and selects a plus-free MP4Box import directory. Real-media output verification remains. |
+| G — MOV finalization and subtitle compatibility | PARTIAL | MOV remux explicitly maps video/audio, applies per-subtitle compatibility conversions, preserves chapters/metadata, uses MOV metadata tags, and warns when attachments are dropped. Real-media MOV PCM now succeeds and matches the C fixture's stream codecs, chapters, subtitle dispositions, and generated `bin_data` stream; broader platform coverage remains. Subtitle codec overrides now follow the global `-c copy` option so FFmpeg does not copy SRT into MOV. |
+| H — Mux M4V finalization | PARTIAL | Mux M4V distinguishes AAC-only from AAC+AC3/default, requires libfdk_aac, preserves chapters/subtitles/metadata, assigns AAC-only default disposition, uses argument lists, and selects a plus-free MP4Box import directory. Real AAC, AAC+AC3, and default cases now pass on the fixture; AAC+AC3/default match C structurally. The AAC-only C output has an additional generated `GoPro MET` data stream not present in .NET, while both preserve the same chapter count. |
 | I — Shared preservation plan | PARTIAL | MKV, MOV, and M4V source/finalization paths now consume one typed preservation plan for stream ownership, audio selection, subtitles, chapters, metadata, language, dispositions, attachments, and replacement video. M4V attachment dropping now matches native policy; real-media verification remains. |
-| J — Output verification, errors, and cancellation | PARTIAL | Typed ffprobe snapshots verify openable containers, replacement video codec, audio/subtitle codecs and dispositions, chapters, attachments, and auxiliary-stream isolation. MOV/M4V finalizers stage output and promote only after verification; real-media and injected failure/cancellation tests remain. |
+| J — Output verification, errors, and cancellation | PARTIAL | Typed ffprobe snapshots verify openable containers, replacement video codec, audio/subtitle codecs and dispositions, chapters, attachments, and auxiliary-stream isolation. MOV/M4V finalizers stage output and promote only after verification. Real fixtures exposed native muxer behavior that output verification now reflects: M4V language tags may be `und`, first MOV/M4V subtitles may become default, and text remuxes may produce `bin_data`; injected failure/cancellation tests remain. |
 | K — HQ handoff parity | PARTIAL | HQ output continues through the shared Add Track and typed policy path; cancellation now escalates from stop to worker kill and process-tree termination. Runtime encoder and native HQ integration tests remain unavailable. |
 | L — CLI and Avalonia integration | PARTIAL | CLI probes and policy-validates replacement video before conversion; GUI audio choices refresh from current sources/replacement and policy selection, invalid Mux Add Track states disable Start, and Mux M4V checks MP4Box. GUI interaction automation remains. |
-| M — Direct M4V workflow | PARTIAL | Direct M4V keeps its own dialog, language/defaults, uses fixed libfdk_aac, and now applies direct M4V metadata/subtitle preservation. Edit-before-mux runs the selected source conversion, verifies fresh intermediates, creates original-name M4V outputs, and cleans successful intermediates; real-media validation remains. |
+| M — Direct M4V workflow | PARTIAL | Direct M4V keeps its own dialog, language/defaults, uses fixed libfdk_aac, and now applies direct M4V metadata/subtitle preservation. A real .NET Direct M4V run preserved dual audio, subtitles, and chapters. Edit-before-mux runs the selected source conversion, verifies fresh intermediates, creates original-name M4V outputs, and cleans successful intermediates; edit-before-mux and native C cross-comparison remain unverified. |
 
 ## 4. Files changed by phase
 
@@ -70,13 +70,13 @@ Pure tests cover mode parsing, defaults, container/extension selection, audio co
 
 **Status: PARTIAL**
 
-Policy decisions and output extensions are covered. Mux M4V is routed through replacement-track workflow rather than the Direct M4V branch. MKV, MOV, and M4V production paths consume explicit source/replacement ownership and preservation decisions, with typed final verification; real-media output verification remains.
+Policy decisions and output extensions are covered. Mux M4V is routed through replacement-track workflow rather than the Direct M4V branch. MKV, MOV, and M4V production paths consume explicit source/replacement ownership and preservation decisions, with typed final verification. The tested MKV Copy/PCM, MOV PCM, and M4V AAC/AAC+AC3/default paths completed on a real fixture; other combinations and toolchain versions remain.
 
 ## 7. Preservation parity status
 
 **Status: PARTIAL**
 
-The typed preservation plan now carries audio selection, video replacement ownership, per-container subtitle compatibility, chapters, global and stream metadata, language, default/forced dispositions, and attachment actions to preparation/finalization commands. MKV preparation and MOV/M4V finalizers map only policy-selected streams; mkvmerge restricts the replacement input to video, keeps source auxiliaries isolated, and applies source metadata explicitly. M4V attachment dropping now matches the native policy. Real-media stream ownership and dispositions remain unverified.
+The typed preservation plan now carries audio selection, video replacement ownership, per-container subtitle compatibility, chapters, global and stream metadata, language, default/forced dispositions, and attachment actions to preparation/finalization commands. MKV preparation and MOV/M4V finalizers map only policy-selected streams; mkvmerge restricts the replacement input to video, keeps source auxiliaries isolated, and applies source metadata explicitly. The real fixture confirms MKV Copy/PCM preservation, M4V attachment dropping, and MOV/M4V subtitle conversions/dispositions. Mux M4V AAC-only still differs from native C by one generated chapter metadata data stream.
 
 ## 8. HQ parity status
 
@@ -88,7 +88,7 @@ HQ audio availability uses the shared policy and rejects non-PCM HQ ProRes befor
 
 **Status: PARTIAL**
 
-Direct M4V remains a separate workflow selected outside the Mux group. Its dedicated dialog, explicit language, track indices, AC3 bitrate, chapter option, and defaults remain separate from Mux M4V, which uses the native autonomous `rus` language default. Direct output now uses the required fixed `libfdk_aac`, preserves supported subtitles, chapters, and metadata, and applies edit-before-mux through a separate source-conversion option set with fresh-output checks and success-only intermediate cleanup. The CLI rejects edit-before-mux because its command line does not provide the separate source-conversion settings. Real-media output, disposition, and edit-before-mux cleanup validation remain.
+Direct M4V remains a separate workflow selected outside the Mux group. Its dedicated dialog, explicit language, track indices, AC3 bitrate, chapter option, and defaults remain separate from Mux M4V, which uses the native autonomous `rus` language default before final remux. Direct output uses fixed `libfdk_aac`, preserves supported subtitles, chapters, and metadata, and applies edit-before-mux through a separate source-conversion option set with fresh-output checks and success-only intermediate cleanup. The real .NET Direct M4V fixture produced dual audio, subtitles, and two chapters. The CLI rejects edit-before-mux because its command line does not provide the separate source-conversion settings. Native C Direct M4V and edit-before-mux cleanup remain unverified.
 
 ## 10. CLI and Avalonia parity status
 
@@ -100,19 +100,29 @@ CLI parsing and Core validation use the shared availability resolver. Before exe
 
 **Status: PASS**
 
-After phase M, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 278/278.
+After Phase M, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 278/278. After the real-media fixes, `dotnet build dotnet-experiment/FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors and `dotnet test dotnet-experiment/FfmpegConverter.slnx --no-build --no-restore` passed 279/279. The follow-up adds attachment-without-codec coverage, MOV subtitle codec-order coverage, and M4V generated-stream verification coverage.
 
 ## 12. Real-media results
 
-**Status: NOT TESTED**
+**Status: PARTIAL**
 
-The audit baseline contains real-media observations, but no post-implementation real-media matrix has been run yet.
+Generated a 2.03-second Matroska fixture with H.264 video, two AAC tracks, SRT subtitles, two chapters, global metadata, and a font attachment, plus an H.264 replacement whose path contains Unicode and `+`. Compared C and .NET with the same bundled macOS FFmpeg 9.0, `mkvmerge` 102.0, and GPAC/MP4Box 26.07:
+
+- One-pass ProRes with PCM, AAC, and AAC+AC3 completed in both; ffprobe audio/video codec lists matched. Invalid one-pass Copy was rejected by both.
+- Mux MKV Copy and PCM completed in both; stream codecs, selected audio tracks, subtitle, attachment, and two chapters matched.
+- Mux MOV PCM completed in both after correcting .NET's subtitle codec-option ordering; video/audio/subtitle codecs, dispositions, generated `bin_data` stream, and two chapters matched.
+- Mux M4V AAC, AAC+AC3, and implicit default completed in both. AAC+AC3/default stream codecs, audio dispositions, subtitle, and chapter counts matched. AAC-only differed by one generated `GoPro MET` data stream in native C; the expected playable audio/subtitle/chapter structure matched.
+- Mux M4V ffprobe language tags were `und` for audio/subtitle in both outputs even though MP4Box receives the `rus` default. The verifier no longer treats that intermediate tag as a final-output invariant. FFmpeg also assigns the first MOV/M4V subtitle a default disposition when the source has none.
+- .NET Direct M4V completed and preserved dual audio, subtitle, and chapters. The native C CLI did not expose this direct workflow in this invocation: `--codec m4v` was interpreted as an unavailable software encoder, so a native Direct M4V comparison is **NOT TESTED**.
+- HQ x264 and HQ ProRes were attempted in both implementations, but the 2.03-second fixture is below HQ's 30-second minimum segment duration; both rejected it. Successful HQ output is **NOT TESTED**.
+
+These results use bundled FFmpeg 9.0, not the required FFmpeg 8.1 release toolchain, and do not establish parity for other platforms or media.
 
 ## 13. Cross-implementation comparison
 
-**Status: NOT TESTED**
+**Status: PARTIAL**
 
-No post-implementation semantic comparison of matching C and .NET fixture outputs has been run yet. Byte-for-byte output comparisons are not planned.
+The fixture comparisons above used ffprobe semantic summaries, not byte-for-byte output. The exercised one-pass PCM/AAC/AAC+AC3, Mux MKV Copy/PCM, Mux MOV PCM, and Mux M4V AAC+AC3/default cases matched on the checked stream types/codecs, dispositions where relevant, and chapter counts. Known difference: native C AAC-only M4V emitted one additional generated `GoPro MET` data stream. Direct M4V cannot currently be compared through the native CLI, and HQ cases did not produce output because the fixture was too short.
 
 ## 14. WSL validation status
 
@@ -128,10 +138,10 @@ Native Windows release validation is intentionally deferred until the non-Window
 
 ## 16. Remaining known gaps
 
-- Real-media output verification and end-to-end Add Track failure/cancellation injection remain.
-- MKV source preservation and replacement isolation need real-media verification; M4V AAC-only, dual-audio, default/forced dispositions, and dropped attachments need real-media stream-count tests.
+- End-to-end Add Track failure/cancellation injection remains.
+- The real-media fixture confirms MKV source preservation/replacement isolation and M4V attachment dropping, but AAC-only M4V has one generated `GoPro MET` stream difference from C; other FFmpeg/GPAC versions need validation.
 - Failure cleanup, cancellation/process termination, and queue behavior need coverage.
-- Direct M4V real-media output, chapter-disabled behavior, and edit-before-mux end-to-end cleanup need verification; Avalonia interaction, cross-implementation fixtures, WSL hardware preparation, and Windows packaged release validation remain.
+- Direct M4V chapter-disabled behavior and edit-before-mux end-to-end cleanup need verification; Avalonia interaction, broader media/platform fixtures, WSL hardware preparation, native Windows packaged release, and successful HQ media long enough to meet its 30-second segment minimum remain.
 
 ## 17. Commit hashes and messages
 

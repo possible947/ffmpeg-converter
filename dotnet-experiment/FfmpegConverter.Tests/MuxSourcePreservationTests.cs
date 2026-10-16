@@ -137,6 +137,8 @@ public class MuxSourcePreservationTests
         Assert.Contains("-map_metadata", arguments);
         Assert.Contains("-map_chapters", arguments);
         Assert.Contains("-movflags", arguments);
+        Assert.True(
+            arguments.ToList().IndexOf("-c") < arguments.ToList().IndexOf("-c:s:0"));
         Assert.DoesNotContain("-map 0:t?", string.Join(" ", arguments));
         Assert.Equal("/output with spaces/final.mov", arguments[^1]);
     }
