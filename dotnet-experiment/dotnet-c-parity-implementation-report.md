@@ -28,6 +28,7 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 | H — Mux M4V finalization | PARTIAL | Mux M4V now distinguishes AAC-only from AAC+AC3/default, requires libfdk_aac, preserves chapters/subtitles/metadata, assigns AAC-only default disposition, uses argument lists, and selects a plus-free MP4Box import directory. Real-media output verification remains. |
 | I — Shared preservation plan | PARTIAL | MKV, MOV, and M4V source/finalization paths now consume one typed preservation plan for stream ownership, audio selection, subtitles, chapters, metadata, language, dispositions, attachments, and replacement video. M4V attachment dropping now matches native policy; real-media verification remains. |
 | J — Output verification, errors, and cancellation | PARTIAL | Typed ffprobe snapshots verify openable containers, replacement video codec, audio/subtitle codecs and dispositions, chapters, attachments, and auxiliary-stream isolation. MOV/M4V finalizers stage output and promote only after verification; real-media and injected failure/cancellation tests remain. |
+| K — HQ handoff parity | PARTIAL | HQ output continues through the shared Add Track and typed policy path; cancellation now escalates from stop to worker kill and process-tree termination. Runtime encoder and native HQ integration tests remain unavailable. |
 
 ## 4. Files changed by phase
 
@@ -51,6 +52,8 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 
 **Phase J:** `FfmpegConverter.Core/Engine/MuxOutputVerification.cs`; `FfmpegConverter.Core/Engine/MuxPipeline.cs`; `FfmpegConverter.Core/Engine/AppleM4vPipeline.cs`; `FfmpegConverter.Tests/MuxOutputVerificationTests.cs`.
 
+**Phase K:** `FfmpegConverter.Core/Engine/HqAdapter.cs`; `FfmpegConverter.Core/Engine/HqWorker.cs`.
+
 ## 5. Policy parity status
 
 **Status: PASS**
@@ -73,7 +76,7 @@ The typed preservation plan now carries audio selection, video replacement owner
 
 **Status: PARTIAL**
 
-HQ audio availability uses the shared policy and rejects non-PCM HQ ProRes before execution. HQ-generated tracks now use the same validated Add Track request, policy, and assembly path as ordinary Mux; real HQ output verification remains.
+HQ audio availability uses the shared policy and rejects non-PCM HQ ProRes before execution. HQ-generated tracks use the same validated Add Track request, policy, output verification, and assembly path as ordinary Mux. Cancellation requests a graceful stop, then native kill, and finally kills the worker process tree if necessary; native HQ runtime and encoder-output tests remain unavailable.
 
 ## 9. Direct M4V parity status
 
@@ -137,6 +140,7 @@ Native Windows release validation is intentionally deferred until the non-Window
 | `2b1b14f` | Preserve MOV mux streams and metadata |
 | `84ad44e` | Match Mux M4V audio and preservation policy |
 | `e5f67ca` | Centralize mux stream preservation decisions |
+| `53c62fc` | Verify mux outputs and stage final files |
 
 ## 18. Confirmation that C and Pascal remain unchanged
 

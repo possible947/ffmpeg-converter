@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
@@ -52,19 +53,14 @@ public sealed class HqAdapter
             if (!process.Start())
                 return (2, "Could not start the HQ worker process.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             return (2, $"Could not start the HQ worker process: {ex.Message}");
         }
 
         using CancellationTokenRegistration stopRegistration = cancellationToken.Register(() =>
         {
-            try
-            {
-                process.StandardInput.WriteLine("stop");
-                process.StandardInput.Flush();
-            }
-            catch { }
+            TrySendWorkerCommand(process, "stop");
         });
 
         Task stdoutPump = PumpProcessOutputAsync(process.StandardOutput, "HQ worker: ");
@@ -109,23 +105,78 @@ public sealed class HqAdapter
         }
         catch (OperationCanceledException)
         {
-            if (!process.HasExited)
-            {
-                try { process.StandardInput.WriteLine("stop"); } catch { }
-            }
-            await process.WaitForExitAsync();
+            await StopWorkerAsync(process);
             await Task.WhenAll(stdoutPump, stderrPump);
             return (1, "HQ job cancelled.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or IOException or FormatException)
         {
             if (!process.HasExited)
             {
-                try { process.Kill(entireProcessTree: true); } catch { }
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { }
+                catch (Win32Exception) { }
             }
             await process.WaitForExitAsync();
             await Task.WhenAll(stdoutPump, stderrPump);
             return (2, $"HQ worker failed: {ex.Message}");
+        }
+    }
+
+    private async Task StopWorkerAsync(Process process)
+    {
+        if (process.HasExited)
+            return;
+
+        TrySendWorkerCommand(process, "stop");
+        if (await WaitForExitAsync(process, TimeSpan.FromSeconds(5)))
+            return;
+
+        TrySendWorkerCommand(process, "kill");
+        if (await WaitForExitAsync(process, TimeSpan.FromSeconds(5)))
+            return;
+
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException) { }
+        catch (Win32Exception) { }
+        await process.WaitForExitAsync();
+    }
+
+    private static async Task<bool> WaitForExitAsync(Process process, TimeSpan timeout)
+    {
+        using var timeoutSource = new CancellationTokenSource(timeout);
+        try
+        {
+            await process.WaitForExitAsync(timeoutSource.Token);
+            return true;
+        }
+        catch (OperationCanceledException) when (timeoutSource.IsCancellationRequested)
+        {
+            return process.HasExited;
+        }
+    }
+
+    private void TrySendWorkerCommand(Process process, string command)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.StandardInput.WriteLine(command);
+                process.StandardInput.Flush();
+            }
+        }
+        catch (IOException ex)
+        {
+            MessageLogged?.Invoke(this, $"Could not send '{command}' to HQ worker: {ex.Message}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageLogged?.Invoke(this, $"Could not send '{command}' to HQ worker: {ex.Message}");
         }
     }
 

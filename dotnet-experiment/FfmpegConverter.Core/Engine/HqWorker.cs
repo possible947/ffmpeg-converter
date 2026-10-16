@@ -77,6 +77,7 @@ public static class HqWorker
         IntPtr library = IntPtr.Zero;
         IntPtr handle = IntPtr.Zero;
         RequestStop? requestStop = null;
+        RequestKill? requestKill = null;
         object handleLock = new();
         CancellationTokenSource stopReaderCancellation = new();
         Task? stopTask = null;
@@ -88,7 +89,7 @@ public static class HqWorker
             var destroyHandle = Load<DestroyHandle>(library, "hqclib_destroy_handle");
             var runJob = Load<RunJob>(library, "hqclib_run_job");
             requestStop = Load<RequestStop>(library, "hqclib_request_stop");
-            _ = Load<RequestKill>(library, "hqclib_request_kill");
+            requestKill = Load<RequestKill>(library, "hqclib_request_kill");
             var getLastError = Load<GetLastError>(library, "hqclib_get_last_error");
             handle = createHandle();
             if (handle == IntPtr.Zero)
@@ -96,17 +97,25 @@ public static class HqWorker
 
             IntPtr jobHandle = handle;
             RequestStop stopFunction = requestStop;
+            RequestKill killFunction = requestKill;
             stopTask = Task.Run(async () =>
             {
                 try
                 {
                     while (!stopReaderCancellation.IsCancellationRequested &&
-                           await Console.In.ReadLineAsync(stopReaderCancellation.Token) is not null)
+                           await Console.In.ReadLineAsync(stopReaderCancellation.Token) is { } command)
                     {
+                        if (command is not ("stop" or "kill"))
+                            continue;
                         lock (handleLock)
                         {
                             if (handle != IntPtr.Zero)
-                                stopFunction(handle);
+                            {
+                                if (command == "kill")
+                                    killFunction(handle);
+                                else
+                                    stopFunction(handle);
+                            }
                         }
                     }
                 }
