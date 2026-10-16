@@ -151,6 +151,17 @@ public class MuxPolicyTests
         Assert.Equal(StreamAction.Preserve, result.Policy.SubtitleAction);
     }
 
+    [Fact]
+    public void ResolveM4v_DropsAttachments()
+    {
+        PolicyResult result = MuxPolicyResolver.Resolve(
+            Profile, MuxOperationalMode.M4v, AudioOutputMode.Aac,
+            MuxVideoCodec.Unknown, MuxVideoCodec.H264);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(StreamAction.Drop, result.Policy!.AttachmentAction);
+    }
+
     [Theory]
     [InlineData("mov_text", MuxContainer.Mkv, SubtitleAction.Convert, "srt")]
     [InlineData("subrip", MuxContainer.Mkv, SubtitleAction.Copy, "copy")]

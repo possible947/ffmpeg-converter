@@ -224,7 +224,28 @@ public class AppleM4vPipeline
         int ac3Bitrate = isMuxWorkflow
             ? 640
             : opts.M4vAc3BitrateKbps > 0 ? opts.M4vAc3BitrateKbps : 640;
-        bool addChapters = muxPolicy?.ChapterAction == StreamAction.Preserve ||
+        MuxSourcePreservationPlan? sourcePreservationPlan = null;
+        if (muxPolicy != null)
+        {
+            MuxSourcePreservationResult preservationResult =
+                await MuxSourcePreservation.ProbeAsync(
+                    tools.Ffprobe, inputFile, muxPolicy, cancellationToken);
+            if (!preservationResult.Success)
+            {
+                string message = preservationResult.Error ??
+                                 "Apple M4V stream policy could not be resolved.";
+                EmitError(message, ConverterError.FfprobeFailed);
+                return ConverterError.FfprobeFailed;
+            }
+            sourcePreservationPlan = preservationResult.Plan!;
+            foreach (string warning in preservationResult.Warnings)
+                EmitMessage(warning);
+            if (preservationResult.HasAttachments &&
+                !sourcePreservationPlan.PreserveAttachments)
+                EmitMessage("Warning: input attachments are dropped by the selected output container.");
+        }
+
+        bool addChapters = sourcePreservationPlan?.PreserveChapters == true ||
                            (muxPolicy == null && opts.M4vAddChapters);
 
         string outputDir;
@@ -391,28 +412,12 @@ public class AppleM4vPipeline
                 }
             }
 
-            if (muxPolicy != null)
+            if (muxPolicy != null && sourcePreservationPlan != null)
             {
-                MuxSourcePreservationResult preservationResult =
-                    await MuxSourcePreservation.ProbeAsync(
-                        tools.Ffprobe, inputFile, muxPolicy, cancellationToken);
-                if (!preservationResult.Success)
-                {
-                    string message = preservationResult.Error ??
-                                     "Apple M4V subtitle policy could not be resolved.";
-                    EmitError(message, ConverterError.FfprobeFailed);
-                    return ConverterError.FfprobeFailed;
-                }
-                foreach (string warning in preservationResult.Warnings)
-                    EmitMessage(warning);
-                if (preservationResult.HasAttachments &&
-                    muxPolicy.AttachmentAction == StreamAction.Drop)
-                    EmitMessage("Warning: input attachments are dropped by the selected output container.");
-
                 EmitStage("Apple M4V metadata and subtitle preservation");
                 IReadOnlyList<string> metadataArgs = BuildMuxMetadataSubtitleArguments(
                     outputFile, inputFile, subtitlesM4v,
-                    preservationResult.Plan!, videoTrackIndex);
+                    sourcePreservationPlan, videoTrackIndex);
                 rc = await RunProcessAsync(tools.Ffmpeg, metadataArgs, cancellationToken);
                 if (rc != 0)
                 {
@@ -571,19 +576,37 @@ public class AppleM4vPipeline
         MuxSourcePreservationPlan sourcePlan,
         int sourceVideoTrackIndex)
     {
+        if (sourcePlan.Container != MuxContainer.M4v)
+            throw new ArgumentException("M4V remux requires an M4V preservation plan.", nameof(sourcePlan));
+
         var arguments = new List<string>
         {
-            "-y", "-nostdin", "-i", inputFile, "-i", sourceFile,
-            "-map", "0", "-map_metadata", "1",
-            "-map_metadata:s:v:0", $"1:s:v:{sourceVideoTrackIndex}",
-            "-map_chapters", "0", "-c", "copy"
+            "-y", "-nostdin", "-i", inputFile, "-i", sourceFile
         };
-        foreach (SubtitleStreamMapping subtitle in sourcePlan.SubtitleStreams)
+        if (sourcePlan.VideoAction != StreamAction.Drop)
+            arguments.AddRange(new[] { "-map", "0:v:0" });
+        if (sourcePlan.AudioAction != StreamAction.Drop)
+            arguments.AddRange(new[] { "-map", "0:a?" });
+        if (sourcePlan.PreserveMetadata)
         {
-            arguments.Add("-map");
-            arguments.Add($"1:{subtitle.StreamIndex}");
-            arguments.Add($"-c:s:{subtitle.OutputIndex}");
-            arguments.Add(subtitle.Encoder);
+            arguments.AddRange(new[]
+            {
+                "-map_metadata", "1",
+                "-map_metadata:s:v:0", $"1:s:v:{sourceVideoTrackIndex}"
+            });
+        }
+        if (sourcePlan.PreserveChapters)
+            arguments.AddRange(new[] { "-map_chapters", "0" });
+        arguments.AddRange(new[] { "-c", "copy" });
+        if (sourcePlan.SubtitleAction != StreamAction.Drop)
+        {
+            foreach (SubtitleStreamMapping subtitle in sourcePlan.SubtitleStreams)
+            {
+                arguments.Add("-map");
+                arguments.Add($"1:{subtitle.StreamIndex}");
+                arguments.Add($"-c:s:{subtitle.OutputIndex}");
+                arguments.Add(subtitle.Encoder);
+            }
         }
         arguments.AddRange(new[] { "-f", "mp4", outputFile });
         return arguments;

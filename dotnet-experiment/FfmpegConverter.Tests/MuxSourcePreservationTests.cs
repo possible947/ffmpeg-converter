@@ -39,6 +39,9 @@ public class MuxSourcePreservationTests
             },
             result.Plan!.SubtitleStreams);
         Assert.True(result.Plan.PreserveChapters);
+        Assert.True(result.Plan.PreserveMetadata);
+        Assert.True(result.Plan.PreserveLanguage);
+        Assert.True(result.Plan.PreserveDisposition);
         Assert.True(result.Plan.PreserveAttachments);
         Assert.True(result.HasAttachments);
         Assert.Equal(2, result.Warnings.Count);
@@ -90,7 +93,7 @@ public class MuxSourcePreservationTests
             "{", policyResult.Policy!);
 
         Assert.False(result.Success);
-        Assert.Contains("invalid subtitle JSON", result.Error);
+        Assert.Contains("invalid source-stream JSON", result.Error);
     }
 
     [Fact]
@@ -117,8 +120,7 @@ public class MuxSourcePreservationTests
         IReadOnlyList<string> arguments = MuxPipeline.BuildMovRemuxArguments(
             "/input with spaces/source.mkv",
             "/output with spaces/final.mov",
-            preservation.Plan!,
-            policyResult.Policy!);
+            preservation.Plan!);
 
         Assert.Equal(new[]
         {
@@ -139,9 +141,68 @@ public class MuxSourcePreservationTests
         Assert.Equal("/output with spaces/final.mov", arguments[^1]);
     }
 
+    [Theory]
+    [InlineData(MuxOperationalMode.Mkv, AudioOutputMode.Pcm, AudioTrackSelectionPolicy.First, StreamAction.Preserve)]
+    [InlineData(MuxOperationalMode.Mov, AudioOutputMode.Pcm, AudioTrackSelectionPolicy.First, StreamAction.Drop)]
+    [InlineData(MuxOperationalMode.M4v, AudioOutputMode.Aac, AudioTrackSelectionPolicy.First, StreamAction.Drop)]
+    [InlineData(MuxOperationalMode.M4v, AudioOutputMode.AacAc3, AudioTrackSelectionPolicy.First, StreamAction.Drop)]
+    [InlineData(MuxOperationalMode.Mkv, AudioOutputMode.Copy, AudioTrackSelectionPolicy.All, StreamAction.Preserve)]
+    public void PreservationPlan_RecordsContainerStreamOwnership(
+        MuxOperationalMode mode,
+        AudioOutputMode audioMode,
+        AudioTrackSelectionPolicy trackPolicy,
+        StreamAction attachmentAction)
+    {
+        PolicyResult policy = MuxPolicyResolver.Resolve(
+            new MuxBuildProfile(MuxPlatform.Linux, MuxFfmpegVersion.V8_1),
+            mode,
+            audioMode,
+            MuxVideoCodec.H264,
+            MuxVideoCodec.H264);
+        Assert.True(policy.Success);
+
+        MuxSourcePreservationResult result = MuxSourcePreservation.ParseProbeJson(
+            """{ "streams": [] }""", policy.Policy!);
+
+        Assert.True(result.Success);
+        Assert.Equal(policy.Policy!.Container, result.Plan!.Container);
+        Assert.Equal(trackPolicy, result.Plan.AudioTrackPolicy);
+        Assert.True(result.Plan.RequiresVideoReplacement);
+        Assert.Equal(StreamAction.Preserve, result.Plan.VideoAction);
+        Assert.Equal(StreamAction.Preserve, result.Plan.SubtitleAction);
+        Assert.Equal(StreamAction.Preserve, result.Plan.ChapterAction);
+        Assert.Equal(StreamAction.Preserve, result.Plan.MetadataAction);
+        Assert.Equal(StreamAction.Preserve, result.Plan.StreamMetadataAction);
+        Assert.Equal(StreamAction.Preserve, result.Plan.LanguageAction);
+        Assert.Equal(StreamAction.Preserve, result.Plan.DispositionAction);
+        Assert.Equal(attachmentAction, result.Plan.AttachmentAction);
+    }
+
+    [Fact]
+    public void PreservationPlan_RejectsUnsupportedPolicyBeforeExecution()
+    {
+        PolicyResult resolved = MuxPolicyResolver.Resolve(
+            new MuxBuildProfile(MuxPlatform.Linux, MuxFfmpegVersion.V8_1),
+            MuxOperationalMode.Mkv,
+            AudioOutputMode.Pcm,
+            MuxVideoCodec.H264,
+            MuxVideoCodec.H264);
+        MuxPolicy rejectPolicy = resolved.Policy! with { ChapterAction = StreamAction.Reject };
+
+        MuxSourcePreservationResult result = MuxSourcePreservation.ParseProbeJson(
+            """{ "streams": [] }""", rejectPolicy);
+
+        Assert.False(result.Success);
+        Assert.Contains("rejects", result.Error);
+    }
+
     [Fact]
     public void MkvmergeArguments_UseOnlyReplacementVideoAndExplicitSourceMetadata()
     {
+        PolicyResult sourcePolicy = AudioModePolicy.ResolveSourcePreparationPolicy(
+            "linux", AudioOutputMode.Pcm);
+        MuxSourcePreservationResult preservation = MuxSourcePreservation.ParseProbeJson(
+            """{ "streams": [] }""", sourcePolicy.Policy!);
         var metadata = new MuxSourceMetadata(
             "; replacement metadata must not be parsed as options",
             "Source video title",
@@ -152,7 +213,8 @@ public class MuxSourcePreservationTests
             "/replacement with spaces/track.mkv",
             "/source with spaces/prepared.mkv",
             metadata,
-            "24000/1001");
+            "24000/1001",
+            preservation.Plan);
 
         Assert.Equal("--title", arguments[2]);
         Assert.Equal(metadata.SegmentTitle, arguments[3]);
@@ -172,6 +234,11 @@ public class MuxSourcePreservationTests
         int sourceNoVideoIndex = arguments.ToList().IndexOf("--no-video");
         Assert.True(replacementIndex > 0);
         Assert.True(sourceNoVideoIndex > replacementIndex);
+        Assert.DoesNotContain(
+            arguments.Skip(sourceNoVideoIndex),
+            argument => argument is "--no-audio" or "--no-subtitles" or
+                        "--no-attachments" or "--no-chapters" or
+                        "--no-global-tags" or "--no-track-tags");
         Assert.Equal("/source with spaces/prepared.mkv", arguments[^1]);
     }
 

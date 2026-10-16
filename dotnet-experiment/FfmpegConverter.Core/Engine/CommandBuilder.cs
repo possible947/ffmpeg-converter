@@ -214,9 +214,16 @@ public static class CommandBuilder
 
         bool isCopyAudio = opts.AudioOutputMode == AudioOutputMode.Copy;
         bool isDualAudio = opts.AudioOutputMode == AudioOutputMode.AacAc3;
+        bool mapAllAudio = sourcePreservationPlan?.AudioTrackPolicy == AudioTrackSelectionPolicy.All ||
+                           (sourcePreservationPlan == null && isCopyAudio);
+        if (sourcePreservationPlan != null &&
+            mapAllAudio != isCopyAudio)
+            throw new ArgumentException(
+                "Source audio mapping does not match the selected mux audio mode.",
+                nameof(sourcePreservationPlan));
         string audioFilter = isCopyAudio ? "" : BuildAudioFilter(opts);
 
-        if (isCopyAudio)
+        if (mapAllAudio)
         {
             sb.Append("-map 0:a? ");
         }
@@ -229,7 +236,8 @@ public static class CommandBuilder
             sb.Append("-map 0:a:0 ");
         }
 
-        sb.Append("-map_metadata 0 ");
+        if (sourcePreservationPlan == null || sourcePreservationPlan.PreserveMetadata)
+            sb.Append("-map_metadata 0 ");
         if (sourcePreservationPlan != null)
             sb.Append(sourcePreservationPlan.BuildFfmpegArguments());
 

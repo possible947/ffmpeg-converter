@@ -129,20 +129,31 @@ public class AppleM4vPipelineTests
     [Fact]
     public void MuxM4vMetadataRemux_MapsSubtitlesOnlyFromSourceAndKeepsChapterOutput()
     {
+        PolicyResult policy = MuxPolicyResolver.Resolve(
+            new MuxBuildProfile(MuxPlatform.Linux, MuxFfmpegVersion.V8_1),
+            MuxOperationalMode.M4v,
+            AudioOutputMode.Aac,
+            MuxVideoCodec.H264,
+            MuxVideoCodec.H264);
+        MuxSourcePreservationResult preservation = MuxSourcePreservation.ParseProbeJson(
+            """{ "streams": [{ "index": 4, "codec_type": "subtitle", "codec_name": "subrip" }] }""",
+            policy.Policy!);
+
         IReadOnlyList<string> arguments = AppleM4vPipeline.BuildMuxMetadataSubtitleArguments(
             "assembled.m4v",
             "/source + (日本語).mkv",
             "with_subtitles.m4v",
-            new MuxSourcePreservationPlan(
-                PreserveChapters: true,
-                PreserveAttachments: false,
-                SubtitleStreams: [new SubtitleStreamMapping(4, 0, "mov_text")]),
+            preservation.Plan!,
             sourceVideoTrackIndex: 0);
 
         Assert.Contains("1:4", arguments);
         Assert.Contains("1:s:v:0", arguments);
         Assert.Contains("-map_metadata", arguments);
         Assert.Contains("-map_chapters", arguments);
+        Assert.Contains("0:v:0", arguments);
+        Assert.Contains("0:a?", arguments);
+        Assert.DoesNotContain("0", arguments.Where((_, index) =>
+            index > 0 && arguments[index - 1] == "-map"));
         Assert.DoesNotContain("1:t?", arguments);
         Assert.Equal("with_subtitles.m4v", arguments[^1]);
     }

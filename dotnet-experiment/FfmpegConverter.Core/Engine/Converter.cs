@@ -646,7 +646,7 @@ public class Converter
             mux.ErrorOccurred += (s, error) => RaiseError(error.Text, error.Code);
             ConverterError muxError = await mux.RunMuxPostprocessAsync(intermediateFile, videoTrack,
                 output, muxOptions, _tools, _probeResult, cancellationToken,
-                request.Policy);
+                request.Policy, preservationResult.Plan);
             return muxError == ConverterError.Ok
                 ? AddTrackResult.Completed()
                 : AddTrackResult.Failed(

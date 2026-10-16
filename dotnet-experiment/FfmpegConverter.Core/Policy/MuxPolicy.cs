@@ -470,7 +470,7 @@ public static class MuxPolicyResolver
             StreamAction.Preserve,
             copyAudio ? StreamAction.Preserve : StreamAction.Convert,
             StreamAction.Preserve,
-            container == MuxContainer.Mov ? StreamAction.Drop : StreamAction.Preserve,
+            container == MuxContainer.Mkv ? StreamAction.Preserve : StreamAction.Drop,
             StreamAction.Preserve,
             StreamAction.Preserve,
             StreamAction.Preserve,

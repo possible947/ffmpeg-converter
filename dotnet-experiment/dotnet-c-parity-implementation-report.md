@@ -26,6 +26,7 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 | F — MKV preservation and replacement isolation | PARTIAL | Source preparation now maps supported subtitles, chapters, attachments, and metadata into the MKV intermediate; mkvmerge explicitly takes only replacement video and assigns source segment/video metadata. Real-media ownership verification remains. |
 | G — MOV finalization and subtitle compatibility | PARTIAL | MOV remux now explicitly maps video/audio, applies per-subtitle compatibility conversions, preserves chapters/metadata, uses MOV metadata tags, and warns when attachments are dropped. Real-media output verification remains. |
 | H — Mux M4V finalization | PARTIAL | Mux M4V now distinguishes AAC-only from AAC+AC3/default, requires libfdk_aac, preserves chapters/subtitles/metadata, assigns AAC-only default disposition, uses argument lists, and selects a plus-free MP4Box import directory. Real-media output verification remains. |
+| I — Shared preservation plan | PARTIAL | MKV, MOV, and M4V source/finalization paths now consume one typed preservation plan for stream ownership, audio selection, subtitles, chapters, metadata, language, dispositions, attachments, and replacement video. M4V attachment dropping now matches native policy; real-media verification remains. |
 
 ## 4. Files changed by phase
 
@@ -45,6 +46,8 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 
 **Phase H:** `FfmpegConverter.Core/Engine/AppleM4vPipeline.cs`; `FfmpegConverter.Core/Engine/MuxPipeline.cs`; `FfmpegConverter.Tests/AppleM4vPipelineTests.cs`; `FfmpegConverter.Tests/MuxPipelineTests.cs`.
 
+**Phase I:** `FfmpegConverter.Core/Engine/MuxSourcePreservation.cs`; `FfmpegConverter.Core/Engine/CommandBuilder.cs`; `FfmpegConverter.Core/Engine/Converter.cs`; `FfmpegConverter.Core/Engine/MuxPipeline.cs`; `FfmpegConverter.Core/Engine/AppleM4vPipeline.cs`; `FfmpegConverter.Core/Policy/MuxPolicy.cs`; related Mux policy, source-preservation, and M4V tests.
+
 ## 5. Policy parity status
 
 **Status: PASS**
@@ -55,13 +58,13 @@ Pure tests cover mode parsing, defaults, container/extension selection, audio co
 
 **Status: PARTIAL**
 
-Policy decisions and output extensions are covered. Mux M4V is routed through replacement-track workflow rather than the Direct M4V branch. MKV, MOV, and M4V production paths now implement their source/replacement ownership and preservation rules; real-media output verification remains.
+Policy decisions and output extensions are covered. Mux M4V is routed through replacement-track workflow rather than the Direct M4V branch. MKV, MOV, and M4V production paths now consume explicit source/replacement ownership and preservation decisions; real-media output verification remains.
 
 ## 7. Preservation parity status
 
 **Status: PARTIAL**
 
-The pure subtitle decision table matches the C policy, including MOV text subtitle conversion to SRT for MKV and text-to-`mov_text` conversion for MOV/M4V. MKV Add Track source preparation probes and maps supported source subtitles, chapters, and attachments; MOV and M4V finalizers apply per-subtitle compatibility policy, preserve chapters/metadata, and warn on dropped attachments. mkvmerge restricts the replacement input to video and applies source segment/video metadata explicitly. Real-media stream ownership and dispositions remain unverified.
+The typed preservation plan now carries audio selection, video replacement ownership, per-container subtitle compatibility, chapters, global and stream metadata, language, default/forced dispositions, and attachment actions to preparation/finalization commands. MKV preparation and MOV/M4V finalizers map only policy-selected streams; mkvmerge restricts the replacement input to video, keeps source auxiliaries isolated, and applies source metadata explicitly. M4V attachment dropping now matches the native policy. Real-media stream ownership and dispositions remain unverified.
 
 ## 8. HQ parity status
 
@@ -85,7 +88,7 @@ CLI parsing and Core validation use the shared availability resolver. The intera
 
 **Status: PASS**
 
-After phase H, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 257/257. Focused M4V, Mux pipeline, and stream-preservation tests passed 58/58.
+After phase I, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 264/264. Focused preservation and M4V tests passed as part of the full run.
 
 ## 12. Real-media results
 
@@ -113,8 +116,8 @@ Native Windows release validation is intentionally deferred until the non-Window
 
 ## 16. Remaining known gaps
 
-- Final MOV/M4V output verification and end-to-end Add Track failure injection remain.
-- MKV source preservation and replacement isolation need real-media verification; M4V AAC-only, dual-audio, and default behavior need real-media stream-count and disposition tests.
+- Final MOV/M4V output verification and end-to-end Add Track failure injection remain; current final validation confirms only basic A/V presence.
+- MKV source preservation and replacement isolation need real-media verification; M4V AAC-only, dual-audio, default/forced dispositions, and dropped attachments need real-media stream-count tests.
 - Failure cleanup, cancellation/process termination, and queue behavior need coverage.
 - Direct M4V regression behavior, Avalonia interaction, cross-implementation fixtures, WSL hardware preparation, and Windows packaged release validation remain.
 
@@ -129,6 +132,7 @@ Native Windows release validation is intentionally deferred until the non-Window
 | `b26cf42` | Add shared Add Track contract |
 | `294c747` | Preserve MKV Add Track source streams |
 | `2b1b14f` | Preserve MOV mux streams and metadata |
+| `84ad44e` | Match Mux M4V audio and preservation policy |
 
 ## 18. Confirmation that C and Pascal remain unchanged
 

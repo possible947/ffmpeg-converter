@@ -207,7 +207,8 @@ public class MuxPipeline
         ToolPaths tools,
         HardwareProbeResult? probeResult,
         CancellationToken cancellationToken = default,
-        MuxPolicy? policy = null)
+        MuxPolicy? policy = null,
+        MuxSourcePreservationPlan? sourcePreservationPlan = null)
     {
         string requestedPreset = opts.Preset.ToLowerInvariant();
         if ((requestedPreset is "mov" or "m4v") &&
@@ -270,7 +271,8 @@ public class MuxPipeline
                 videoTrackFile,
                 intermediateFile,
                 sourceMetadataResult.Metadata!,
-                rate);
+                rate,
+                sourcePreservationPlan);
 
             EmitStage("Post-mux (mkvmerge)");
             EmitMessage($"Executing: \"{tools.Mkvmerge}\" {string.Join(" ", mkvmergeArgs)}");
@@ -358,28 +360,54 @@ public class MuxPipeline
         string videoTrackFile,
         string intermediateFile,
         MuxSourceMetadata sourceMetadata,
-        string rate)
+        string rate,
+        MuxSourcePreservationPlan? sourcePreservationPlan = null)
     {
-        var arguments = new List<string>
+        if (sourcePreservationPlan != null &&
+            !sourcePreservationPlan.RequiresVideoReplacement)
+            throw new ArgumentException(
+                "Mux assembly requires a replacement-video preservation plan.",
+                nameof(sourcePreservationPlan));
+
+        var arguments = new List<string> { "-o", tempOutput };
+        if (sourcePreservationPlan?.PreserveMetadata != false)
+            arguments.AddRange(new[] { "--title", sourceMetadata.SegmentTitle });
+        arguments.AddRange(new[]
         {
-            "-o", tempOutput,
-            "--title", sourceMetadata.SegmentTitle,
             "--no-audio", "--no-subtitles", "--no-buttons", "--no-attachments",
             "--no-chapters", "--no-global-tags", "--no-track-tags"
-        };
+        });
         if (!string.IsNullOrEmpty(rate))
         {
             arguments.Add("--default-duration");
             arguments.Add($"0:{rate}fps");
         }
-        arguments.Add("--language");
-        arguments.Add($"0:{sourceMetadata.VideoLanguage}");
-        arguments.Add("--track-name");
-        arguments.Add($"0:{sourceMetadata.VideoTitle}");
+        if (sourcePreservationPlan?.PreserveLanguage != false)
+        {
+            arguments.Add("--language");
+            arguments.Add($"0:{sourceMetadata.VideoLanguage}");
+        }
+        if (sourcePreservationPlan?.PreserveStreamMetadata != false)
+        {
+            arguments.Add("--track-name");
+            arguments.Add($"0:{sourceMetadata.VideoTitle}");
+        }
         arguments.Add("--video-tracks");
         arguments.Add("0");
         arguments.Add(videoTrackFile);
         arguments.Add("--no-video");
+        if (sourcePreservationPlan?.AudioAction == StreamAction.Drop)
+            arguments.Add("--no-audio");
+        if (sourcePreservationPlan?.SubtitleAction == StreamAction.Drop)
+            arguments.Add("--no-subtitles");
+        if (sourcePreservationPlan?.AttachmentAction == StreamAction.Drop)
+            arguments.Add("--no-attachments");
+        if (sourcePreservationPlan?.ChapterAction == StreamAction.Drop)
+            arguments.Add("--no-chapters");
+        if (sourcePreservationPlan?.MetadataAction == StreamAction.Drop)
+            arguments.Add("--no-global-tags");
+        if (sourcePreservationPlan?.StreamMetadataAction == StreamAction.Drop)
+            arguments.Add("--no-track-tags");
         arguments.Add(intermediateFile);
         return arguments;
     }
@@ -387,27 +415,34 @@ public class MuxPipeline
     public static IReadOnlyList<string> BuildMovRemuxArguments(
         string inputFile,
         string outputFile,
-        MuxSourcePreservationPlan sourcePlan,
-        MuxPolicy policy)
+        MuxSourcePreservationPlan sourcePlan)
     {
-        var arguments = new List<string>
+        if (sourcePlan.Container != MuxContainer.Mov)
+            throw new ArgumentException("MOV remux requires a MOV preservation plan.", nameof(sourcePlan));
+
+        var arguments = new List<string> { "-y", "-nostdin", "-i", inputFile };
+        if (sourcePlan.VideoAction != StreamAction.Drop)
+            arguments.AddRange(new[] { "-map", "0:v:0" });
+        if (sourcePlan.AudioAction != StreamAction.Drop)
+            arguments.AddRange(new[] { "-map", "0:a?" });
+        if (sourcePlan.SubtitleAction != StreamAction.Drop)
         {
-            "-y", "-nostdin", "-i", inputFile,
-            "-map", "0:v:0", "-map", "0:a?"
-        };
-        foreach (SubtitleStreamMapping subtitle in sourcePlan.SubtitleStreams)
-        {
-            arguments.Add("-map");
-            arguments.Add($"0:{subtitle.StreamIndex}");
-            arguments.Add($"-c:s:{subtitle.OutputIndex}");
-            arguments.Add(subtitle.Encoder);
+            foreach (SubtitleStreamMapping subtitle in sourcePlan.SubtitleStreams)
+            {
+                arguments.Add("-map");
+                arguments.Add($"0:{subtitle.StreamIndex}");
+                arguments.Add($"-c:s:{subtitle.OutputIndex}");
+                arguments.Add(subtitle.Encoder);
+            }
         }
-        if (policy.MetadataAction == StreamAction.Preserve)
+        if (sourcePlan.PreserveAttachments)
+            arguments.AddRange(new[] { "-map", "0:t?" });
+        if (sourcePlan.PreserveMetadata)
             arguments.AddRange(new[] { "-map_metadata", "0" });
         if (sourcePlan.PreserveChapters)
             arguments.AddRange(new[] { "-map_chapters", "0" });
         arguments.AddRange(new[] { "-c", "copy" });
-        if (policy.MetadataAction == StreamAction.Preserve)
+        if (sourcePlan.PreserveMetadata)
             arguments.AddRange(new[] { "-movflags", "use_metadata_tags" });
         arguments.AddRange(new[] { "-f", "mov", outputFile });
         return arguments;
@@ -433,12 +468,12 @@ public class MuxPipeline
         foreach (string warning in preservationResult.Warnings)
             EmitMessage(warning);
         if (preservationResult.HasAttachments &&
-            policy.AttachmentAction == StreamAction.Drop)
+            !preservationResult.Plan!.PreserveAttachments)
             EmitMessage("Warning: input attachments are dropped by the selected output container.");
 
         EmitStage("Post-mux: remux to .mov");
         IReadOnlyList<string> arguments = BuildMovRemuxArguments(
-            inputFile, outputFile, preservationResult.Plan!, policy);
+            inputFile, outputFile, preservationResult.Plan!);
         int result = await RunProcessAsync(tools.Ffmpeg, arguments, cancellationToken);
         if (result == 0)
             return ConverterError.Ok;
