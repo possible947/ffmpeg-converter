@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 
@@ -12,78 +13,82 @@ public class ToolPaths
     public string Mp4Box { get; set; } = "";
 }
 
+public sealed record ToolDiscoveryContext(
+    string ExecutableDirectory,
+    IReadOnlyDictionary<string, string> EnvironmentVariables,
+    string PathValue,
+    string Platform,
+    IReadOnlyList<string> MacToolDirectories)
+{
+    public static ToolDiscoveryContext FromCurrentEnvironment()
+    {
+        var environmentVariables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in new[] { "FFMPEG_BIN", "FFMPEG", "FFPROBE_BIN", "FFPROBE", "MKVMERGE_BIN", "MKVMERGE", "MP4BOX_BIN", "MP4BOX", "PATH" })
+        {
+            string? value = Environment.GetEnvironmentVariable(name);
+            if (value != null)
+                environmentVariables[name] = value;
+        }
+
+        string platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows" :
+            RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos" : "linux";
+        return new ToolDiscoveryContext(
+            AppContext.BaseDirectory,
+            environmentVariables,
+            Environment.GetEnvironmentVariable("PATH") ?? "",
+            platform,
+            new[] { "/opt/local/bin", "/opt/homebrew/bin", "/usr/local/bin" });
+    }
+}
+
 public static class ToolDiscovery
 {
-    public static ToolPaths ResolveAll()
+    public static ToolPaths ResolveAll() => ResolveAll(ToolDiscoveryContext.FromCurrentEnvironment());
+
+    public static ToolPaths ResolveAll(ToolDiscoveryContext context)
     {
         return new ToolPaths
         {
-            Ffmpeg = Resolve("ffmpeg"),
-            Ffprobe = Resolve("ffprobe"),
-            Mkvmerge = Resolve("mkvmerge"),
-            Mp4Box = Resolve("MP4Box")
+            Ffmpeg = Resolve("ffmpeg", context),
+            Ffprobe = Resolve("ffprobe", context),
+            Mkvmerge = Resolve("mkvmerge", context),
+            Mp4Box = Resolve("MP4Box", context)
         };
     }
 
-    public static string Resolve(string toolName)
+    public static string Resolve(string toolName) => Resolve(toolName, ToolDiscoveryContext.FromCurrentEnvironment());
+
+    public static string Resolve(string toolName, ToolDiscoveryContext context)
     {
-        string exeName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? $"{toolName}.exe" : toolName;
+        string exeName = IsWindows(context) ? $"{toolName}.exe" : toolName;
 
-        // 1. Resolve from Env Vars
-        string? envVar = toolName.ToUpperInvariant();
-        if (toolName.Equals("mkvmerge", StringComparison.OrdinalIgnoreCase)) envVar = "MKVMERGE_BIN";
-        else if (toolName.Equals("MP4Box", StringComparison.OrdinalIgnoreCase)) envVar = "MP4BOX_BIN";
-        else envVar = $"{envVar}_BIN";
-
-        string? envPath = Environment.GetEnvironmentVariable(envVar);
+        string? envPath = GetEnvironmentValue(context, GetPrimaryEnvironmentVariable(toolName));
         if (string.IsNullOrEmpty(envPath))
-        {
-            // fallback to legacy/secondary env names
-            envPath = Environment.GetEnvironmentVariable(toolName.ToUpperInvariant());
-        }
-
+            envPath = GetEnvironmentValue(context, toolName.ToUpperInvariant());
         if (!string.IsNullOrEmpty(envPath) && File.Exists(envPath))
-        {
             return envPath;
-        }
 
-        // 2. Resolve from Exe Dir
-        string exeDir = AppContext.BaseDirectory;
-        if (!string.IsNullOrEmpty(exeDir))
+        if (!string.IsNullOrEmpty(context.ExecutableDirectory))
         {
-            string localPath = Path.Combine(exeDir, exeName);
-            if (File.Exists(localPath)) return localPath;
+            string localPath = Path.Combine(context.ExecutableDirectory, exeName);
+            if (File.Exists(localPath))
+                return localPath;
 
-            // Also check special platform subdirectory in repo structure
-            string platformFolder = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows" :
-                                    RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos" : "linux";
-
-            // Try to find in typical repo structures: bin/ or src/platform/{os}/bin/.
-            // Walk all the way up to the filesystem root (not a fixed depth) — build/publish
-            // output directories vary in nesting (Debug/Release, RID-specific publish dirs,
-            // self-contained single-file, etc.), and a fixed-count loop previously stopped
-            // one level short of the actual repo root in the standard `dotnet build` layout,
-            // silently falling through to system PATH instead of the bundled binary. This
-            // mirrors the unbounded ancestor walk already used by PresetDb.ResolvePresetsPath().
-            string? parent = exeDir;
+            string platformFolder = context.Platform;
+            string? parent = context.ExecutableDirectory;
             while (!string.IsNullOrEmpty(parent))
             {
                 string candidate = Path.Combine(parent, "src", "platform", platformFolder, "bin", exeName);
-                if (File.Exists(candidate)) return candidate;
+                if (File.Exists(candidate))
+                    return candidate;
 
-                // Only trust a generic "bin/<exe>" match once `parent` is recognizably the
-                // ffmpeg-converter repo root (marked by presets.json living there). Without
-                // this guard, walking unbounded can "find" unrelated system directories once
-                // it reaches the filesystem root (e.g. "/bin/ffmpeg" on distros where /bin
-                // exists as a real top-level dir), silently bypassing the intended PATH
-                // fallback for a plain system install outside the repo checkout.
                 if (File.Exists(Path.Combine(parent, "presets.json")))
                 {
                     candidate = Path.Combine(parent, "bin", exeName);
-                    if (File.Exists(candidate)) return candidate;
+                    if (File.Exists(candidate))
+                        return candidate;
 
-                    // Found the repo root but no bundled binary there — stop climbing;
-                    // anything further up is outside the project tree.
+                    // Stop at the recognized repository root rather than searching unrelated ancestors.
                     break;
                 }
 
@@ -91,39 +96,47 @@ public static class ToolDiscovery
             }
         }
 
-        // 3. MacOS specific locations
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        if (context.Platform.Equals("macos", StringComparison.OrdinalIgnoreCase))
         {
-            string[] macPaths = {
-                $"/opt/local/bin/{toolName}8",
-                $"/opt/local/bin/{toolName}",
-                $"/opt/homebrew/bin/{toolName}",
-                $"/usr/local/bin/{toolName}"
-            };
-
-            foreach (var p in macPaths)
+            for (int index = 0; index < context.MacToolDirectories.Count; index++)
             {
-                if (File.Exists(p)) return p;
+                string directory = context.MacToolDirectories[index];
+                string candidate;
+                if (index == 0)
+                {
+                    candidate = Path.Combine(directory, $"{toolName}8");
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+
+                candidate = Path.Combine(directory, toolName);
+                if (File.Exists(candidate))
+                    return candidate;
             }
         }
 
-        // 4. Resolve from system PATH
-        string? pathEnv = Environment.GetEnvironmentVariable("PATH");
-        if (!string.IsNullOrEmpty(pathEnv))
+        foreach (string directory in context.PathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
-            char separator = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ';' : ':';
-            string[] paths = pathEnv.Split(separator, StringSplitOptions.RemoveEmptyEntries);
-
-            foreach (var p in paths)
-            {
-                string fullPath = Path.Combine(p, exeName);
-                if (File.Exists(fullPath))
-                {
-                    return fullPath;
-                }
-            }
+            string candidate = Path.Combine(directory, exeName);
+            if (File.Exists(candidate))
+                return candidate;
         }
 
         return "";
     }
+
+    private static bool IsWindows(ToolDiscoveryContext context) =>
+        context.Platform.Equals("windows", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetPrimaryEnvironmentVariable(string toolName)
+    {
+        if (toolName.Equals("mkvmerge", StringComparison.OrdinalIgnoreCase))
+            return "MKVMERGE_BIN";
+        if (toolName.Equals("MP4Box", StringComparison.OrdinalIgnoreCase))
+            return "MP4BOX_BIN";
+        return $"{toolName.ToUpperInvariant()}_BIN";
+    }
+
+    private static string? GetEnvironmentValue(ToolDiscoveryContext context, string name) =>
+        context.EnvironmentVariables.TryGetValue(name, out string? value) ? value : null;
 }

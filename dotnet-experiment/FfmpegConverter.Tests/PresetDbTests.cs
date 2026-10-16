@@ -213,4 +213,148 @@ public class PresetDbTests
         Assert.Equal("mkv", info.Container);
         Assert.Contains("h264_vaapi", info.Requires);
     }
+
+    [Fact]
+    public void Load_ExplicitCatalogTakesPrecedenceOverAllOtherSources()
+    {
+        using var layout = new TemporaryLayout();
+        string explicitPath = layout.Write("explicit.json", Catalog("explicit"));
+        string v2Path = layout.Write("v2.json", Catalog("v2"));
+        string envPath = layout.Write("env.json", Catalog("env"));
+        string executablePath = layout.Write(Path.Combine("exe", "presets.json"), Catalog("executable"));
+        string configPath = layout.Write(Path.Combine("home", ".config", "ffmpeg_converter", "presets.json"), Catalog("config"));
+        string developmentPath = layout.Write(Path.Combine("repo", "presets.json"), Catalog("development"));
+        var context = new PresetDbPathContext(v2Path, envPath, Path.GetDirectoryName(executablePath)!,
+            Path.Combine(layout.Root, "home"), Path.Combine(layout.Root, "appdata"), Path.Combine(layout.Root, "repo", "build"));
+
+        PresetDb db = PresetDb.Load(explicitPath, pathContext: context);
+
+        Assert.Equal("explicit", db.Version);
+        Assert.Equal(explicitPath, db.LoadedPath);
+        Assert.True(File.Exists(developmentPath));
+        Assert.True(File.Exists(configPath));
+    }
+
+    [Fact]
+    public void Load_ResolvesPresetSourcesInDeterministicOrder()
+    {
+        using var layout = new TemporaryLayout();
+        string v2Path = layout.Write("v2.json", Catalog("v2"));
+        string envPath = layout.Write("env.json", Catalog("env"));
+        string executablePath = layout.Write(Path.Combine("exe", "presets.json"), Catalog("executable"));
+        string configPath = layout.Write(Path.Combine("home", ".config", "ffmpeg_converter", "presets.json"), Catalog("config"));
+        string developmentPath = layout.Write(Path.Combine("repo", "presets.json"), Catalog("development"));
+
+        PresetDbPathContext Context(string? v2, string? env) => new(
+            v2, env, Path.GetDirectoryName(executablePath)!, Path.Combine(layout.Root, "home"),
+            Path.Combine(layout.Root, "appdata"), Path.Combine(layout.Root, "repo", "build"));
+
+        Assert.Equal(v2Path, PresetDb.Load(pathContext: Context(v2Path, envPath)).LoadedPath);
+        Assert.Equal(envPath, PresetDb.Load(pathContext: Context(null, envPath)).LoadedPath);
+        Assert.Equal(executablePath, PresetDb.Load(pathContext: Context(null, null)).LoadedPath);
+        Assert.Equal(developmentPath, PresetDb.Load(pathContext: Context(null, null) with
+        {
+            ExecutableDirectory = Path.Combine(layout.Root, "isolated", "bin"),
+            UserHome = Path.Combine(layout.Root, "empty-home"),
+            ApplicationData = Path.Combine(layout.Root, "empty-appdata")
+        }).LoadedPath);
+
+        string configOnlyPath = layout.Write(Path.Combine("config-only-home", ".config", "ffmpeg_converter", "presets.json"), Catalog("config-only"));
+        Assert.Equal(configOnlyPath, PresetDb.Load(pathContext: Context(null, null) with
+        {
+            ExecutableDirectory = Path.Combine(layout.Root, "isolated", "bin"),
+            UserHome = Path.Combine(layout.Root, "config-only-home"),
+            ApplicationData = Path.Combine(layout.Root, "empty-appdata"),
+            CurrentDirectory = Path.Combine(layout.Root, "isolated", "checkout")
+        }).LoadedPath);
+    }
+
+    [Fact]
+    public void Load_MissingExplicitCatalogContinuesToConfiguredCatalog()
+    {
+        using var layout = new TemporaryLayout();
+        string configuredPath = layout.Write("configured.json", Catalog("configured"));
+        var context = new PresetDbPathContext(configuredPath, null, "", "", "", "");
+
+        PresetDb db = PresetDb.Load(Path.Combine(layout.Root, "missing.json"), pathContext: context);
+
+        Assert.Equal("configured", db.Version);
+        Assert.Equal(configuredPath, db.LoadedPath);
+    }
+
+    [Fact]
+    public void Load_ExplicitDirectoryResolvesPresetsJson()
+    {
+        using var layout = new TemporaryLayout();
+        string path = layout.Write(Path.Combine("catalog-directory", "presets.json"), Catalog("directory"));
+
+        PresetDb db = PresetDb.Load(Path.GetDirectoryName(path), pathContext: new PresetDbPathContext(null, null, "", "", "", ""));
+
+        Assert.Equal("directory", db.Version);
+        Assert.Equal(path, db.LoadedPath);
+    }
+
+    [Fact]
+    public void Load_MissingCatalogUsesBuiltinFallback()
+    {
+        using var layout = new TemporaryLayout();
+        PresetDb db = PresetDb.Load(pathContext: new PresetDbPathContext(null, null, "", "", "", ""));
+
+        Assert.Equal("builtin", db.LoadedPath);
+        Assert.NotNull(db.GetPresetInfo("linux", "copy", "default"));
+    }
+
+    [Fact]
+    public void Load_MalformedCatalogFallsBackToBuiltinPresets()
+    {
+        using var layout = new TemporaryLayout();
+        string malformedPath = layout.Write("malformed.json", "{ not valid json");
+
+        PresetDb db = PresetDb.Load(malformedPath, pathContext: new PresetDbPathContext(null, null, "", "", "", ""));
+
+        Assert.Equal("1.0", db.Version);
+        Assert.Equal("builtin", db.LoadedPath);
+        Assert.NotNull(db.GetPresetInfo("linux", "copy", "default"));
+    }
+
+    [Fact]
+    public void Load_UsesPlatformSpecificExecutionSections()
+    {
+        using var layout = new TemporaryLayout();
+        string catalog = """
+            {
+              "version": "platform-test",
+              "linux": { "h264": { "default": { "ffmpeg_args": "-c:v h264_linux" } } },
+              "macos": { "h264": { "default": { "ffmpeg_args": "-c:v h264_videotoolbox" } } }
+            }
+            """;
+        string path = layout.Write("platforms.json", catalog);
+
+        PresetDb db = PresetDb.Load(path, pathContext: new PresetDbPathContext(null, null, "", "", "", ""));
+
+        Assert.Equal("-c:v h264_linux", db.GetPresetInfo("linux", "h264", "default")?.FfmpegArgs);
+        Assert.Equal("-c:v h264_videotoolbox", db.GetPresetInfo("macos", "h264", "default")?.FfmpegArgs);
+    }
+
+    private static string Catalog(string version) =>
+        "{\"version\":\"" + version + "\",\"linux\":{\"h264\":{\"default\":{\"ffmpeg_args\":\"-c:v h264_" + version + "\"}}}}";
+
+    private sealed class TemporaryLayout : IDisposable
+    {
+        public string Root { get; } = Path.Combine(Path.GetTempPath(), $"ffmpeg-converter-{Guid.NewGuid():N}");
+
+        public string Write(string relativePath, string contents)
+        {
+            string path = Path.Combine(Root, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, contents);
+            return path;
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Root))
+                Directory.Delete(Root, recursive: true);
+        }
+    }
 }

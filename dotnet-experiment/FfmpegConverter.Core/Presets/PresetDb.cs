@@ -36,6 +36,23 @@ public class PresetInfo
     public string RcMode { get; set; } = "";
 }
 
+public sealed record PresetDbPathContext(
+    string? PresetsV2Path,
+    string? PresetsPath,
+    string ExecutableDirectory,
+    string UserHome,
+    string ApplicationData,
+    string CurrentDirectory)
+{
+    public static PresetDbPathContext FromCurrentEnvironment() => new(
+        Environment.GetEnvironmentVariable("PRESETS_V2_PATH"),
+        Environment.GetEnvironmentVariable("PRESETS_PATH"),
+        AppContext.BaseDirectory,
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        Directory.GetCurrentDirectory());
+}
+
 public class PresetDb
 {
     private static readonly string BuiltinPresetsJson = @"
@@ -125,10 +142,13 @@ public class PresetDb
     public string Description { get; private set; } = "";
     public string LoadedPath { get; private set; } = "builtin";
 
-    public static PresetDb Load(string? explicitPath = null, string? hqRuntimeRoot = null)
+    public static PresetDb Load(
+        string? explicitPath = null,
+        string? hqRuntimeRoot = null,
+        PresetDbPathContext? pathContext = null)
     {
         var db = new PresetDb();
-        string path = db.ResolvePresetsPath(explicitPath);
+        string path = db.ResolvePresetsPath(explicitPath, pathContext ?? PresetDbPathContext.FromCurrentEnvironment());
         string jsonText = BuiltinPresetsJson;
 
         if (!string.IsNullOrEmpty(path) && File.Exists(path))
@@ -138,7 +158,7 @@ public class PresetDb
                 jsonText = File.ReadAllText(path);
                 db.LoadedPath = path;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 Console.Error.WriteLine($"[PresetDb] Error reading presets file at {path}: {ex.Message}. Falling back to builtin presets.");
             }
@@ -146,68 +166,61 @@ public class PresetDb
 
         try
         {
-            using var doc = JsonDocument.Parse(jsonText);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("version", out var vProp))
-                db.Version = vProp.GetString() ?? "1.0";
-            if (root.TryGetProperty("description", out var dProp))
-                db.Description = dProp.GetString() ?? "";
-
-            // Parse features
-            if (root.TryGetProperty("features", out var featProp) && featProp.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var f in featProp.EnumerateObject())
-                {
-                    if (f.Value.ValueKind == JsonValueKind.True || f.Value.ValueKind == JsonValueKind.False)
-                    {
-                        db.Features[f.Name] = f.Value.GetBoolean();
-                    }
-                }
-            }
-
-            // Parse selection catalog
-            if (root.TryGetProperty("selection", out var selProp) && selProp.ValueKind == JsonValueKind.Object)
-            {
-                db.ParseSelectionCatalog(selProp);
-            }
-
-            // Parse execution platform sections
-            foreach (var prop in root.EnumerateObject())
-            {
-                string key = prop.Name.ToLowerInvariant();
-                if (key == "version" || key == "description" || key == "features" || key == "selection")
-                    continue;
-
-                var platformDict = new Dictionary<string, Dictionary<string, PresetInfo>>(StringComparer.OrdinalIgnoreCase);
-                foreach (var codecProp in prop.Value.EnumerateObject())
-                {
-                    string codecName = codecProp.Name;
-                    var codecDict = new Dictionary<string, PresetInfo>(StringComparer.OrdinalIgnoreCase);
-
-                    foreach (var presetProp in codecProp.Value.EnumerateObject())
-                    {
-                        string presetName = presetProp.Name;
-                        var info = JsonSerializer.Deserialize<PresetInfo>(presetProp.Value.GetRawText());
-                        if (info != null)
-                        {
-                            codecDict[presetName] = info;
-                        }
-                    }
-                    platformDict[codecName] = codecDict;
-                }
-                db.Platforms[prop.Name] = platformDict;
-            }
+            db.ParseCatalog(jsonText);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or NotSupportedException)
         {
-            Console.Error.WriteLine($"[PresetDb] Error parsing presets JSON: {ex.Message}. Re-initializing with empty database.");
-            db.Platforms = new(StringComparer.OrdinalIgnoreCase);
-            db.Selection = new SelectionCatalog();
+            Console.Error.WriteLine($"[PresetDb] Error parsing presets JSON at {path}: {ex.Message}. Falling back to builtin presets.");
+            db = new PresetDb();
+            db.ParseCatalog(BuiltinPresetsJson);
         }
 
         db.LoadHqCatalog(hqRuntimeRoot);
         return db;
+    }
+
+    private void ParseCatalog(string jsonText)
+    {
+        using var doc = JsonDocument.Parse(jsonText);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("version", out var vProp))
+            Version = vProp.GetString() ?? "1.0";
+        if (root.TryGetProperty("description", out var dProp))
+            Description = dProp.GetString() ?? "";
+
+        if (root.TryGetProperty("features", out var featProp) && featProp.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var f in featProp.EnumerateObject())
+            {
+                if (f.Value.ValueKind == JsonValueKind.True || f.Value.ValueKind == JsonValueKind.False)
+                    Features[f.Name] = f.Value.GetBoolean();
+            }
+        }
+
+        if (root.TryGetProperty("selection", out var selProp) && selProp.ValueKind == JsonValueKind.Object)
+            ParseSelectionCatalog(selProp);
+
+        foreach (var prop in root.EnumerateObject())
+        {
+            string key = prop.Name.ToLowerInvariant();
+            if (key == "version" || key == "description" || key == "features" || key == "selection")
+                continue;
+
+            var platformDict = new Dictionary<string, Dictionary<string, PresetInfo>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var codecProp in prop.Value.EnumerateObject())
+            {
+                var codecDict = new Dictionary<string, PresetInfo>(StringComparer.OrdinalIgnoreCase);
+                foreach (var presetProp in codecProp.Value.EnumerateObject())
+                {
+                    var info = JsonSerializer.Deserialize<PresetInfo>(presetProp.Value.GetRawText());
+                    if (info != null)
+                        codecDict[presetProp.Name] = info;
+                }
+                platformDict[codecProp.Name] = codecDict;
+            }
+            Platforms[prop.Name] = platformDict;
+        }
     }
 
     private void LoadHqCatalog(string? runtimeRoot)
@@ -343,7 +356,7 @@ public class PresetDb
         return group;
     }
 
-    private string ResolvePresetsPath(string? explicitPath = null)
+    private string ResolvePresetsPath(string? explicitPath, PresetDbPathContext context)
     {
         // 0. Explicit path argument
         if (!string.IsNullOrEmpty(explicitPath))
@@ -354,7 +367,7 @@ public class PresetDb
         }
 
         // 1. Env Var PRESETS_V2_PATH
-        string? v2Path = Environment.GetEnvironmentVariable("PRESETS_V2_PATH");
+        string? v2Path = context.PresetsV2Path;
         if (!string.IsNullOrEmpty(v2Path))
         {
             if (File.Exists(v2Path)) return v2Path;
@@ -363,7 +376,7 @@ public class PresetDb
         }
 
         // 2. Env Var PRESETS_PATH
-        string? envPath = Environment.GetEnvironmentVariable("PRESETS_PATH");
+        string? envPath = context.PresetsPath;
         if (!string.IsNullOrEmpty(envPath))
         {
             if (File.Exists(envPath)) return envPath;
@@ -372,7 +385,7 @@ public class PresetDb
         }
 
         // 3. Process executable directory
-        string exePath = AppContext.BaseDirectory;
+        string exePath = context.ExecutableDirectory;
         if (!string.IsNullOrEmpty(exePath))
         {
             string p = Path.Combine(exePath, "presets.json");
@@ -380,29 +393,23 @@ public class PresetDb
         }
 
         // 4. User config directory
-        try
+        if (!string.IsNullOrEmpty(context.UserHome))
         {
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (!string.IsNullOrEmpty(home))
-            {
-                string linuxConfig = Path.Combine(home, ".config", "ffmpeg_converter", "presets.json");
-                if (File.Exists(linuxConfig)) return linuxConfig;
+            string linuxConfig = Path.Combine(context.UserHome, ".config", "ffmpeg_converter", "presets.json");
+            if (File.Exists(linuxConfig)) return linuxConfig;
 
-                string macConfig = Path.Combine(home, "Library", "Preferences", "ffmpeg_converter", "presets.json");
-                if (File.Exists(macConfig)) return macConfig;
-            }
-
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            if (!string.IsNullOrEmpty(appData))
-            {
-                string winConfig = Path.Combine(appData, "ffmpeg_converter", "presets.json");
-                if (File.Exists(winConfig)) return winConfig;
-            }
+            string macConfig = Path.Combine(context.UserHome, "Library", "Preferences", "ffmpeg_converter", "presets.json");
+            if (File.Exists(macConfig)) return macConfig;
         }
-        catch { }
+
+        if (!string.IsNullOrEmpty(context.ApplicationData))
+        {
+            string winConfig = Path.Combine(context.ApplicationData, "ffmpeg_converter", "presets.json");
+            if (File.Exists(winConfig)) return winConfig;
+        }
 
         // 5. Parent / Ancestor directories (for dev repository checkouts)
-        string? current = Directory.GetCurrentDirectory();
+        string? current = context.CurrentDirectory;
         while (!string.IsNullOrEmpty(current))
         {
             string p = Path.Combine(current, "presets.json");
