@@ -22,7 +22,7 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 | B — Shared audio availability and Copy isolation | PASS | Wired policy-based choices and validation into Core, CLI, interactive menu, and Avalonia; separated Mux M4V selection from Direct M4V. |
 | C — Catalog and tool-resolution parity | PASS | Made catalog/tool resolution inputs deterministic and covered precedence, fallback, malformed catalogs, platform catalogs, and environment aliases. |
 | D — Replacement codec probe and early validation | PASS | Added a typed one-probe result, explicit missing/unreadable/corrupt/no-video failures, C-derived container codec acceptance, and rejection before Add Track preparation. |
-| E — Shared Add Track contract | PARTIAL | Existing safe unique-MKV preparation and cleanup remain; shared request/result contract and final-output pipeline work remain. |
+| E — Shared Add Track contract | PARTIAL | Added a reusable validated request/result contract shared by ordinary Mux and HQ, verifies the prepared MKV has video and audio, and retains unique intermediate cleanup. Final-container verification remains for Phase J. |
 
 ## 4. Files changed by phase
 
@@ -33,6 +33,8 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 **Phase C:** `FfmpegConverter.Core/Presets/PresetDb.cs`; `FfmpegConverter.Core/Probing/ToolDiscovery.cs`; `FfmpegConverter.Tests/PresetDbTests.cs`; `FfmpegConverter.Tests/ToolDiscoveryTests.cs`.
 
 **Phase D:** `FfmpegConverter.Core/Engine/InputVideoInfo.cs`; `FfmpegConverter.Core/Engine/ReplacementVideoProbe.cs`; `FfmpegConverter.Core/Engine/Converter.cs`; `FfmpegConverter.Core/Policy/AudioModePolicy.cs`; `FfmpegConverter.Tests/InputVideoInfoTests.cs`; `FfmpegConverter.Tests/MuxPolicyTests.cs`; `FfmpegConverter.Tests/AudioModePolicyTests.cs`; `FfmpegConverter.Tests/MuxPipelineTests.cs`.
+
+**Phase E:** `FfmpegConverter.Core/Engine/AddTrackContract.cs`; `FfmpegConverter.Core/Engine/Converter.cs`; `FfmpegConverter.Core/Engine/MuxPipeline.cs`; `FfmpegConverter.Core/Policy/AudioModePolicy.cs`; `FfmpegConverter.Tests/AddTrackContractTests.cs`; `FfmpegConverter.Tests/MuxPipelineTests.cs`.
 
 ## 5. Policy parity status
 
@@ -56,7 +58,7 @@ The pure subtitle decision table matches the C policy, including MOV text subtit
 
 **Status: PARTIAL**
 
-HQ audio availability uses the shared policy and rejects non-PCM HQ ProRes before execution. The existing HQ worker remains; routing all HQ outputs through the shared Add Track contract and verifying real HQ output remain.
+HQ audio availability uses the shared policy and rejects non-PCM HQ ProRes before execution. HQ-generated tracks now use the same validated Add Track request, policy, and assembly path as ordinary Mux; real HQ output verification remains.
 
 ## 9. Direct M4V parity status
 
@@ -74,7 +76,7 @@ CLI parsing and Core validation use the shared availability resolver. The intera
 
 **Status: PASS**
 
-After phase D, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 231/231. The focused replacement-probe, policy, and converter tests passed 107/107.
+After phase E, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 242/242. Focused Add Track, Mux pipeline, and HQ tests passed 38/38.
 
 ## 12. Real-media results
 
@@ -102,11 +104,11 @@ Native Windows release validation is intentionally deferred until the non-Window
 
 ## 16. Remaining known gaps
 
-- Add Track needs a reusable Core contract and verified finalizer integration.
+- Final MOV/M4V output verification and end-to-end Add Track failure injection remain.
 - MKV, MOV, and M4V need production preservation, subtitle, chapter, metadata, disposition, attachment, and replacement-isolation parity.
 - Mux M4V AAC-only, dual-audio, and default behavior need a dedicated finalizer path and real-media tests.
-- Final MOV/M4V output verification, failure cleanup, cancellation/process termination, and queue behavior need coverage.
-- HQ shared Add Track execution, Direct M4V regression behavior, Avalonia interaction, cross-implementation fixtures, WSL hardware preparation, and Windows packaged release validation remain.
+- Failure cleanup, cancellation/process termination, and queue behavior need coverage.
+- Direct M4V regression behavior, Avalonia interaction, cross-implementation fixtures, WSL hardware preparation, and Windows packaged release validation remain.
 
 ## 17. Commit hashes and messages
 
@@ -115,9 +117,10 @@ Native Windows release validation is intentionally deferred until the non-Window
 | `f9eec6f` | Add typed .NET mux policy |
 | `31daad5` | Enforce shared .NET audio mode policy |
 | `6bbbcb9` | Make catalog and tool discovery deterministic |
+| `ffaad1b` | Validate mux replacement video before preparation |
 
 ## 18. Confirmation that C and Pascal remain unchanged
 
 **Status: PASS**
 
-No C, Objective-C, CMake, native resource, or Pascal file was modified. The tracked-file hash inventory outside `dotnet-experiment/` has been verified after both implementation commits.
+No C, Objective-C, CMake, native resource, or Pascal file was modified. The tracked-file hash inventory outside `dotnet-experiment/` has been verified after each implementation phase commit.

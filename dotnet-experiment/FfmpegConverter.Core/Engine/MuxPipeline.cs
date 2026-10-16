@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -83,6 +84,85 @@ public class MuxPipeline
             return hasVideo && hasAudio;
         }
         catch
+        {
+            return false;
+        }
+    }
+
+    public static bool PreparedSourceOutputIsUsable(string output)
+    {
+        bool hasVideo = false;
+        bool hasAudio = false;
+        using var reader = new StringReader(output);
+        string? line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            if (line.Equals("video", StringComparison.OrdinalIgnoreCase))
+                hasVideo = true;
+            else if (line.Equals("audio", StringComparison.OrdinalIgnoreCase))
+                hasAudio = true;
+        }
+        return hasVideo && hasAudio;
+    }
+
+    public static async Task<bool> ValidatePreparedSourceAsync(
+        string ffprobePath,
+        string intermediateFile,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(ffprobePath) || !File.Exists(ffprobePath) || !File.Exists(intermediateFile))
+            return false;
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffprobePath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (string argument in new[]
+        {
+            "-v", "error", "-show_entries", "stream=codec_type",
+            "-of", "default=noprint_wrappers=1:nokey=1", intermediateFile
+        })
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = startInfo };
+        try
+        {
+            if (!process.Start())
+                return false;
+
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                if (!process.HasExited)
+                {
+                    try
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    catch (InvalidOperationException) { }
+                    catch (Win32Exception) { }
+                }
+                await process.WaitForExitAsync(CancellationToken.None);
+                throw;
+            }
+
+            _ = await errorTask;
+            return process.ExitCode == 0 && PreparedSourceOutputIsUsable(await outputTask);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             return false;
         }

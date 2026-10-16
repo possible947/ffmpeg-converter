@@ -86,6 +86,23 @@ public class MuxPipelineTests
     }
 
     [Fact]
+    public async Task ValidatePreparedSource_MissingProbeToolRejectsIntermediate()
+    {
+        string intermediate = Path.GetTempFileName();
+        try
+        {
+            bool usable = await MuxPipeline.ValidatePreparedSourceAsync(
+                "/missing/ffprobe", intermediate);
+
+            Assert.False(usable);
+        }
+        finally
+        {
+            File.Delete(intermediate);
+        }
+    }
+
+    [Fact]
     public async Task Converter_MuxDryRun_SucceedsWithoutTouchingFiles()
     {
         var tempInput = Path.GetTempFileName();

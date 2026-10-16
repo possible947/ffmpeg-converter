@@ -179,6 +179,13 @@ public static class AudioModePolicy
         return result.Policy;
     }
 
+    public static PolicyResult ResolveHqPolicy(
+        ConvertOptions options,
+        string platform,
+        MuxVideoCodec replacementVideoCodec) =>
+        MuxPolicyResolver.ResolveHq(
+            CreateProfile(platform), replacementVideoCodec, options.AudioOutputMode);
+
     private static MuxBuildProfile CreateProfile(string platform)
     {
         MuxPlatform resolvedPlatform = platform.ToLowerInvariant() switch

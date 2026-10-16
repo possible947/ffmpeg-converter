@@ -160,6 +160,8 @@ public class Converter
             AudioWorkflowContext audioWorkflow = AudioModePolicy.GetWorkflow(opts);
             MuxVideoCodec sourceVideoCodec = MuxVideoCodec.Unknown;
             MuxVideoCodec replacementVideoCodec = MuxVideoCodec.Unknown;
+            InputVideoProbeResult? replacementProbeResult = null;
+            MuxPolicy? muxPolicy = null;
             MuxOperationalMode muxMode = default;
             if (audioWorkflow == AudioWorkflowContext.Mux)
             {
@@ -193,39 +195,33 @@ public class Converter
 
                     if (!opts.DryRun)
                     {
-                        InputVideoProbeResult replacementProbe = await _replacementVideoProbe.ProbeAsync(
+                        replacementProbeResult = await _replacementVideoProbe.ProbeAsync(
                             _tools.Ffprobe, opts.VideoTrackPath, cancellationToken);
-                        if (!replacementProbe.Success)
+                        if (!replacementProbeResult.Success)
                         {
-                            ConverterError probeError = replacementProbe.Failure switch
-                            {
-                                InputVideoProbeFailure.InputNotFound => ConverterError.InputNotFound,
-                                InputVideoProbeFailure.InputNotReadable => ConverterError.InputNotReadable,
-                                _ => ConverterError.FfprobeFailed
-                            };
-                            string probeMessage = replacementProbe.Failure switch
-                            {
-                                InputVideoProbeFailure.ProbeToolMissing => "ffprobe binary not found.",
-                                InputVideoProbeFailure.InputNotFound => "Replacement video track was not found.",
-                                InputVideoProbeFailure.InputNotReadable => "Replacement video track is not readable.",
-                                InputVideoProbeFailure.NoVideoStream => "Replacement file contains no video stream.",
-                                InputVideoProbeFailure.MissingCodec => "Could not determine the replacement video codec.",
-                                InputVideoProbeFailure.ProcessStartFailed => "Could not start ffprobe for the replacement video track.",
-                                _ => "ffprobe could not read the replacement video track."
-                            };
-                            if (!string.IsNullOrEmpty(replacementProbe.Detail))
-                                probeMessage += $" {replacementProbe.Detail}";
+                            (ConverterError probeError, string probeMessage) =
+                                DescribeReplacementProbeFailure(replacementProbeResult);
                             RaiseError(probeMessage, probeError);
                             FileEnd?.Invoke(this, new FileEndEventArgs(input, probeError));
                             continue;
                         }
-                        replacementVideoCodec = replacementProbe.Codec;
+                        replacementVideoCodec = replacementProbeResult.Codec;
                     }
                 }
             }
 
-            string? audioPolicyError = AudioModePolicy.Validate(
-                opts, platform, sourceVideoCodec, replacementVideoCodec);
+            string? audioPolicyError;
+            if (audioWorkflow == AudioWorkflowContext.Mux)
+            {
+                muxPolicy = AudioModePolicy.ResolveMuxPolicy(
+                    opts, platform, sourceVideoCodec, replacementVideoCodec, out string policyError);
+                audioPolicyError = muxPolicy == null ? policyError : null;
+            }
+            else
+            {
+                audioPolicyError = AudioModePolicy.Validate(
+                    opts, platform, sourceVideoCodec, replacementVideoCodec);
+            }
             if (!string.IsNullOrEmpty(audioPolicyError))
             {
                 RaiseError(audioPolicyError, ConverterError.InvalidOptions);
@@ -300,10 +296,18 @@ public class Converter
                     continue;
                 }
 
-                var muxErr = await RunAddTrackAsync(
+                if (muxPolicy == null || replacementProbeResult == null)
+                {
+                    RaiseError("Mux Add Track policy or replacement probe is unavailable.", ConverterError.InvalidOptions);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
+                    continue;
+                }
+
+                var addTrackRequest = new AddTrackRequest(
                     input, opts.VideoTrackPath, output, effectiveOutputDir,
-                    opts, opts, platform, cancellationToken);
-                FileEnd?.Invoke(this, new FileEndEventArgs(input, muxErr));
+                    opts, opts, platform, muxPolicy, replacementProbeResult);
+                AddTrackResult addTrackResult = await ExecuteAddTrackAsync(addTrackRequest, cancellationToken);
+                FileEnd?.Invoke(this, new FileEndEventArgs(input, addTrackResult.Error));
                 continue;
             }
 
@@ -387,16 +391,49 @@ public class Converter
                         }
                         else
                         {
-                            var muxOptions = new ConvertOptions
+                            InputVideoProbeResult replacementProbe = await _replacementVideoProbe.ProbeAsync(
+                                _tools.Ffprobe, videoTrack, cancellationToken);
+                            if (!replacementProbe.Success)
                             {
-                                Codec = "mux",
-                                Preset = isProRes ? "mov" : "mkv",
-                                Overwrite = opts.Overwrite,
-                                OutputDir = effectiveOutputDir,
-                                VideoTrackPath = videoTrack
-                            };
-                            hqError = await RunAddTrackAsync(input, videoTrack, output,
-                                effectiveOutputDir, opts, muxOptions, platform, cancellationToken);
+                                (ConverterError probeError, string probeMessage) =
+                                    DescribeReplacementProbeFailure(replacementProbe);
+                                RaiseError(probeMessage, probeError);
+                                hqError = probeError;
+                            }
+                            else if (isProRes != (replacementProbe.Codec == MuxVideoCodec.ProRes))
+                            {
+                                RaiseError("HQ output video codec does not match the selected encoder.", ConverterError.InvalidOptions);
+                                hqError = ConverterError.InvalidOptions;
+                            }
+                            else
+                            {
+                                PolicyResult hqPolicyResult = AudioModePolicy.ResolveHqPolicy(
+                                    opts, platform, replacementProbe.Codec);
+                                if (!hqPolicyResult.Success)
+                                {
+                                    RaiseError(hqPolicyResult.ErrorMessage, ConverterError.InvalidOptions);
+                                    hqError = ConverterError.InvalidOptions;
+                                }
+                                else
+                                {
+                                    MuxPolicy hqPolicy = hqPolicyResult.Policy!;
+                                    var muxOptions = new ConvertOptions
+                                    {
+                                        Codec = "mux",
+                                        Preset = isProRes ? "mov" : "mkv",
+                                        AudioOutputMode = hqPolicy.AudioMode,
+                                        Overwrite = opts.Overwrite,
+                                        OutputDir = effectiveOutputDir,
+                                        VideoTrackPath = videoTrack
+                                    };
+                                    var addTrackRequest = new AddTrackRequest(
+                                        input, videoTrack, output, effectiveOutputDir,
+                                        opts, muxOptions, platform, hqPolicy, replacementProbe);
+                                    AddTrackResult addTrackResult = await ExecuteAddTrackAsync(
+                                        addTrackRequest, cancellationToken);
+                                    hqError = addTrackResult.Error;
+                                }
+                            }
                         }
                     }
                 }
@@ -488,23 +525,31 @@ public class Converter
         return ConverterError.Ok;
     }
 
-    private async Task<ConverterError> RunAddTrackAsync(
-        string input,
-        string videoTrack,
-        string output,
-        string effectiveOutputDir,
-        ConvertOptions audioOptions,
-        ConvertOptions muxOptions,
-        string platform,
+    private async Task<AddTrackResult> ExecuteAddTrackAsync(
+        AddTrackRequest request,
         CancellationToken cancellationToken)
     {
+        AddTrackResult validation = AddTrackContract.Validate(request);
+        if (!validation.Success)
+        {
+            RaiseError(validation.Message ?? "Add Track request validation failed.", validation.Error);
+            return validation;
+        }
+
+        string input = request.SourcePath;
+        string videoTrack = request.ReplacementVideoPath;
+        string output = request.OutputPath;
+        string effectiveOutputDir = request.OutputDirectory;
+        ConvertOptions audioOptions = request.SourceOptions;
+        ConvertOptions muxOptions = request.MuxOptions;
+        string platform = request.Platform;
         var intermediateOptions = new ConvertOptions
         {
             Codec = "copy",
             Preset = "default",
             Deblock = 1,
             AudioNorm = audioOptions.AudioNorm,
-            AudioOutputMode = audioOptions.AudioOutputMode,
+            AudioOutputMode = request.Policy.AudioMode,
             Genre = audioOptions.Genre,
             Gain = audioOptions.Gain,
             ITarget = audioOptions.ITarget,
@@ -523,6 +568,7 @@ public class Converter
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             double duration = await GetDurationAsync(input);
             string norm = intermediateOptions.AudioNorm.ToLowerInvariant();
             bool copyAudio = intermediateOptions.AudioOutputMode == AudioOutputMode.Copy;
@@ -555,14 +601,33 @@ public class Converter
                 intermediateOptions, platform, _presetDb, null, _probeResult);
             ConverterError conversionError = await RunFfmpegEncodeAsync(arguments, duration, cancellationToken);
             if (conversionError != ConverterError.Ok)
-                return conversionError;
+                return AddTrackResult.Failed(
+                    conversionError, AddTrackStage.SourcePreparation, "Add Track source preparation failed.");
+
+            if (!await MuxPipeline.ValidatePreparedSourceAsync(
+                    _tools.Ffprobe, intermediateFile, cancellationToken))
+            {
+                const string message = "Add Track source preparation produced no usable intermediate.";
+                RaiseError(message, ConverterError.FfprobeFailed);
+                return AddTrackResult.Failed(
+                    ConverterError.FfprobeFailed, AddTrackStage.SourcePreparation, message);
+            }
 
             var mux = new MuxPipeline();
             mux.StageChanged += (s, stage) => StageChanged?.Invoke(this, stage);
             mux.MessageLogged += (s, message) => RaiseMessage(message);
             mux.ErrorOccurred += (s, error) => RaiseError(error.Text, error.Code);
-            return await mux.RunMuxPostprocessAsync(intermediateFile, videoTrack,
+            ConverterError muxError = await mux.RunMuxPostprocessAsync(intermediateFile, videoTrack,
                 output, muxOptions, _tools, _probeResult, cancellationToken);
+            return muxError == ConverterError.Ok
+                ? AddTrackResult.Completed()
+                : AddTrackResult.Failed(
+                    muxError, AddTrackStage.FinalAssembly, "Add Track final video assembly failed.");
+        }
+        catch (OperationCanceledException)
+        {
+            return AddTrackResult.Failed(
+                ConverterError.SkipFile, AddTrackStage.SourcePreparation, "Add Track operation was cancelled.");
         }
         finally
         {
@@ -571,8 +636,35 @@ public class Converter
                 if (File.Exists(intermediateFile))
                     File.Delete(intermediateFile);
             }
-            catch { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                RaiseMessage($"Add Track intermediate cleanup failed: {ex.Message}");
+            }
         }
+    }
+
+    private static (ConverterError Error, string Message) DescribeReplacementProbeFailure(
+        InputVideoProbeResult result)
+    {
+        ConverterError error = result.Failure switch
+        {
+            InputVideoProbeFailure.InputNotFound => ConverterError.InputNotFound,
+            InputVideoProbeFailure.InputNotReadable => ConverterError.InputNotReadable,
+            _ => ConverterError.FfprobeFailed
+        };
+        string message = result.Failure switch
+        {
+            InputVideoProbeFailure.ProbeToolMissing => "ffprobe binary not found.",
+            InputVideoProbeFailure.InputNotFound => "Replacement video track was not found.",
+            InputVideoProbeFailure.InputNotReadable => "Replacement video track is not readable.",
+            InputVideoProbeFailure.NoVideoStream => "Replacement file contains no video stream.",
+            InputVideoProbeFailure.MissingCodec => "Could not determine the replacement video codec.",
+            InputVideoProbeFailure.ProcessStartFailed => "Could not start ffprobe for the replacement video track.",
+            _ => "ffprobe could not read the replacement video track."
+        };
+        if (!string.IsNullOrEmpty(result.Detail))
+            message += $" {result.Detail}";
+        return (error, message);
     }
 
     private static void RemoveTaskDirectory(string path)
