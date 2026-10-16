@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 
@@ -34,7 +35,7 @@ public static class InteractiveMenu
         string preset = "standard";
         int deblock = 1; // 1=none, 2=weak, 3=strong
         string audioNorm = "none";
-        string audioOutput = "pcm";
+        AudioOutputMode audioOutput = AudioOutputMode.Pcm;
         int genre = 1; // 1=edm
         bool overwrite = false;
         string outputDir = "";
@@ -103,9 +104,15 @@ public static class InteractiveMenu
                         preset = "default";
                     }
 
-                    if (finalCodec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
+                    bool directM4v = group.Equals("m4v", StringComparison.OrdinalIgnoreCase);
+                    if (directM4v)
                     {
-                        step = 7; // Go to overwrite, m4v steps will be collected after files
+                        step = 7;
+                    }
+                    else if (finalCodec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
+                    {
+                        preset = "m4v";
+                        step = 4;
                     }
                     else
                     {
@@ -267,10 +274,20 @@ public static class InteractiveMenu
                     writer.WriteLine("\n----ffmpeg_converter_simple_gui----");
                     writer.WriteLine("select audio output");
                     writer.WriteLine("----------------------------------");
-                    writer.WriteLine("  1. pcm (default)");
-                    writer.WriteLine("  2. fdk_aac_320");
-                    writer.WriteLine("  3. fdk_aac_320_ac3_640");
-                    writer.WriteLine("  4. copy (all audio tracks)");
+                    var audioOptions = new ConvertOptions
+                    {
+                        SelectionGroup = group,
+                        SelectionEncoder = encoder,
+                        Codec = finalCodec,
+                        Preset = preset
+                    };
+                    IReadOnlyList<AudioOutputMode> availableAudioModes =
+                        AudioModePolicy.GetAvailableModes(audioOptions, platform);
+                    for (int i = 0; i < availableAudioModes.Count; i++)
+                    {
+                        string defaultLabel = i == 0 ? " (default)" : "";
+                        writer.WriteLine($"  {i + 1}. {MuxPolicyResolver.GetAudioModeDisplayName(availableAudioModes[i])}{defaultLabel}");
+                    }
                     writer.WriteLine("----------------------------------");
                     writer.Write("select: number->choice,Enter->(default),c->cancel,b->back\n> ");
                     string? ch = await reader.ReadLineAsync();
@@ -284,10 +301,24 @@ public static class InteractiveMenu
                         break;
                     }
 
-                    if (string.IsNullOrEmpty(ch) || ch == "1") { audioOutput = "pcm"; step = 7; }
-                    else if (ch == "2") { audioOutput = "fdk_aac_320"; step = 7; }
-                    else if (ch == "3") { audioOutput = "fdk_aac_320_ac3_640"; step = 7; }
-                    else if (ch == "4") { audioOutput = "copy"; step = 7; }
+                    if (string.IsNullOrEmpty(ch))
+                    {
+                        if (availableAudioModes.Count > 0)
+                        {
+                            audioOutput = availableAudioModes[0];
+                            step = 7;
+                        }
+                        else
+                        {
+                            writer.WriteLine("No audio output modes are available for this selection.");
+                        }
+                    }
+                    else if (int.TryParse(ch, out int audioIndex) &&
+                             audioIndex >= 1 && audioIndex <= availableAudioModes.Count)
+                    {
+                        audioOutput = availableAudioModes[audioIndex - 1];
+                        step = 7;
+                    }
                     else { writer.WriteLine("Invalid choice"); }
                     break;
                 }
@@ -304,7 +335,7 @@ public static class InteractiveMenu
                     if (ch.Equals("c", StringComparison.OrdinalIgnoreCase)) return null;
                     if (ch.Equals("b", StringComparison.OrdinalIgnoreCase))
                     {
-                        step = finalCodec.Equals("m4v", StringComparison.OrdinalIgnoreCase) ? 1 : 6;
+                        step = group.Equals("m4v", StringComparison.OrdinalIgnoreCase) ? 1 : 6;
                         break;
                     }
 
@@ -425,9 +456,20 @@ public static class InteractiveMenu
                         }
                         step = 10;
                     }
-                    else if (finalCodec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
+                    else if (finalCodec.Equals("m4v", StringComparison.OrdinalIgnoreCase) &&
+                             group.Equals("m4v", StringComparison.OrdinalIgnoreCase))
                     {
                         step = 14; // M4V options
+                    }
+                    else if (finalCodec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (files.Count != 1)
+                        {
+                            writer.WriteLine("Mux mode requires exactly one source file.");
+                            files.Clear();
+                            continue;
+                        }
+                        step = 10;
                     }
                     else
                     {

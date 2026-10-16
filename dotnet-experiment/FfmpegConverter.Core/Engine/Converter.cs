@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 
@@ -125,6 +126,7 @@ public class Converter
                 opts.Codec = resolvedCodec;
             }
         }
+        AudioModePolicy.ApplyDefault(opts);
 
         int index = 0;
         var fileList = new List<string>(files);
@@ -148,8 +150,67 @@ public class Converter
                 continue;
             }
 
+            AudioWorkflowContext audioWorkflow = AudioModePolicy.GetWorkflow(opts);
+            MuxVideoCodec sourceVideoCodec = MuxVideoCodec.Unknown;
+            MuxVideoCodec replacementVideoCodec = MuxVideoCodec.Unknown;
+            MuxOperationalMode muxMode = default;
+            if (audioWorkflow == AudioWorkflowContext.Mux)
+            {
+                if (!AudioModePolicy.TryGetMuxMode(opts, out muxMode))
+                {
+                    RaiseError("Selected Mux mode is invalid.", ConverterError.InvalidOptions);
+                    FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
+                    continue;
+                }
+
+                if (muxMode == MuxOperationalMode.Copy && !opts.DryRun)
+                {
+                    var sourceInfo = await InputVideoInfo.ProbeAsync(
+                        _tools.Ffprobe, input, cancellationToken);
+                    if (sourceInfo == null)
+                    {
+                        RaiseError("Could not probe the source video codec for Copy mode.", ConverterError.FfprobeFailed);
+                        FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.FfprobeFailed));
+                        continue;
+                    }
+                    sourceVideoCodec = MuxPolicyResolver.ParseVideoCodec(sourceInfo.CodecName);
+                }
+                else if (muxMode != MuxOperationalMode.Copy)
+                {
+                    if (string.IsNullOrEmpty(opts.VideoTrackPath) || !File.Exists(opts.VideoTrackPath))
+                    {
+                        RaiseError("Mux mode requires a readable --video-track file.", ConverterError.InputNotFound);
+                        FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InputNotFound));
+                        continue;
+                    }
+
+                    if (!opts.DryRun)
+                    {
+                        var replacementInfo = await InputVideoInfo.ProbeAsync(
+                            _tools.Ffprobe, opts.VideoTrackPath, cancellationToken);
+                        if (replacementInfo == null || string.IsNullOrEmpty(replacementInfo.CodecName))
+                        {
+                            RaiseError("Could not probe the replacement video codec.", ConverterError.FfprobeFailed);
+                            FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.FfprobeFailed));
+                            continue;
+                        }
+                        replacementVideoCodec = MuxPolicyResolver.ParseVideoCodec(replacementInfo.CodecName);
+                    }
+                }
+            }
+
+            string? audioPolicyError = AudioModePolicy.Validate(
+                opts, platform, sourceVideoCodec, replacementVideoCodec);
+            if (!string.IsNullOrEmpty(audioPolicyError))
+            {
+                RaiseError(audioPolicyError, ConverterError.InvalidOptions);
+                FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
+                continue;
+            }
+
             // Determine output file path
-            string output = CommandBuilder.BuildOutputFilePath(input, opts, platform, _presetDb);
+            string output = CommandBuilder.BuildOutputFilePath(
+                input, opts, platform, _presetDb, sourceVideoCodec);
 
             if (File.Exists(output) && !opts.Overwrite)
             {
@@ -161,7 +222,7 @@ public class Converter
             // ====================================================
             // Apple M4V Pipeline
             // ====================================================
-            if (opts.Codec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
+            if (AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.DirectM4v)
             {
                 if (opts.DryRun)
                 {
@@ -190,7 +251,8 @@ public class Converter
             // ====================================================
             // Mux Mode (Replacement Video Track via mkvmerge)
             // ====================================================
-            if (opts.Codec.Equals("mux", StringComparison.OrdinalIgnoreCase))
+            if (audioWorkflow == AudioWorkflowContext.Mux &&
+                muxMode != MuxOperationalMode.Copy)
             {
                 if (string.IsNullOrEmpty(_tools.Mkvmerge) || !File.Exists(_tools.Mkvmerge))
                 {
@@ -233,7 +295,7 @@ public class Converter
                 }
 
                 bool isProRes = HqPresetCatalog.IsProResEncoder(encoder);
-                if (isProRes && !opts.AudioOutputMode.Equals("pcm", StringComparison.OrdinalIgnoreCase))
+                if (isProRes && opts.AudioOutputMode != AudioOutputMode.Pcm)
                 {
                     RaiseError("HQ ProRes encoders require PCM audio output.", ConverterError.InvalidOptions);
                     FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.InvalidOptions));
@@ -342,7 +404,7 @@ public class Converter
 
             // Step 2. Two-Pass Audio Analysis (Peak norm or Loudness norm)
             string audioNorm = opts.AudioNorm.ToLowerInvariant();
-            if (!opts.AudioOutputMode.Equals("copy", StringComparison.OrdinalIgnoreCase) &&
+            if (opts.AudioOutputMode != AudioOutputMode.Copy &&
                 (audioNorm == "peak2" || audioNorm == "peak_norm_2pass"))
             {
                 StageChanged?.Invoke(this, "peak_analysis");
@@ -357,7 +419,7 @@ public class Converter
                 opts.Gain = gain.Value;
                 RaiseMessage($"Peak analysis complete. Target gain: {opts.Gain:F2} dB");
             }
-            else if (!opts.AudioOutputMode.Equals("copy", StringComparison.OrdinalIgnoreCase) &&
+            else if (opts.AudioOutputMode != AudioOutputMode.Copy &&
                      (audioNorm == "loudnorm2" || audioNorm == "loudness_norm_2pass"))
             {
                 StageChanged?.Invoke(this, "loudness_analysis_pass1");
@@ -438,7 +500,7 @@ public class Converter
         {
             double duration = await GetDurationAsync(input);
             string norm = intermediateOptions.AudioNorm.ToLowerInvariant();
-            bool copyAudio = intermediateOptions.AudioOutputMode.Equals("copy", StringComparison.OrdinalIgnoreCase);
+            bool copyAudio = intermediateOptions.AudioOutputMode == AudioOutputMode.Copy;
             if (!copyAudio && (norm == "peak2" || norm == "peak_norm_2pass"))
             {
                 StageChanged?.Invoke(this, "peak_analysis");

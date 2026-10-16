@@ -8,6 +8,7 @@ using FfmpegConverter.Core.Models;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 using FfmpegConverter.Core.Engine;
+using FfmpegConverter.Core.Policy;
 
 namespace FfmpegConverter.Cli;
 
@@ -143,7 +144,10 @@ class Program
         }
 
         // Validate pipeline-specific constraints
-        if (opts.Codec.Equals("mux", StringComparison.OrdinalIgnoreCase))
+        bool muxAddTrack = AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.Mux &&
+                           AudioModePolicy.TryGetMuxMode(opts, out MuxOperationalMode muxMode) &&
+                           muxMode != MuxOperationalMode.Copy;
+        if (muxAddTrack)
         {
             if (string.IsNullOrEmpty(tools.Mkvmerge))
             {

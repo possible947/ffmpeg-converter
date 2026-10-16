@@ -2,6 +2,7 @@ using System.IO;
 using System.Threading.Tasks;
 using FfmpegConverter.Cli;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 using Xunit;
@@ -26,7 +27,7 @@ public class CommandLineParserTests
         Assert.Equal("prores_ks", result.Options.Codec);
         Assert.Equal("standard", result.Options.Preset);
         Assert.Equal("none", result.Options.AudioNorm);
-        Assert.Equal("pcm", result.Options.AudioOutputMode);
+        Assert.Equal(AudioOutputMode.Pcm, result.Options.AudioOutputMode);
         Assert.Equal(1, result.Options.Deblock);
     }
 
@@ -76,47 +77,100 @@ public class CommandLineParserTests
         Assert.True(result.Success);
         Assert.Equal("loudness_norm_2pass", result.Options.AudioNorm);
         Assert.Equal(2, result.Options.Genre); // Rock
-        Assert.Equal("fdk_aac_320", result.Options.AudioOutputMode);
+        Assert.Equal(AudioOutputMode.Aac, result.Options.AudioOutputMode);
         Assert.Equal(-11.0, result.Options.ITarget);
         Assert.Equal(-1.0, result.Options.TpTarget);
         Assert.Equal(7.0, result.Options.LraTarget);
     }
 
     [Fact]
-    public void Parse_AudioCopy_IsAccepted()
+    public void Parse_AudioCopy_IsRejectedForOnePassConversion()
     {
         var result = CommandLineParser.Parse(
             new[] { "--audio-output", "copy", "input.mkv" }, _presetDb, "linux");
 
+        Assert.False(result.Success);
+        Assert.Contains("only in Mux and HQ Converter", result.ErrorMessage);
+    }
+
+    [Fact]
+    public void Parse_AudioCopy_IsAvailableForMuxCopyMode()
+    {
+        var result = CommandLineParser.Parse(
+            new[] { "-c", "mux", "--encoder", "copy", "--audio-output", "copy", "input.mkv" },
+            _presetDb,
+            "linux");
+
         Assert.True(result.Success, result.ErrorMessage);
-        Assert.Equal("copy", result.Options.AudioOutputMode);
+        Assert.Equal(AudioOutputMode.Copy, result.Options.AudioOutputMode);
+    }
+
+    [Theory]
+    [InlineData("copy")]
+    [InlineData("pcm")]
+    public void Parse_MuxM4v_RejectsUnsupportedAudioModes(string audioMode)
+    {
+        string videoTrack = Path.GetTempFileName();
+        try
+        {
+            var tools = new ToolPaths { Mkvmerge = "mock-mkvmerge", Mp4Box = "mock-mp4box" };
+            var result = CommandLineParser.Parse(
+                new[]
+                {
+                    "-c", "mux", "--encoder", "m4v",
+                    "--audio-output", audioMode,
+                    "--video-track", videoTrack,
+                    "input.mkv"
+                },
+                _presetDb,
+                "linux",
+                tools);
+
+            Assert.False(result.Success);
+            Assert.Contains("unavailable", result.ErrorMessage);
+        }
+        finally
+        {
+            File.Delete(videoTrack);
+        }
     }
 
     [Fact]
     public void Parse_AppleM4vParameters_ParsedAccurately()
     {
+        string videoTrack = Path.GetTempFileName();
         var tools = new ToolPaths { Mp4Box = "mock-mp4box" };
-        string[] args =
+        try
         {
-            "-c", "mux", "--encoder", "m4v",
-            "--m4v-video-track", "1",
-            "--m4v-audio-track", "2",
-            "--m4v-ac3-bitrate", "448",
-            "--m4v-lang", "eng",
-            "--no-m4v-chapters",
-            "--m4v-edit-before-mux",
-            "feature.mov"
-        };
-        var result = CommandLineParser.Parse(args, _presetDb, "macos", tools);
+            tools.Mkvmerge = "mock-mkvmerge";
+            string[] args =
+            {
+                "-c", "mux", "--encoder", "m4v",
+                "--video-track", videoTrack,
+                "--m4v-video-track", "1",
+                "--m4v-audio-track", "2",
+                "--m4v-ac3-bitrate", "448",
+                "--m4v-lang", "eng",
+                "--no-m4v-chapters",
+                "--m4v-edit-before-mux",
+                "feature.mov"
+            };
+            var result = CommandLineParser.Parse(args, _presetDb, "macos", tools);
 
-        Assert.True(result.Success);
-        Assert.Equal("m4v", result.Options.Codec);
-        Assert.Equal(1, result.Options.M4vVideoTrackIndex);
-        Assert.Equal(2, result.Options.M4vAudioTrackIndex);
-        Assert.Equal(448, result.Options.M4vAc3BitrateKbps);
-        Assert.Equal("eng", result.Options.M4vAudioLang);
-        Assert.False(result.Options.M4vAddChapters);
-        Assert.True(result.Options.M4vEditBeforeMux);
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.Equal("m4v", result.Options.Codec);
+            Assert.Equal(AudioOutputMode.AacAc3, result.Options.AudioOutputMode);
+            Assert.Equal(1, result.Options.M4vVideoTrackIndex);
+            Assert.Equal(2, result.Options.M4vAudioTrackIndex);
+            Assert.Equal(448, result.Options.M4vAc3BitrateKbps);
+            Assert.Equal("eng", result.Options.M4vAudioLang);
+            Assert.False(result.Options.M4vAddChapters);
+            Assert.True(result.Options.M4vEditBeforeMux);
+        }
+        finally
+        {
+            File.Delete(videoTrack);
+        }
     }
 
     [Fact]
@@ -157,7 +211,7 @@ public class CommandLineParserTests
             Preset = "standard",
             Deblock = 1,
             AudioNorm = "none",
-            AudioOutputMode = "pcm",
+            AudioOutputMode = AudioOutputMode.Pcm,
             Overwrite = false,
             DryRun = false
         };
@@ -211,7 +265,7 @@ public class CommandLineParserTests
             Assert.Equal("standard", menuResult.Options.Preset);
             Assert.Equal(1, menuResult.Options.Deblock);
             Assert.Equal("none", menuResult.Options.AudioNorm);
-            Assert.Equal("pcm", menuResult.Options.AudioOutputMode);
+            Assert.Equal(AudioOutputMode.Pcm, menuResult.Options.AudioOutputMode);
             Assert.False(menuResult.Options.Overwrite);
             Assert.Single(menuResult.Files);
             Assert.Equal(tempFile, menuResult.Files[0]);

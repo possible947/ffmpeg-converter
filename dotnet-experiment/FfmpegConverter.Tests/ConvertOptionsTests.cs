@@ -1,4 +1,5 @@
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using Xunit;
 
 namespace FfmpegConverter.Tests;
@@ -16,7 +17,7 @@ public class ConvertOptionsTests
         Assert.Equal("standard", opts.Preset);
         Assert.Equal(1, opts.Deblock);
         Assert.Equal("none", opts.AudioNorm);
-        Assert.Equal("pcm", opts.AudioOutputMode);
+        Assert.Equal(AudioOutputMode.Pcm, opts.AudioOutputMode);
         Assert.Equal(1, opts.Genre);
         Assert.False(opts.UseAacForH265);
         Assert.Equal(-1, opts.VulkanDevice);

@@ -1,6 +1,7 @@
 using System.IO;
 using FfmpegConverter.Core.Engine;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 using Xunit;
@@ -9,6 +10,28 @@ namespace FfmpegConverter.Tests;
 
 public class CommandBuilderTests
 {
+    [Theory]
+    [InlineData(MuxVideoCodec.ProRes, "_converted.mov")]
+    [InlineData(MuxVideoCodec.H264, "_converted.mkv")]
+    public void BuildOutputFilePath_CopyModeUsesPolicyContainer(
+        MuxVideoCodec sourceCodec,
+        string expectedSuffix)
+    {
+        var opts = new ConvertOptions
+        {
+            SelectionGroup = "copy",
+            SelectionEncoder = "copy",
+            Codec = "copy",
+            AudioOutputMode = AudioOutputMode.Pcm,
+            OutputDir = "/tmp"
+        };
+
+        string output = CommandBuilder.BuildOutputFilePath(
+            "sample.mkv", opts, "linux", PresetDb.Load(), sourceCodec);
+
+        Assert.EndsWith(expectedSuffix, output);
+    }
+
     private readonly PresetDb _presetDb;
 
     public CommandBuilderTests()
@@ -103,7 +126,7 @@ public class CommandBuilderTests
             Codec = "prores_ks",
             Preset = "standard",
             AudioNorm = "peak_norm",
-            AudioOutputMode = "fdk_aac_320_ac3_640"
+            AudioOutputMode = AudioOutputMode.AacAc3
         };
 
         var probe = new HardwareProbeResult();
@@ -124,7 +147,7 @@ public class CommandBuilderTests
         {
             Codec = "copy",
             AudioNorm = "loudness_norm_2pass",
-            AudioOutputMode = "copy"
+            AudioOutputMode = AudioOutputMode.Copy
         };
 
         string args = CommandBuilder.BuildFfmpegArgs("input.mkv", "output.mkv", opts, "linux", _presetDb, null, null);
@@ -163,7 +186,7 @@ public class CommandBuilderTests
             Codec = "hevc_videotoolbox",
             Preset = "medium",
             AudioNorm = "none",
-            AudioOutputMode = "pcm"
+            AudioOutputMode = AudioOutputMode.Pcm
         };
 
         var vInfo = new InputVideoInfo { Width = 1920, Height = 1080, Fps = 30.0 };

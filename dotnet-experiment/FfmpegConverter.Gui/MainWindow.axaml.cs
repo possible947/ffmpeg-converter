@@ -13,6 +13,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using FfmpegConverter.Core.Engine;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 
@@ -29,6 +30,8 @@ public partial class MainWindow : Window
     private string _videoTrackPath = "";
     private CancellationTokenSource? _cts;
     private bool _updatingSelection = false;
+    private bool _audioModesEnabled;
+    private int _audioChoiceRequest;
 
     public MainWindow()
     {
@@ -60,7 +63,7 @@ public partial class MainWindow : Window
         // Default audio selections
         AudioNormComboBox.SelectedIndex = 0; // none
         GenreComboBox.SelectedIndex = 0;     // none
-        AudioModeComboBox.SelectedIndex = 0; // pcm
+        AudioModeComboBox.SelectedIndex = -1;
 
         // Default filter selections
         FilterComboBox.SelectedIndex = 0;       // none
@@ -254,7 +257,9 @@ public partial class MainWindow : Window
 
             // Adjust Mux Video Track controls visibility
             bool isMuxTrack = group.Equals("mux", StringComparison.OrdinalIgnoreCase) &&
-                             (encoder.Equals("mkv", StringComparison.OrdinalIgnoreCase) || encoder.Equals("mov", StringComparison.OrdinalIgnoreCase));
+                             (encoder.Equals("mkv", StringComparison.OrdinalIgnoreCase) ||
+                              encoder.Equals("mov", StringComparison.OrdinalIgnoreCase) ||
+                              encoder.Equals("m4v", StringComparison.OrdinalIgnoreCase));
             VideoTrackRow.IsVisible = isMuxTrack;
             AddTrackButton.IsEnabled = isMuxTrack;
 
@@ -282,6 +287,70 @@ public partial class MainWindow : Window
         {
             _updatingSelection = false;
         }
+
+        _ = RefreshAudioModeChoicesAsync();
+    }
+
+    private async Task RefreshAudioModeChoicesAsync()
+    {
+        int request = Interlocked.Increment(ref _audioChoiceRequest);
+        string group = CodecComboBox.SelectedItem?.ToString() ?? "software";
+        string encoder = EncoderComboBox.SelectedItem?.ToString() ?? "prores_ks";
+        if (!_presetDb.ResolveSelection(_platform, group, encoder, out string codec))
+        {
+            AudioModeComboBox.Items.Clear();
+            AudioModeComboBox.SelectedIndex = -1;
+            _audioModesEnabled = false;
+            return;
+        }
+
+        var options = new ConvertOptions
+        {
+            SelectionGroup = group,
+            SelectionEncoder = encoder,
+            Codec = codec,
+            Preset = PresetComboBox.SelectedItem?.ToString() ?? "default"
+        };
+        var sourceCodecs = new List<MuxVideoCodec>();
+        foreach (string input in _inputFiles)
+        {
+            InputVideoInfo? info = await InputVideoInfo.ProbeAsync(
+                _tools.Ffprobe, input);
+            if (request != _audioChoiceRequest)
+                return;
+            sourceCodecs.Add(MuxPolicyResolver.ParseVideoCodec(info?.CodecName));
+        }
+
+        MuxVideoCodec replacementCodec = MuxVideoCodec.Unknown;
+        if (!string.IsNullOrEmpty(_videoTrackPath) && File.Exists(_videoTrackPath))
+        {
+            InputVideoInfo? replacementInfo = await InputVideoInfo.ProbeAsync(
+                _tools.Ffprobe, _videoTrackPath);
+            if (request != _audioChoiceRequest)
+                return;
+            replacementCodec = MuxPolicyResolver.ParseVideoCodec(replacementInfo?.CodecName);
+        }
+
+        IReadOnlyList<AudioOutputMode> modes = AudioModePolicy.GetAvailableModes(
+            options, _platform, sourceCodecs, replacementCodec);
+        string? previousMode = (AudioModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        AudioModeComboBox.Items.Clear();
+        int selectedIndex = -1;
+        for (int i = 0; i < modes.Count; i++)
+        {
+            string modeName = MuxPolicyResolver.GetAudioModeName(modes[i]);
+            AudioModeComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = MuxPolicyResolver.GetAudioModeDisplayName(modes[i]),
+                Tag = modeName
+            });
+            if (string.Equals(previousMode, modeName, StringComparison.Ordinal))
+                selectedIndex = i;
+        }
+
+        _audioModesEnabled = modes.Count > 1;
+        AudioModeComboBox.SelectedIndex = selectedIndex >= 0 ? selectedIndex :
+            modes.Count > 0 ? 0 : -1;
     }
 
     // =========================================================================
@@ -421,6 +490,7 @@ public partial class MainWindow : Window
                     AppendLog($"Added input file: {path}");
                 }
             }
+            _ = RefreshAudioModeChoicesAsync();
         }
     }
 
@@ -448,6 +518,7 @@ public partial class MainWindow : Window
                         AppendLog($"Added input file: {path}");
                     }
                 }
+                _ = RefreshAudioModeChoicesAsync();
             }
         }
         catch (Exception ex)
@@ -466,12 +537,14 @@ public partial class MainWindow : Window
                 _inputFiles.Remove(file);
                 AppendLog($"Removed file: {file}");
             }
+            _ = RefreshAudioModeChoicesAsync();
         }
     }
 
     public void OnClearFilesClick(object? sender, RoutedEventArgs e)
     {
         _inputFiles.Clear();
+        _ = RefreshAudioModeChoicesAsync();
         AppendLog("Cleared all input files.");
     }
 
@@ -524,6 +597,7 @@ public partial class MainWindow : Window
                 _videoTrackPath = path;
                 VideoTrackTextBox.Text = path;
                 AppendLog($"Video track set to: {path}");
+                _ = RefreshAudioModeChoicesAsync();
             }
         }
         catch (Exception ex)
@@ -537,6 +611,7 @@ public partial class MainWindow : Window
         _videoTrackPath = "";
         VideoTrackTextBox.Text = "";
         AppendLog("Video track cleared.");
+        _ = RefreshAudioModeChoicesAsync();
     }
 
     // =========================================================================
@@ -601,7 +676,7 @@ public partial class MainWindow : Window
         PresetComboBox.IsEnabled = !isConverting;
         AudioNormComboBox.IsEnabled = !isConverting;
         GenreComboBox.IsEnabled = !isConverting && ((AudioNormComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() == "loudness_norm_2pass");
-        AudioModeComboBox.IsEnabled = !isConverting;
+        AudioModeComboBox.IsEnabled = !isConverting && _audioModesEnabled;
         FilterComboBox.IsEnabled = !isConverting && (CodecComboBox.SelectedItem?.ToString() == "software");
         FilterPresetComboBox.IsEnabled = !isConverting && (CodecComboBox.SelectedItem?.ToString() == "software");
 
@@ -627,8 +702,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        string selectedGroup = CodecComboBox.SelectedItem?.ToString() ?? "software";
-        string selectedEncoder = EncoderComboBox.SelectedItem?.ToString() ?? "prores_ks";
+        string selectedGroup = forceM4v ? "m4v" : CodecComboBox.SelectedItem?.ToString() ?? "software";
+        string selectedEncoder = forceM4v ? "m4v" : EncoderComboBox.SelectedItem?.ToString() ?? "prores_ks";
         string selectedPreset = PresetComboBox.SelectedItem?.ToString() ?? "standard";
 
         string finalCodec;
@@ -647,7 +722,17 @@ public partial class MainWindow : Window
         }
 
         // Validate Mux Mode constraints
-        if (finalCodec.Equals("mux", StringComparison.OrdinalIgnoreCase))
+        var selectedOptions = new ConvertOptions
+        {
+            SelectionGroup = selectedGroup,
+            SelectionEncoder = selectedEncoder,
+            Codec = finalCodec,
+            Preset = selectedPreset
+        };
+        bool muxAddTrack = AudioModePolicy.GetWorkflow(selectedOptions) == AudioWorkflowContext.Mux &&
+                           AudioModePolicy.TryGetMuxMode(selectedOptions, out MuxOperationalMode muxMode) &&
+                           muxMode != MuxOperationalMode.Copy;
+        if (muxAddTrack)
         {
             if (_inputFiles.Count != 1)
             {
@@ -671,16 +756,6 @@ public partial class MainWindow : Window
             }
         }
 
-        if (finalCodec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
-            HqPresetCatalog.IsProResEncoder(selectedEncoder) &&
-            !((AudioModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "pcm")
-                .Equals("pcm", StringComparison.OrdinalIgnoreCase))
-        {
-            AppendLog("Error: HQ ProRes encoders require PCM audio output.");
-            StatusLabel.Text = "Error: HQ ProRes requires PCM audio.";
-            return;
-        }
-
         // Validate Apple M4V constraints
         if (finalCodec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
         {
@@ -693,7 +768,13 @@ public partial class MainWindow : Window
         }
 
         string selectedNorm = (AudioNormComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "none";
-        string selectedAudioMode = (AudioModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "pcm";
+        string selectedAudioModeName = (AudioModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "pcm";
+        if (!MuxPolicyResolver.TryParseAudioMode(selectedAudioModeName, out AudioOutputMode selectedAudioMode))
+        {
+            AppendLog($"Error: Invalid audio output mode: {selectedAudioModeName}");
+            StatusLabel.Text = "Error: Invalid audio output mode.";
+            return;
+        }
         string filterTag = (FilterComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "none";
         int deblockMode = filterTag == "weak" ? 2 : filterTag == "strong" ? 3 : 1;
 
@@ -730,6 +811,14 @@ public partial class MainWindow : Window
             OutputDir = outputDir,
             VideoTrackPath = _videoTrackPath
         };
+
+        string? audioPolicyError = AudioModePolicy.Validate(opts, _platform);
+        if (!string.IsNullOrEmpty(audioPolicyError))
+        {
+            AppendLog($"Error: {audioPolicyError}");
+            StatusLabel.Text = $"Error: {audioPolicyError}";
+            return;
+        }
 
         // Vulkan Device
         if (VulkanDevRow.IsVisible && VulkanDevComboBox.SelectedItem is ComboBoxItem vkItem &&

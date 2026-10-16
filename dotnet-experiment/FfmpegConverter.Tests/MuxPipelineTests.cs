@@ -2,6 +2,7 @@ using System.IO;
 using System.Threading.Tasks;
 using FfmpegConverter.Core.Engine;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 using Xunit;
@@ -112,6 +113,46 @@ public class MuxPipelineTests
         {
             if (File.Exists(tempInput)) File.Delete(tempInput);
             if (File.Exists(tempTrack)) File.Delete(tempTrack);
+        }
+    }
+
+    [Fact]
+    public async Task Converter_MuxM4vDryRun_UsesReplacementTrackWorkflow()
+    {
+        string tempInput = Path.GetTempFileName();
+        string tempTrack = Path.GetTempFileName();
+        try
+        {
+            var converter = new Converter();
+            var opts = new ConvertOptions
+            {
+                SelectionGroup = "mux",
+                SelectionEncoder = "m4v",
+                Codec = "m4v",
+                Preset = "m4v",
+                AudioOutputMode = AudioOutputMode.AacAc3,
+                VideoTrackPath = tempTrack,
+                DryRun = true,
+                OutputDir = Path.GetTempPath()
+            };
+
+            string? dryRunMessage = null;
+            converter.MessageLogged += (s, e) =>
+            {
+                if (e.Text.Contains("[DRY RUN]"))
+                    dryRunMessage = e.Text;
+            };
+
+            var result = await converter.ProcessFilesAsync(new[] { tempInput }, opts);
+
+            Assert.Equal(ConverterError.Ok, result);
+            Assert.Contains("[DRY RUN] [mux]", dryRunMessage);
+            Assert.Contains(tempTrack, dryRunMessage);
+        }
+        finally
+        {
+            File.Delete(tempInput);
+            File.Delete(tempTrack);
         }
     }
 

@@ -115,12 +115,7 @@
                         <!-- Audio Output -->
                         <Grid ColumnDefinitions="80, *">
                             <TextBlock Grid.Column="0" Text="Audio out:" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
-                            <ComboBox x:Name="AudioModeComboBox" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="0" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30">
-                                <ComboBoxItem Content="pcm" Tag="pcm" />
-                                <ComboBoxItem Content="copy" Tag="copy" />
-                                <ComboBoxItem Content="fdk_aac_320" Tag="fdk_aac_320" />
-                                <ComboBoxItem Content="fdk_aac_320_ac3_640" Tag="fdk_aac_320_ac3_640" />
-                            </ComboBox>
+                            <ComboBox x:Name="AudioModeComboBox" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="-1" Background="{DynamicResource InputBgBrush}" Foreground="{DynamicResource InputFgBrush}" BorderBrush="{DynamicResource InputBorderBrush}" Height="30" />
                         </Grid>
                     </StackPanel>
                 </Border>

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 
@@ -64,7 +65,12 @@ public static class CommandBuilder
         };
     }
 
-    public static string BuildOutputFilePath(string inputPath, ConvertOptions opts, string platform, PresetDb presetDb)
+    public static string BuildOutputFilePath(
+        string inputPath,
+        ConvertOptions opts,
+        string platform,
+        PresetDb presetDb,
+        MuxVideoCodec sourceVideoCodec = MuxVideoCodec.Unknown)
     {
         string baseDir = string.IsNullOrEmpty(opts.OutputDir)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ffmpeg_converter")
@@ -75,6 +81,16 @@ public static class CommandBuilder
 
         string codec = opts.Codec.ToLowerInvariant();
         string preset = opts.Preset.ToLowerInvariant();
+
+        if (AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.Mux)
+        {
+            if (AudioModePolicy.ResolveMuxPolicy(
+                    opts, platform, sourceVideoCodec, MuxVideoCodec.Unknown, out _) is MuxPolicy policy)
+            {
+                ext = policy.OutputExtension.TrimStart('.');
+                return Path.Combine(baseDir, $"{baseName}_converted.{ext}");
+            }
+        }
 
         if (codec == "hq_converter")
         {
@@ -123,6 +139,9 @@ public static class CommandBuilder
         InputVideoInfo? videoInfo,
         HardwareProbeResult? probeResult)
     {
+        if (!Enum.IsDefined(opts.AudioOutputMode))
+            throw new ArgumentOutOfRangeException(nameof(opts.AudioOutputMode));
+
         var sb = new StringBuilder();
         sb.Append("-hide_banner ");
 
@@ -192,8 +211,8 @@ public static class CommandBuilder
         // 4. Stream mappings
         sb.Append("-map 0:v:0 ");
 
-        bool isCopyAudio = opts.AudioOutputMode.Equals("copy", StringComparison.OrdinalIgnoreCase);
-        bool isDualAudio = opts.AudioOutputMode.Equals("fdk_aac_320_ac3_640", StringComparison.OrdinalIgnoreCase);
+        bool isCopyAudio = opts.AudioOutputMode == AudioOutputMode.Copy;
+        bool isDualAudio = opts.AudioOutputMode == AudioOutputMode.AacAc3;
         string audioFilter = isCopyAudio ? "" : BuildAudioFilter(opts);
 
         if (isCopyAudio)
@@ -343,12 +362,11 @@ public static class CommandBuilder
         {
             sb.Append($"-c:a:0 {aacEncoder} -b:a:0 320k -ar:a:0 48000 -c:a:1 ac3 -b:a:1 640k -ar:a:1 48000 ");
         }
-        else if (opts.AudioOutputMode.Equals("fdk_aac_320", StringComparison.OrdinalIgnoreCase) ||
-                 opts.AudioOutputMode.Equals("fdk_aac_320", StringComparison.OrdinalIgnoreCase))
+        else if (opts.AudioOutputMode == AudioOutputMode.Aac)
         {
             sb.Append($"-c:a {aacEncoder} -b:a 320k -ar 48000 ");
         }
-        else if (opts.AudioOutputMode.Equals("pcm", StringComparison.OrdinalIgnoreCase))
+        else if (opts.AudioOutputMode == AudioOutputMode.Pcm)
         {
             sb.Append("-c:a pcm_s16le -ar 48000 ");
         }

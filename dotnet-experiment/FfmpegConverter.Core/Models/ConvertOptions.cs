@@ -1,7 +1,11 @@
 namespace FfmpegConverter.Core.Models;
 
+using FfmpegConverter.Core.Policy;
+
 public class ConvertOptions
 {
+    private AudioOutputMode _audioOutputMode = AudioOutputMode.Pcm;
+
     // ==========================================
     // SELECTION (v3.0 catalog: group/encoder)
     // ==========================================
@@ -23,7 +27,16 @@ public class ConvertOptions
     // AUDIO NORMALIZATION & OUTPUT
     // ==========================================
     public string AudioNorm { get; set; } = "none"; // "none", "peak_norm", "peak_norm_2pass", "loudness_norm", "loudness_norm_2pass"
-    public string AudioOutputMode { get; set; } = "pcm"; // "pcm", "fdk_aac_320", "fdk_aac_320_ac3_640"
+    public AudioOutputMode AudioOutputMode
+    {
+        get => _audioOutputMode;
+        set
+        {
+            _audioOutputMode = value;
+            AudioOutputModeSpecified = true;
+        }
+    }
+    public bool AudioOutputModeSpecified { get; private set; }
     public int Genre { get; set; } = 1; // 0=none, 1=EDM, 2=Rock, 3=Hip-Hop, 4=Classical, 5=Podcast
     public bool UseAacForH265 { get; set; } = false;
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 using Xunit;
@@ -164,7 +165,7 @@ public class GuiSelectionAndModelTests
         var opts = new ConvertOptions();
 
         Assert.Equal("none", opts.AudioNorm);
-        Assert.Equal("pcm", opts.AudioOutputMode);
+        Assert.Equal(AudioOutputMode.Pcm, opts.AudioOutputMode);
         Assert.Equal(1, opts.Deblock); // 1 = none
 
         // When audio norm is none, genre is not applied

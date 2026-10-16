@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 
 namespace FfmpegConverter.Cli;
@@ -20,7 +21,16 @@ public static class CliSummary
         string codecGroup = opts.SelectionGroup;
         string encoder = opts.SelectionEncoder;
 
-        if (presetDb.FindSelectionForCodec(platform, opts.Codec, out string foundGroup, out string foundEncoder))
+        bool hasExplicitSelection = !string.IsNullOrEmpty(opts.SelectionGroup) &&
+                                    !string.IsNullOrEmpty(opts.SelectionEncoder) &&
+                                    !(opts.SelectionGroup.Equals("software", StringComparison.OrdinalIgnoreCase) &&
+                                      opts.Codec != "prores_ks");
+        if (hasExplicitSelection)
+        {
+            codecGroup = opts.SelectionGroup;
+            encoder = opts.SelectionEncoder;
+        }
+        else if (presetDb.FindSelectionForCodec(platform, opts.Codec, out string foundGroup, out string foundEncoder))
         {
             codecGroup = foundGroup;
             encoder = foundEncoder;
@@ -78,14 +88,17 @@ public static class CliSummary
         }
 
         sb.AppendLine($"Audio norm:   {opts.AudioNorm}");
-        sb.AppendLine($"Audio out:    {(!string.IsNullOrEmpty(opts.AudioOutputMode) ? opts.AudioOutputMode : "pcm")}");
+        sb.AppendLine($"Audio out:    {MuxPolicyResolver.GetAudioModeName(opts.AudioOutputMode)}");
 
-        if (opts.Codec.Equals("mux", StringComparison.OrdinalIgnoreCase))
+        bool muxAddTrack = AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.Mux &&
+                           AudioModePolicy.TryGetMuxMode(opts, out MuxOperationalMode muxMode) &&
+                           muxMode != MuxOperationalMode.Copy;
+        if (muxAddTrack)
         {
             sb.AppendLine($"Video track:  {(!string.IsNullOrEmpty(opts.VideoTrackPath) ? opts.VideoTrackPath : "(missing)")}");
         }
 
-        if (opts.Codec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
+        if (AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.DirectM4v)
         {
             sb.AppendLine($"M4V video idx:{opts.M4vVideoTrackIndex}");
             sb.AppendLine($"M4V audio idx:{opts.M4vAudioTrackIndex}");

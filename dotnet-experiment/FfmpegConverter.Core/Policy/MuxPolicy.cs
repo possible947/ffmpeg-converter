@@ -4,7 +4,8 @@ public enum AudioWorkflowContext
 {
     OnePass,
     Mux,
-    Hq
+    Hq,
+    DirectM4v
 }
 
 public enum MuxOperationalMode
@@ -303,6 +304,9 @@ public static class MuxPolicyResolver
         IReadOnlyList<MuxVideoCodec> sourceVideoCodecs,
         MuxVideoCodec replacementVideoCodec)
     {
+        if (workflow == AudioWorkflowContext.DirectM4v)
+            return Array.Empty<AudioOutputMode>();
+
         if (workflow == AudioWorkflowContext.OnePass)
             return OnePassAudioModes;
 

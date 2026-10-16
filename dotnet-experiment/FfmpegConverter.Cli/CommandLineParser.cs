@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Presets;
 using FfmpegConverter.Core.Probing;
 
@@ -126,14 +127,11 @@ public static class CommandLineParser
                 if (i + 1 >= args.Length)
                     return CommandLineParseResult.Error("Error: --audio-output requires an argument");
                 string val = args[++i].ToLowerInvariant();
-                if (val == "copy" || val == "pcm" || val == "fdk_aac_320" || val == "fdk_aac_320_ac3_640")
-                {
-                    opts.AudioOutputMode = val;
-                }
-                else
+                if (!MuxPolicyResolver.TryParseAudioMode(val, out AudioOutputMode parsedAudioMode))
                 {
                     return CommandLineParseResult.Error($"Error: Invalid audio-output mode: '{val}'. Expected: copy, pcm, fdk_aac_320, fdk_aac_320_ac3_640");
                 }
+                opts.AudioOutputMode = parsedAudioMode;
                 continue;
             }
 
@@ -319,6 +317,8 @@ public static class CommandLineParser
             opts.Preset = preset;
         }
 
+        AudioModePolicy.ApplyDefault(opts);
+
         // Hardware constraints and validation
         bool isHw = opts.Codec.Contains("_vaapi", StringComparison.OrdinalIgnoreCase) ||
                     opts.Codec.Contains("_nvenc", StringComparison.OrdinalIgnoreCase) ||
@@ -370,12 +370,10 @@ public static class CommandLineParser
             }
         }
 
-        if (opts.Codec.Equals("hq_converter", StringComparison.OrdinalIgnoreCase) &&
-            presetDb.HqCatalog != null &&
-            HqPresetCatalog.IsProResEncoder(selectionEncoder) &&
-            !opts.AudioOutputMode.Equals("pcm", StringComparison.OrdinalIgnoreCase))
+        string? audioPolicyError = AudioModePolicy.Validate(opts, platform);
+        if (!string.IsNullOrEmpty(audioPolicyError))
         {
-            return CommandLineParseResult.Error("HQ ProRes encoders require PCM audio output.");
+            return CommandLineParseResult.Error(audioPolicyError);
         }
 
         // Output directory validation
@@ -393,7 +391,10 @@ public static class CommandLineParser
         }
 
         // Pipeline validation
-        if (opts.Codec.Equals("mux", StringComparison.OrdinalIgnoreCase))
+        bool muxAddTrack = AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.Mux &&
+                           AudioModePolicy.TryGetMuxMode(opts, out MuxOperationalMode selectedMuxMode) &&
+                           selectedMuxMode != MuxOperationalMode.Copy;
+        if (muxAddTrack)
         {
             if (tools != null && string.IsNullOrEmpty(tools.Mkvmerge))
             {
