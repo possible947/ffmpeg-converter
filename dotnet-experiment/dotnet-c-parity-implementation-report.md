@@ -149,6 +149,7 @@ Native Windows release validation is intentionally deferred until the non-Window
 | `53c62fc` | Verify mux outputs and stage final files |
 | `0505ff0` | Harden HQ worker cancellation handoff |
 | `e682846` | Integrate .NET CLI and GUI mux policy |
+| `72d95b3` | Align .NET Direct M4V workflow with C |
 
 ## 18. Confirmation that C and Pascal remain unchanged
 
