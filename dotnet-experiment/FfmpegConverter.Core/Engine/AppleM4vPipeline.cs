@@ -156,7 +156,7 @@ public class AppleM4vPipeline
         ToolPaths tools,
         HardwareProbeResult? probeResult,
         CancellationToken cancellationToken = default) =>
-        CreateM4vCoreAsync(inputFile, outputFile, opts, tools, probeResult, null, cancellationToken);
+        CreateM4vCoreAsync(inputFile, outputFile, opts, tools, null, cancellationToken);
 
     public Task<ConverterError> CreateMuxM4vAsync(
         string inputFile,
@@ -166,14 +166,13 @@ public class AppleM4vPipeline
         HardwareProbeResult? probeResult,
         MuxPolicy policy,
         CancellationToken cancellationToken = default) =>
-        CreateM4vCoreAsync(inputFile, outputFile, opts, tools, probeResult, policy, cancellationToken);
+        CreateM4vCoreAsync(inputFile, outputFile, opts, tools, policy, cancellationToken);
 
     private async Task<ConverterError> CreateM4vCoreAsync(
         string inputFile,
         string outputFile,
         ConvertOptions opts,
         ToolPaths tools,
-        HardwareProbeResult? probeResult,
         MuxPolicy? muxPolicy,
         CancellationToken cancellationToken)
     {
@@ -224,29 +223,28 @@ public class AppleM4vPipeline
         int ac3Bitrate = isMuxWorkflow
             ? 640
             : opts.M4vAc3BitrateKbps > 0 ? opts.M4vAc3BitrateKbps : 640;
-        MuxSourcePreservationPlan? sourcePreservationPlan = null;
-        if (muxPolicy != null)
+        MuxPolicy preservationPolicy =
+            muxPolicy ?? MuxPolicyResolver.CreateDirectM4vPreservationPolicy();
+        MuxSourcePreservationResult preservationResult =
+            await MuxSourcePreservation.ProbeAsync(
+                tools.Ffprobe, inputFile, preservationPolicy, cancellationToken);
+        if (!preservationResult.Success)
         {
-            MuxSourcePreservationResult preservationResult =
-                await MuxSourcePreservation.ProbeAsync(
-                    tools.Ffprobe, inputFile, muxPolicy, cancellationToken);
-            if (!preservationResult.Success)
-            {
-                string message = preservationResult.Error ??
-                                 "Apple M4V stream policy could not be resolved.";
-                EmitError(message, ConverterError.FfprobeFailed);
-                return ConverterError.FfprobeFailed;
-            }
-            sourcePreservationPlan = preservationResult.Plan!;
-            foreach (string warning in preservationResult.Warnings)
-                EmitMessage(warning);
-            if (preservationResult.HasAttachments &&
-                !sourcePreservationPlan.PreserveAttachments)
-                EmitMessage("Warning: input attachments are dropped by the selected output container.");
+            string message = preservationResult.Error ??
+                             "Apple M4V stream policy could not be resolved.";
+            EmitError(message, ConverterError.FfprobeFailed);
+            return ConverterError.FfprobeFailed;
         }
+        MuxSourcePreservationPlan sourcePreservationPlan = preservationResult.Plan!;
+        foreach (string warning in preservationResult.Warnings)
+            EmitMessage(warning);
+        if (preservationResult.HasAttachments &&
+            !sourcePreservationPlan.PreserveAttachments)
+            EmitMessage("Warning: input attachments are dropped by the selected output container.");
 
-        bool addChapters = sourcePreservationPlan?.PreserveChapters == true ||
-                           (muxPolicy == null && opts.M4vAddChapters);
+        bool addChapters = muxPolicy == null
+            ? opts.M4vAddChapters
+            : sourcePreservationPlan.PreserveChapters;
 
         string outputDir;
         try
@@ -320,13 +318,8 @@ public class AppleM4vPipeline
             // Step 2/6: AAC encode
             // ----------------------------------------------------
             EmitStage("Apple M4V step 2/6: AAC encode");
-            string aacEncoder = isMuxWorkflow
-                ? "libfdk_aac"
-                : (probeResult?.HasAacAt == true) ? "aac_at" :
-                  (probeResult?.HasLibfdkAac == true) ? "libfdk_aac" : "aac";
-
-            IReadOnlyList<string> step2Args = BuildAudioEncodeArguments(
-                inputFile, audioTrackIndex, aacEncoder, "320k", aacM4a, "mp4");
+            IReadOnlyList<string> step2Args = BuildFixedAacArguments(
+                inputFile, audioTrackIndex, aacM4a);
             rc = await RunProcessAsync(tools.Ffmpeg, step2Args, cancellationToken);
             if (rc != 0)
             {
@@ -403,20 +396,17 @@ public class AppleM4vPipeline
                 }
             }
 
-            if (muxPolicy != null && sourcePreservationPlan != null)
+            EmitStage("Apple M4V metadata and subtitle preservation");
+            IReadOnlyList<string> metadataArgs = BuildMuxMetadataSubtitleArguments(
+                assembledM4v, inputFile, subtitlesM4v,
+                sourcePreservationPlan, videoTrackIndex);
+            rc = await RunProcessAsync(tools.Ffmpeg, metadataArgs, cancellationToken);
+            if (rc != 0)
             {
-                EmitStage("Apple M4V metadata and subtitle preservation");
-                IReadOnlyList<string> metadataArgs = BuildMuxMetadataSubtitleArguments(
-                    assembledM4v, inputFile, subtitlesM4v,
-                    sourcePreservationPlan, videoTrackIndex);
-                rc = await RunProcessAsync(tools.Ffmpeg, metadataArgs, cancellationToken);
-                if (rc != 0)
-                {
-                    EmitError("Apple M4V metadata remux failed", ConverterError.FfmpegFailed);
-                    return ConverterError.FfmpegFailed;
-                }
-                MoveOrCopyFile(subtitlesM4v, assembledM4v);
+                EmitError("Apple M4V metadata remux failed", ConverterError.FfmpegFailed);
+                return ConverterError.FfmpegFailed;
             }
+            MoveOrCopyFile(subtitlesM4v, assembledM4v);
 
             MoveOrCopyFile(assembledM4v, outputFile);
             return ConverterError.Ok;
@@ -502,6 +492,13 @@ public class AppleM4vPipeline
         arguments.AddRange(new[] { "-f", format, outputFile });
         return arguments;
     }
+
+    public static IReadOnlyList<string> BuildFixedAacArguments(
+        string inputFile,
+        int audioTrackIndex,
+        string outputFile) =>
+        BuildAudioEncodeArguments(
+            inputFile, audioTrackIndex, "libfdk_aac", "320k", outputFile, "mp4");
 
     public static IReadOnlyList<string> BuildMp4BoxArguments(
         string videoAdd,

@@ -127,6 +127,30 @@ public static class MuxPolicyResolver
     private static readonly AudioOutputMode[] OnePassAudioModes =
         [AudioOutputMode.Pcm, AudioOutputMode.Aac, AudioOutputMode.AacAc3];
 
+    public static MuxPolicy CreateDirectM4vPreservationPolicy() =>
+        new(
+            AudioWorkflowContext.DirectM4v,
+            MuxOperationalMode.M4v,
+            MuxContainer.M4v,
+            ".m4v",
+            AudioOutputMode.AacAc3,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            AudioTrackSelectionPolicy.First,
+            StreamAction.Preserve,
+            StreamAction.Convert,
+            StreamAction.Preserve,
+            StreamAction.Drop,
+            StreamAction.Preserve,
+            StreamAction.Preserve,
+            StreamAction.Preserve,
+            StreamAction.Preserve);
+
     public static bool TryParseMode(string? value, out MuxOperationalMode mode)
     {
         mode = value switch

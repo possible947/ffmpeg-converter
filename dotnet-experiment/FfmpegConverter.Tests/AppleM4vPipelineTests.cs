@@ -80,8 +80,8 @@ public class AppleM4vPipelineTests
     {
         const string specialInput = "/tmp/Video + (日本語).mkv";
         const string specialOutput = "/tmp/Video + (日本語).m4v";
-        IReadOnlyList<string> aacArgs = AppleM4vPipeline.BuildAudioEncodeArguments(
-            specialInput, 0, "libfdk_aac", "320k", "/tmp/audio (日本語).m4a", "mp4");
+        IReadOnlyList<string> aacArgs = AppleM4vPipeline.BuildFixedAacArguments(
+            specialInput, 0, "/tmp/audio (日本語).m4a");
         IReadOnlyList<string> mp4BoxArgs = AppleM4vPipeline.BuildMp4BoxArguments(
             "/tmp/video + (日本語).mp4#video:fps=24.000000:name=Video",
             "/tmp/audio + (日本語).m4a#audio:name=AAC:lang=rus",
@@ -100,6 +100,43 @@ public class AppleM4vPipelineTests
         Assert.DoesNotContain("0:a:1", dispositionArgs);
         Assert.DoesNotContain("-disposition:a:1", dispositionArgs);
         Assert.Equal(specialOutput, mp4BoxArgs[^1]);
+    }
+
+    [Fact]
+    public void DirectM4vUsesFixedLibfdkAacAndPreservesItsOwnM4vPolicy()
+    {
+        IReadOnlyList<string> aacArgs =
+            AppleM4vPipeline.BuildFixedAacArguments("input.mov", 1, "audio.m4a");
+        MuxPolicy policy = MuxPolicyResolver.CreateDirectM4vPreservationPolicy();
+        MuxSourcePreservationResult preservation = MuxSourcePreservation.ParseProbeJson(
+            """
+            {
+              "streams": [
+                { "index": 0, "codec_type": "video", "codec_name": "h264" },
+                { "index": 1, "codec_type": "audio", "codec_name": "aac" },
+                { "index": 3, "codec_type": "subtitle", "codec_name": "subrip" },
+                { "index": 4, "codec_type": "attachment", "codec_name": "ttf" }
+              ]
+            }
+            """,
+            policy);
+        IReadOnlyList<string> arguments = AppleM4vPipeline.BuildMuxMetadataSubtitleArguments(
+            "assembled.m4v",
+            "source.mov",
+            "preserved.m4v",
+            preservation.Plan!,
+            sourceVideoTrackIndex: 0);
+
+        Assert.Contains("libfdk_aac", aacArgs);
+        Assert.Contains("320k", aacArgs);
+        Assert.Equal(AudioWorkflowContext.DirectM4v, policy.Workflow);
+        Assert.False(policy.RequiresAddTrack);
+        Assert.True(preservation.Success);
+        Assert.False(preservation.Plan!.PreserveAttachments);
+        Assert.Contains("1:3", arguments);
+        Assert.Contains("-map_metadata", arguments);
+        Assert.Contains("-map_chapters", arguments);
+        Assert.Equal("preserved.m4v", arguments[^1]);
     }
 
     [Fact]
@@ -202,6 +239,79 @@ public class AppleM4vPipelineTests
         finally
         {
             if (File.Exists(tempInput)) File.Delete(tempInput);
+        }
+    }
+
+    [Fact]
+    public async Task Converter_DirectM4vEditBeforeMuxDryRunShowsBothStages()
+    {
+        string input = Path.GetTempFileName();
+        string outputDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            var converter = new Converter();
+            var directOptions = new ConvertOptions
+            {
+                SelectionGroup = "m4v",
+                SelectionEncoder = "m4v",
+                Codec = "m4v",
+                M4vEditBeforeMux = true,
+                DryRun = true,
+                OutputDir = outputDir
+            };
+            var sourceOptions = new ConvertOptions
+            {
+                SelectionGroup = "software",
+                SelectionEncoder = "prores_ks",
+                Codec = "prores_ks",
+                Preset = "standard"
+            };
+            string? message = null;
+            converter.MessageLogged += (_, args) => message = args.Text;
+
+            ConverterError result =
+                await converter.ProcessDirectM4vFilesWithEditBeforeMuxAsync(
+                    new[] { input }, directOptions, sourceOptions);
+
+            Assert.Equal(ConverterError.Ok, result);
+            Assert.Contains("[m4v edit-before-mux]", message);
+            Assert.Contains("_converted.mov", message);
+            Assert.EndsWith(".m4v", message);
+            Assert.False(Directory.Exists(outputDir));
+        }
+        finally
+        {
+            File.Delete(input);
+            if (Directory.Exists(outputDir))
+                Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Converter_DirectM4vEditBeforeMuxRequiresSourceConversionOptions()
+    {
+        string input = Path.GetTempFileName();
+        try
+        {
+            var converter = new Converter(
+                new ToolPaths { Ffmpeg = "mock-ffmpeg" },
+                probeResult: new HardwareProbeResult());
+            var options = new ConvertOptions
+            {
+                SelectionGroup = "m4v",
+                SelectionEncoder = "m4v",
+                Codec = "m4v",
+                M4vEditBeforeMux = true,
+                OutputDir = Path.GetTempPath()
+            };
+
+            ConverterError result = await converter.ProcessFilesAsync(new[] { input }, options);
+
+            Assert.Equal(ConverterError.InvalidOptions, result);
+        }
+        finally
+        {
+            File.Delete(input);
         }
     }
 

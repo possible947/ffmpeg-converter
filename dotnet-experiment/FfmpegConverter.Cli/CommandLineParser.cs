@@ -420,6 +420,12 @@ public static class CommandLineParser
                 return CommandLineParseResult.Error("Apple M4V mode is not supported on this platform (MP4Box not found).");
             }
         }
+        if (AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.DirectM4v &&
+            opts.M4vEditBeforeMux)
+        {
+            return CommandLineParseResult.Error(
+                "Direct M4V edit-before-mux requires the GUI's separate source conversion settings.");
+        }
 
         return new CommandLineParseResult
         {

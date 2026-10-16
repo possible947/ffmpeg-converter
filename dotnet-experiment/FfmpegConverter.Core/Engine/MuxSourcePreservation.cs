@@ -163,7 +163,7 @@ public static class MuxSourcePreservation
         if (string.IsNullOrEmpty(ffprobePath) || !File.Exists(ffprobePath))
             return Failed("ffprobe binary not found.");
         if (string.IsNullOrEmpty(inputPath) || !File.Exists(inputPath))
-            return Failed("Add Track source file was not found while probing source streams.");
+            return Failed("Source file was not found while probing source streams.");
 
         var startInfo = new ProcessStartInfo
         {

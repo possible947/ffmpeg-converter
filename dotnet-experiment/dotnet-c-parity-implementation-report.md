@@ -30,6 +30,7 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 | J — Output verification, errors, and cancellation | PARTIAL | Typed ffprobe snapshots verify openable containers, replacement video codec, audio/subtitle codecs and dispositions, chapters, attachments, and auxiliary-stream isolation. MOV/M4V finalizers stage output and promote only after verification; real-media and injected failure/cancellation tests remain. |
 | K — HQ handoff parity | PARTIAL | HQ output continues through the shared Add Track and typed policy path; cancellation now escalates from stop to worker kill and process-tree termination. Runtime encoder and native HQ integration tests remain unavailable. |
 | L — CLI and Avalonia integration | PARTIAL | CLI probes and policy-validates replacement video before conversion; GUI audio choices refresh from current sources/replacement and policy selection, invalid Mux Add Track states disable Start, and Mux M4V checks MP4Box. GUI interaction automation remains. |
+| M — Direct M4V workflow | PARTIAL | Direct M4V keeps its own dialog, language/defaults, uses fixed libfdk_aac, and now applies direct M4V metadata/subtitle preservation. Edit-before-mux runs the selected source conversion, verifies fresh intermediates, creates original-name M4V outputs, and cleans successful intermediates; real-media validation remains. |
 
 ## 4. Files changed by phase
 
@@ -56,6 +57,8 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 **Phase K:** `FfmpegConverter.Core/Engine/HqAdapter.cs`; `FfmpegConverter.Core/Engine/HqWorker.cs`.
 
 **Phase L:** `FfmpegConverter.Core/Policy/AudioModePolicy.cs`; `FfmpegConverter.Cli/CommandLineParser.cs`; `FfmpegConverter.Cli/Program.cs`; `FfmpegConverter.Gui/MainWindow.axaml.cs`; `FfmpegConverter.Tests/AudioModePolicyTests.cs`; `FfmpegConverter.Tests/CommandLineParserTests.cs`.
+
+**Phase M:** `FfmpegConverter.Cli/CommandLineParser.cs`; `FfmpegConverter.Core/Engine/AppleM4vPipeline.cs`; `FfmpegConverter.Core/Engine/Converter.cs`; `FfmpegConverter.Core/Engine/MuxSourcePreservation.cs`; `FfmpegConverter.Core/Policy/MuxPolicy.cs`; `FfmpegConverter.Gui/MainWindow.axaml.cs`; `FfmpegConverter.Tests/AppleM4vPipelineTests.cs`; `FfmpegConverter.Tests/CommandLineParserTests.cs`.
 
 ## 5. Policy parity status
 
@@ -85,7 +88,7 @@ HQ audio availability uses the shared policy and rejects non-PCM HQ ProRes befor
 
 **Status: PARTIAL**
 
-Direct M4V remains a separate workflow selected outside the Mux group. Its dedicated dialog and language handling remain separate from Mux M4V, which uses the native autonomous `rus` language default. Additional Direct M4V parity work remains.
+Direct M4V remains a separate workflow selected outside the Mux group. Its dedicated dialog, explicit language, track indices, AC3 bitrate, chapter option, and defaults remain separate from Mux M4V, which uses the native autonomous `rus` language default. Direct output now uses the required fixed `libfdk_aac`, preserves supported subtitles, chapters, and metadata, and applies edit-before-mux through a separate source-conversion option set with fresh-output checks and success-only intermediate cleanup. The CLI rejects edit-before-mux because its command line does not provide the separate source-conversion settings. Real-media output, disposition, and edit-before-mux cleanup validation remain.
 
 ## 10. CLI and Avalonia parity status
 
@@ -97,7 +100,7 @@ CLI parsing and Core validation use the shared availability resolver. Before exe
 
 **Status: PASS**
 
-After phase L, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 273/273.
+After phase M, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 278/278.
 
 ## 12. Real-media results
 
@@ -128,7 +131,7 @@ Native Windows release validation is intentionally deferred until the non-Window
 - Real-media output verification and end-to-end Add Track failure/cancellation injection remain.
 - MKV source preservation and replacement isolation need real-media verification; M4V AAC-only, dual-audio, default/forced dispositions, and dropped attachments need real-media stream-count tests.
 - Failure cleanup, cancellation/process termination, and queue behavior need coverage.
-- Direct M4V regression behavior, Avalonia interaction, cross-implementation fixtures, WSL hardware preparation, and Windows packaged release validation remain.
+- Direct M4V real-media output, chapter-disabled behavior, and edit-before-mux end-to-end cleanup need verification; Avalonia interaction, cross-implementation fixtures, WSL hardware preparation, and Windows packaged release validation remain.
 
 ## 17. Commit hashes and messages
 

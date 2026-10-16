@@ -168,6 +168,44 @@ public class CommandLineParserTests
     }
 
     [Fact]
+    public void Parse_DirectM4v_RejectsEditBeforeMuxWithoutSourceSelection()
+    {
+        var tools = new ToolPaths { Mp4Box = "mock-mp4box" };
+        var result = CommandLineParser.Parse(
+            new[]
+            {
+                "-c", "m4v", "--encoder", "m4v",
+                "--m4v-edit-before-mux", "input.mov"
+            },
+            _presetDb,
+            "macos",
+            tools);
+
+        Assert.False(result.Success);
+        Assert.Contains("requires the GUI's separate source conversion settings", result.ErrorMessage);
+    }
+
+    [Fact]
+    public void Parse_DirectM4v_KeepsExplicitLanguageAndDirectDefaults()
+    {
+        var result = CommandLineParser.Parse(
+            new[]
+            {
+                "-c", "m4v", "--encoder", "m4v",
+                "--m4v-lang", "eng", "input.mov"
+            },
+            _presetDb,
+            "macos",
+            new ToolPaths { Mp4Box = "mock-mp4box" });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(AudioWorkflowContext.DirectM4v, AudioModePolicy.GetWorkflow(result.Options));
+        Assert.Equal("eng", result.Options.M4vAudioLang);
+        Assert.Equal(640, result.Options.M4vAc3BitrateKbps);
+        Assert.True(result.Options.M4vAddChapters);
+    }
+
+    [Fact]
     public void Parse_AppleM4vParameters_ParsedAccurately()
     {
         string videoTrack = Path.GetTempFileName();

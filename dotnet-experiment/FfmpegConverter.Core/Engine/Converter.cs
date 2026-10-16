@@ -94,6 +94,15 @@ public class Converter
             return ConverterError.PlatformInitFailed;
         }
 
+        if (opts.M4vEditBeforeMux &&
+            AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.DirectM4v)
+        {
+            RaiseError(
+                "Direct M4V edit-before-mux requires separate source conversion options.",
+                ConverterError.InvalidOptions);
+            return ConverterError.InvalidOptions;
+        }
+
         string effectiveOutputDir = string.IsNullOrEmpty(opts.OutputDir) 
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ffmpeg_converter")
             : opts.OutputDir;
@@ -523,6 +532,199 @@ public class Converter
 
         Completed?.Invoke(this, EventArgs.Empty);
         return ConverterError.Ok;
+    }
+
+    public async Task<ConverterError> ProcessDirectM4vFilesWithEditBeforeMuxAsync(
+        IEnumerable<string> files,
+        ConvertOptions directOptions,
+        ConvertOptions sourceConversionOptions,
+        CancellationToken cancellationToken = default)
+    {
+        ConverterError Complete(ConverterError result)
+        {
+            Completed?.Invoke(this, EventArgs.Empty);
+            return result;
+        }
+
+        if (AudioModePolicy.GetWorkflow(directOptions) != AudioWorkflowContext.DirectM4v ||
+            !directOptions.M4vEditBeforeMux ||
+            AudioModePolicy.GetWorkflow(sourceConversionOptions) == AudioWorkflowContext.DirectM4v)
+        {
+            RaiseError("Invalid Direct M4V edit-before-mux options.", ConverterError.InvalidOptions);
+            return Complete(ConverterError.InvalidOptions);
+        }
+
+        var fileList = new List<string>(files);
+        if (fileList.Count == 0)
+        {
+            RaiseError("No input files selected for Apple M4V creation.", ConverterError.InvalidOptions);
+            return Complete(ConverterError.InvalidOptions);
+        }
+
+        string platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows" :
+                          RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos" : "linux";
+        if (directOptions.DryRun)
+        {
+            foreach (string input in fileList)
+            {
+                string sourceOutput = CommandBuilder.BuildOutputFilePath(
+                    input, sourceConversionOptions, platform, _presetDb);
+                string m4vOutput = CommandBuilder.BuildOutputFilePath(
+                    input, directOptions, platform, _presetDb);
+                RaiseMessage($"[DRY RUN] [m4v edit-before-mux] {input} -> {sourceOutput} -> {m4vOutput}");
+                FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.Ok));
+            }
+            return Complete(ConverterError.Ok);
+        }
+
+        if (string.IsNullOrEmpty(_tools.Ffmpeg) || !File.Exists(_tools.Ffmpeg) ||
+            string.IsNullOrEmpty(_tools.Ffprobe) || !File.Exists(_tools.Ffprobe) ||
+            string.IsNullOrEmpty(_tools.Mp4Box) || !File.Exists(_tools.Mp4Box))
+        {
+            RaiseError("Missing required tools (ffmpeg/ffprobe/MP4Box).", ConverterError.InvalidOptions);
+            return Complete(ConverterError.InvalidOptions);
+        }
+
+        string outputDirectory = string.IsNullOrEmpty(directOptions.OutputDir)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ffmpeg_converter")
+            : directOptions.OutputDir;
+        try
+        {
+            Directory.CreateDirectory(outputDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            RaiseError(
+                $"Failed to create or access output directory {outputDirectory}: {ex.Message}",
+                ConverterError.HomeDirNotFound);
+            return Complete(ConverterError.HomeDirNotFound);
+        }
+
+        sourceConversionOptions.OutputDir = outputDirectory;
+        sourceConversionOptions.Overwrite = directOptions.Overwrite;
+        sourceConversionOptions.DryRun = false;
+        sourceConversionOptions.M4vEditBeforeMux = false;
+
+        var intermediateFiles = new List<string>(fileList.Count);
+        foreach (string input in fileList)
+        {
+            MuxVideoCodec sourceVideoCodec = MuxVideoCodec.Unknown;
+            if (AudioModePolicy.GetWorkflow(sourceConversionOptions) == AudioWorkflowContext.Mux &&
+                AudioModePolicy.TryGetMuxMode(sourceConversionOptions, out MuxOperationalMode sourceMuxMode) &&
+                sourceMuxMode == MuxOperationalMode.Copy)
+            {
+                InputVideoInfo? info = await InputVideoInfo.ProbeAsync(
+                    _tools.Ffprobe, input, cancellationToken);
+                if (info == null)
+                {
+                    RaiseError(
+                        $"Could not probe the source video codec for edit-before-mux: {input}",
+                        ConverterError.FfprobeFailed);
+                    return Complete(ConverterError.FfprobeFailed);
+                }
+                sourceVideoCodec = MuxPolicyResolver.ParseVideoCodec(info.CodecName);
+            }
+
+            try
+            {
+                intermediateFiles.Add(CommandBuilder.BuildOutputFilePath(
+                    input, sourceConversionOptions, platform, _presetDb, sourceVideoCodec));
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+            {
+                RaiseError($"Invalid edit-before-mux output path: {ex.Message}", ConverterError.InvalidOptions);
+                return Complete(ConverterError.InvalidOptions);
+            }
+        }
+
+        DateTime conversionStarted = DateTime.UtcNow;
+        var sourceStatuses = new Dictionary<string, ConverterError>(StringComparer.Ordinal);
+        var sourceConverter = new Converter(
+            _tools, _presetDb, _probeResult, _replacementVideoProbe);
+        sourceConverter.FileBegin += (_, args) => FileBegin?.Invoke(this, args);
+        sourceConverter.FileEnd += (_, args) =>
+        {
+            sourceStatuses[args.FileName] = args.Status;
+            FileEnd?.Invoke(this, args);
+        };
+        sourceConverter.StageChanged += (_, stage) => StageChanged?.Invoke(this, stage);
+        sourceConverter.ProgressEncode += (_, args) => ProgressEncode?.Invoke(this, args);
+        sourceConverter.ProgressAnalysis += (_, args) => ProgressAnalysis?.Invoke(this, args);
+        sourceConverter.MessageLogged += (_, args) => MessageLogged?.Invoke(this, args);
+        sourceConverter.ErrorOccurred += (_, args) => ErrorOccurred?.Invoke(this, args);
+
+        ConverterError sourceResult = await sourceConverter.ProcessFilesAsync(
+            fileList, sourceConversionOptions, cancellationToken);
+        if (sourceResult != ConverterError.Ok)
+            return Complete(sourceResult);
+        if (cancellationToken.IsCancellationRequested)
+            return Complete(ConverterError.SkipFile);
+
+        for (int i = 0; i < fileList.Count; i++)
+        {
+            string input = fileList[i];
+            string intermediate = intermediateFiles[i];
+            if (!sourceStatuses.TryGetValue(input, out ConverterError sourceStatus) ||
+                sourceStatus != ConverterError.Ok ||
+                !File.Exists(intermediate) ||
+                File.GetLastWriteTimeUtc(intermediate) < conversionStarted)
+            {
+                RaiseError(
+                    $"Edit-before-mux source was not freshly produced: {intermediate}",
+                    ConverterError.FfmpegFailed);
+                return Complete(ConverterError.FfmpegFailed);
+            }
+        }
+
+        int failureCount = 0;
+        for (int i = 0; i < fileList.Count; i++)
+        {
+            string input = fileList[i];
+            string intermediate = intermediateFiles[i];
+            if (cancellationToken.IsCancellationRequested)
+            {
+                FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.SkipFile));
+                return Complete(ConverterError.SkipFile);
+            }
+
+            string output = CommandBuilder.BuildOutputFilePath(
+                input, directOptions, platform, _presetDb);
+            if (File.Exists(output) && !directOptions.Overwrite)
+            {
+                RaiseError($"Output file already exists and overwrite is disabled: {output}",
+                    ConverterError.OutputExists);
+                FileEnd?.Invoke(this, new FileEndEventArgs(input, ConverterError.SkipFile));
+                failureCount++;
+                continue;
+            }
+
+            var pipeline = new AppleM4vPipeline();
+            pipeline.StageChanged += (_, stage) => StageChanged?.Invoke(this, stage);
+            pipeline.MessageLogged += (_, message) => RaiseMessage(message);
+            pipeline.ErrorOccurred += (_, error) => RaiseError(error.Text, error.Code);
+            ConverterError result = await pipeline.CreateM4vAsync(
+                intermediate, output, directOptions, _tools, _probeResult, cancellationToken);
+            FileEnd?.Invoke(this, new FileEndEventArgs(input, result));
+            if (result != ConverterError.Ok)
+            {
+                failureCount++;
+                if (result == ConverterError.SkipFile)
+                    return Complete(result);
+                continue;
+            }
+
+            try
+            {
+                File.Delete(intermediate);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                RaiseMessage(
+                    $"Apple M4V warning: failed to delete temporary converted file {intermediate}: {ex.Message}");
+            }
+        }
+
+        return Complete(failureCount == 0 ? ConverterError.Ok : ConverterError.FfmpegFailed);
     }
 
     private async Task<AddTrackResult> ExecuteAddTrackAsync(

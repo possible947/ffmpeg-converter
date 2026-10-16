@@ -744,13 +744,104 @@ public partial class MainWindow : Window
             dialog.ApplyToOptions(_m4vOptions);
             AppendLog($"Configured Apple M4V: AudioLang={_m4vOptions.M4vAudioLang}, AC3={_m4vOptions.M4vAc3BitrateKbps}k, Chapters={_m4vOptions.M4vAddChapters}, VTrack={_m4vOptions.M4vVideoTrackIndex}, ATrack={_m4vOptions.M4vAudioTrackIndex}");
 
+            ConvertOptions? sourceConversionOptions = null;
+            if (_m4vOptions.M4vEditBeforeMux)
+            {
+                sourceConversionOptions = BuildM4vSourceConversionOptions(out string? error);
+                if (sourceConversionOptions == null)
+                {
+                    AppendLog($"Error: {error}");
+                    StatusLabel.Text = $"Error: {error}";
+                    return;
+                }
+            }
+
             // Run conversion directly in Apple M4V mode
-            await StartConversionInternalAsync(forceM4v: true);
+            await StartConversionInternalAsync(
+                forceM4v: true,
+                sourceConversionOptions: sourceConversionOptions);
         }
         else
         {
             AppendLog("Apple M4V creation cancelled by user.");
         }
+    }
+
+    private ConvertOptions? BuildM4vSourceConversionOptions(out string? error)
+    {
+        error = null;
+        string group = CodecComboBox.SelectedItem?.ToString() ?? "software";
+        string encoder = EncoderComboBox.SelectedItem?.ToString() ?? "prores_ks";
+        if (!_presetDb.ResolveSelection(_platform, group, encoder, out string codec))
+        {
+            error = $"Unable to resolve source conversion selection '{group}/{encoder}'.";
+            return null;
+        }
+
+        var options = new ConvertOptions
+        {
+            SelectionGroup = group,
+            SelectionEncoder = encoder,
+            Codec = codec,
+            Preset = PresetComboBox.SelectedItem?.ToString() ?? "standard",
+            AudioNorm = (AudioNormComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "none",
+            AudioOutputMode = AudioModeComboBox.SelectedItem is ComboBoxItem audioItem &&
+                              MuxPolicyResolver.TryParseAudioMode(audioItem.Tag?.ToString(), out AudioOutputMode audioMode)
+                ? audioMode
+                : AudioOutputMode.Pcm,
+            Overwrite = OverwriteCheckBox.IsChecked ?? false,
+            DryRun = DryRunCheckBox.IsChecked ?? false,
+            OutputDir = OutputDirTextBox.Text?.Trim() ?? "",
+            VideoTrackPath = _videoTrackPath,
+            M4vEditBeforeMux = false
+        };
+        if (AudioModePolicy.GetWorkflow(options) == AudioWorkflowContext.DirectM4v)
+        {
+            error = "Edit-before-mux requires a non-Direct-M4V source conversion selection.";
+            return null;
+        }
+
+        string filterTag = (FilterComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "none";
+        options.Deblock = filterTag == "weak" ? 2 : filterTag == "strong" ? 3 : 1;
+        if (options.AudioNorm == "loudness_norm_2pass")
+        {
+            options.Genre = GenreComboBox.SelectedItem is ComboBoxItem genreItem &&
+                            int.TryParse(genreItem.Tag?.ToString(), out int genre) &&
+                            genre > 0
+                ? genre
+                : 1;
+            options.ApplyGenreTargets();
+        }
+
+        if (VulkanDevRow.IsVisible && VulkanDevComboBox.SelectedItem is ComboBoxItem vkItem &&
+            int.TryParse(vkItem.Tag?.ToString(), out int vkDevice))
+            options.VulkanDevice = vkDevice;
+        if (VaapiDevRow.IsVisible && !string.IsNullOrWhiteSpace(VaapiDevTextBox.Text))
+            options.HwDevice = VaapiDevTextBox.Text.Trim();
+
+        string? policyError = AudioModePolicy.Validate(
+            options, _platform, replacementVideoCodec: _replacementVideoCodec);
+        if (!string.IsNullOrEmpty(policyError))
+        {
+            error = policyError;
+            return null;
+        }
+
+        if (AudioModePolicy.GetWorkflow(options) == AudioWorkflowContext.Mux &&
+            AudioModePolicy.TryGetMuxMode(options, out MuxOperationalMode muxMode) &&
+            muxMode != MuxOperationalMode.Copy &&
+            (_inputFiles.Count != 1 ||
+             !_replacementTrackValid ||
+             string.IsNullOrEmpty(_videoTrackPath) ||
+             !File.Exists(_videoTrackPath) ||
+             string.IsNullOrEmpty(_tools.Mkvmerge) ||
+             !File.Exists(_tools.Mkvmerge)))
+        {
+            error = "The selected source Mux mode requires one source, a valid replacement video, and mkvmerge.";
+            return null;
+        }
+
+        return options;
     }
 
     public void OnClearLogClick(object? sender, RoutedEventArgs e)
@@ -805,7 +896,9 @@ public partial class MainWindow : Window
         await StartConversionInternalAsync(forceM4v: false);
     }
 
-    private async Task StartConversionInternalAsync(bool forceM4v)
+    private async Task StartConversionInternalAsync(
+        bool forceM4v,
+        ConvertOptions? sourceConversionOptions = null)
     {
         if (_inputFiles.Count == 0)
         {
@@ -1020,6 +1113,13 @@ public partial class MainWindow : Window
 
             var result = await Task.Run(async () =>
             {
+                if (forceM4v && opts.M4vEditBeforeMux)
+                {
+                    if (sourceConversionOptions == null)
+                        return ConverterError.InvalidOptions;
+                    return await converter.ProcessDirectM4vFilesWithEditBeforeMuxAsync(
+                        _inputFiles, opts, sourceConversionOptions, _cts.Token);
+                }
                 return await converter.ProcessFilesAsync(_inputFiles, opts, _cts.Token);
             });
 
