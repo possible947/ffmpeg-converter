@@ -285,6 +285,7 @@ public class AppleM4vPipeline
         string videoMp4 = Path.Combine(workDir, "video_only.mp4");
         string aacM4a = Path.Combine(workDir, "audio_aac.m4a");
         string ac3Mp4 = Path.Combine(workDir, "audio_ac3.mp4");
+        string assembledM4v = Path.Combine(workDir, "assembled.m4v");
         string dispositionM4v = Path.Combine(workDir, "with_disposition.m4v");
         string chaptersM4v = Path.Combine(workDir, "with_chapters.m4v");
         string subtitlesM4v = Path.Combine(workDir, "with_subtitles.m4v");
@@ -358,17 +359,7 @@ public class AppleM4vPipeline
             string aacAdd = $"{aacM4a}#audio:name=AAC:lang={lang}";
             string ac3Add = $"{ac3Mp4}#audio:name=AC3 {ac3Bitrate}k:lang={lang}";
             IReadOnlyList<string> step4Args = BuildMp4BoxArguments(
-                videoAdd, aacAdd, ac3Add, outputFile, addAc3);
-
-            if (File.Exists(outputFile))
-            {
-                if (!opts.Overwrite)
-                {
-                    EmitError("Output exists (enable overwrite)", ConverterError.OutputExists);
-                    return ConverterError.OutputExists;
-                }
-                File.Delete(outputFile);
-            }
+                videoAdd, aacAdd, ac3Add, assembledM4v, addAc3);
 
             rc = await RunProcessAsync(tools.Mp4Box, step4Args, cancellationToken);
             if (rc != 0)
@@ -382,7 +373,7 @@ public class AppleM4vPipeline
             // ----------------------------------------------------
             EmitStage("Apple M4V step 5/6: set audio disposition");
             IReadOnlyList<string> step5Args = BuildDispositionArguments(
-                outputFile, dispositionM4v, addAc3);
+                assembledM4v, dispositionM4v, addAc3);
 
             rc = await RunProcessAsync(tools.Ffmpeg, step5Args, cancellationToken);
             if (rc != 0)
@@ -391,7 +382,7 @@ public class AppleM4vPipeline
                 return ConverterError.FfmpegFailed;
             }
 
-            MoveOrCopyFile(dispositionM4v, outputFile);
+            MoveOrCopyFile(dispositionM4v, assembledM4v);
 
             // ----------------------------------------------------
             // Step 6/6: Chapters (optional)
@@ -400,11 +391,11 @@ public class AppleM4vPipeline
             {
                 EmitStage("Apple M4V step 6/6: chapters");
                 IReadOnlyList<string> step6Args = BuildChapterArguments(
-                    outputFile, inputFile, chaptersM4v);
+                    assembledM4v, inputFile, chaptersM4v);
                 rc = await RunProcessAsync(tools.Ffmpeg, step6Args, cancellationToken);
                 if (rc == 0 && File.Exists(chaptersM4v))
                 {
-                    MoveOrCopyFile(chaptersM4v, outputFile);
+                    MoveOrCopyFile(chaptersM4v, assembledM4v);
                 }
                 else
                 {
@@ -416,7 +407,7 @@ public class AppleM4vPipeline
             {
                 EmitStage("Apple M4V metadata and subtitle preservation");
                 IReadOnlyList<string> metadataArgs = BuildMuxMetadataSubtitleArguments(
-                    outputFile, inputFile, subtitlesM4v,
+                    assembledM4v, inputFile, subtitlesM4v,
                     sourcePreservationPlan, videoTrackIndex);
                 rc = await RunProcessAsync(tools.Ffmpeg, metadataArgs, cancellationToken);
                 if (rc != 0)
@@ -424,19 +415,14 @@ public class AppleM4vPipeline
                     EmitError("Apple M4V metadata remux failed", ConverterError.FfmpegFailed);
                     return ConverterError.FfmpegFailed;
                 }
-                MoveOrCopyFile(subtitlesM4v, outputFile);
+                MoveOrCopyFile(subtitlesM4v, assembledM4v);
             }
 
+            MoveOrCopyFile(assembledM4v, outputFile);
             return ConverterError.Ok;
         }
         catch (OperationCanceledException)
         {
-            if (File.Exists(outputFile))
-            {
-                try { File.Delete(outputFile); }
-                catch (IOException ex) { EmitMessage($"Apple M4V cancelled-output cleanup failed: {ex.Message}"); }
-                catch (UnauthorizedAccessException ex) { EmitMessage($"Apple M4V cancelled-output cleanup failed: {ex.Message}"); }
-            }
             return ConverterError.SkipFile;
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException or ArgumentException)

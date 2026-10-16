@@ -98,28 +98,6 @@ public class MuxPipeline
         return "";
     }
 
-    public static async Task<bool> ValidateMuxOutputAsync(string ffprobePath, string outputFile, CancellationToken cancellationToken = default)
-    {
-        if (!File.Exists(outputFile))
-            return false;
-
-        try
-        {
-            string output = await RunCaptureOutputAsync(ffprobePath, new[]
-            {
-                "-v", "error", "-show_entries", "stream=codec_type",
-                "-of", "default=noprint_wrappers=1:nokey=1", outputFile
-            }, cancellationToken);
-            bool hasVideo = output.Contains("video", StringComparison.OrdinalIgnoreCase);
-            bool hasAudio = output.Contains("audio", StringComparison.OrdinalIgnoreCase);
-            return hasVideo && hasAudio;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     public static bool PreparedSourceOutputIsUsable(string output)
     {
         bool hasVideo = false;
@@ -211,15 +189,19 @@ public class MuxPipeline
         MuxSourcePreservationPlan? sourcePreservationPlan = null)
     {
         string requestedPreset = opts.Preset.ToLowerInvariant();
-        if ((requestedPreset is "mov" or "m4v") &&
+        if (requestedPreset == "m4v" &&
             (policy == null ||
-             (requestedPreset == "mov" && policy.Container != MuxContainer.Mov) ||
-             (requestedPreset == "m4v" &&
-              (policy.Container != MuxContainer.M4v ||
-               policy.AudioMode is not (AudioOutputMode.Aac or AudioOutputMode.AacAc3) ||
-               opts.AudioOutputMode != policy.AudioMode))))
+             policy.Container != MuxContainer.M4v ||
+             policy.AudioMode is not (AudioOutputMode.Aac or AudioOutputMode.AacAc3) ||
+             opts.AudioOutputMode != policy.AudioMode))
         {
-            EmitError($"post-mux failed: {requestedPreset.ToUpperInvariant()} stream policy is unavailable", ConverterError.InvalidOptions);
+            EmitError("post-mux failed: M4V stream policy is unavailable", ConverterError.InvalidOptions);
+            return ConverterError.InvalidOptions;
+        }
+        if (requestedPreset == "mov" &&
+            (policy == null || policy.Container != MuxContainer.Mov))
+        {
+            EmitError("post-mux failed: MOV stream policy is unavailable", ConverterError.InvalidOptions);
             return ConverterError.InvalidOptions;
         }
 
@@ -241,7 +223,21 @@ public class MuxPipeline
             return ConverterError.InvalidOptions;
         }
 
+        if (policy == null ||
+            (requestedPreset == "mkv" && policy.Container != MuxContainer.Mkv))
+        {
+            EmitError("post-mux failed: typed output stream policy is unavailable or inconsistent", ConverterError.InvalidOptions);
+            return ConverterError.InvalidOptions;
+        }
+
+        if (File.Exists(finalOutputFile) && !opts.Overwrite)
+        {
+            EmitError("Output exists (enable overwrite)", ConverterError.OutputExists);
+            return ConverterError.OutputExists;
+        }
+
         string tempOutput = $"{finalOutputFile}.postmux.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp.mkv";
+        string? stagedFinalOutput = null;
         try
         {
             string rate = "";
@@ -284,37 +280,44 @@ public class MuxPipeline
                 return ConverterError.FfmpegFailed;
             }
 
-            bool valid = await ValidateMuxOutputAsync(tools.Ffprobe, tempOutput, cancellationToken);
-            if (!valid)
+            MuxOutputVerificationResult assemblyResult = await VerifyAssemblyAsync(
+                tools.Ffprobe, intermediateFile, videoTrackFile, tempOutput, cancellationToken);
+            if (!assemblyResult.Success)
             {
-                EmitError("post-mux failed: output validation failed", ConverterError.FfprobeFailed);
+                EmitError($"post-mux failed: {assemblyResult.Error}", ConverterError.FfprobeFailed);
                 return ConverterError.FfprobeFailed;
             }
 
-            string preset = !string.IsNullOrEmpty(opts.Preset) ? opts.Preset.ToLowerInvariant() : "mkv";
-
-            if (preset == "mkv")
+            if (policy.Container == MuxContainer.Mkv)
             {
-                if (File.Exists(finalOutputFile))
+                MuxOutputVerificationResult finalResult = await VerifyFinalOutputAsync(
+                    tools.Ffprobe, tempOutput, videoTrackFile, tempOutput, policy, cancellationToken);
+                if (!finalResult.Success)
                 {
-                    if (!opts.Overwrite)
-                    {
-                        EmitError("Output exists (enable overwrite)", ConverterError.OutputExists);
-                        return ConverterError.OutputExists;
-                    }
-                    File.Delete(finalOutputFile);
+                    EmitError($"post-mux failed: {finalResult.Error}", ConverterError.FfprobeFailed);
+                    return ConverterError.FfprobeFailed;
                 }
-                File.Move(tempOutput, finalOutputFile, overwrite: true);
+                PromoteStagedOutput(tempOutput, finalOutputFile, opts.Overwrite);
             }
-            else if (preset == "mov")
+            else if (policy.Container == MuxContainer.Mov)
             {
+                stagedFinalOutput = CreateStagedOutputPath(finalOutputFile, "mov");
                 ConverterError remuxError = await RunMovRemuxAsync(
-                    tempOutput, finalOutputFile, tools, policy!, cancellationToken);
+                    tempOutput, stagedFinalOutput, tools, policy, cancellationToken);
                 if (remuxError != ConverterError.Ok)
                     return remuxError;
+                MuxOutputVerificationResult finalResult = await VerifyFinalOutputAsync(
+                    tools.Ffprobe, tempOutput, videoTrackFile, stagedFinalOutput, policy, cancellationToken);
+                if (!finalResult.Success)
+                {
+                    EmitError($"post-mux failed: {finalResult.Error}", ConverterError.FfprobeFailed);
+                    return ConverterError.FfprobeFailed;
+                }
+                PromoteStagedOutput(stagedFinalOutput, finalOutputFile, opts.Overwrite);
             }
-            else if (preset == "m4v")
+            else if (policy.Container == MuxContainer.M4v)
             {
+                stagedFinalOutput = CreateStagedOutputPath(finalOutputFile, "m4v");
                 EmitStage("Post-mux: Apple M4V pipeline");
                 var m4vPipe = new AppleM4vPipeline();
                 m4vPipe.StageChanged += (s, ev) => EmitStage(ev);
@@ -322,19 +325,23 @@ public class MuxPipeline
                 m4vPipe.ErrorOccurred += (s, ev) => EmitError(ev.Text, ev.Code);
 
                 var err = await m4vPipe.CreateMuxM4vAsync(
-                    tempOutput, finalOutputFile, opts, tools, probeResult, policy!,
+                    tempOutput, stagedFinalOutput, opts, tools, probeResult, policy,
                     cancellationToken);
                 if (err != ConverterError.Ok)
                     return err;
-                if (!await ValidateMuxOutputAsync(tools.Ffprobe, finalOutputFile, cancellationToken))
+                MuxOutputVerificationResult finalResult = await VerifyFinalOutputAsync(
+                    tools.Ffprobe, tempOutput, videoTrackFile, stagedFinalOutput, policy, cancellationToken);
+                if (!finalResult.Success)
                 {
-                    EmitError("post-mux failed: final M4V output validation failed", ConverterError.FfprobeFailed);
+                    EmitError($"post-mux failed: {finalResult.Error}", ConverterError.FfprobeFailed);
                     return ConverterError.FfprobeFailed;
                 }
+                PromoteStagedOutput(stagedFinalOutput, finalOutputFile, opts.Overwrite);
             }
             else
             {
-                File.Move(tempOutput, finalOutputFile, overwrite: true);
+                EmitError($"post-mux failed: unsupported output container {policy.Container}", ConverterError.InvalidOptions);
+                return ConverterError.InvalidOptions;
             }
 
             EmitMessage("Post-mux completed");
@@ -344,14 +351,99 @@ public class MuxPipeline
         {
             return ConverterError.SkipFile;
         }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            EmitError($"post-mux failed: {ex.Message}", ConverterError.Unknown);
+            return ConverterError.Unknown;
+        }
         finally
         {
-            try
-            {
-                if (File.Exists(tempOutput))
-                    File.Delete(tempOutput);
-            }
-            catch { }
+            DeleteTemporaryFile(tempOutput);
+            if (stagedFinalOutput != null)
+                DeleteTemporaryFile(stagedFinalOutput);
+        }
+    }
+
+    private async Task<MuxOutputVerificationResult> VerifyAssemblyAsync(
+        string ffprobePath,
+        string sourceFile,
+        string replacementFile,
+        string assembledFile,
+        CancellationToken cancellationToken)
+    {
+        MuxOutputProbeResult source = await MuxOutputVerification.ProbeAsync(
+            ffprobePath, sourceFile, cancellationToken);
+        if (!source.Success)
+            return MuxOutputVerificationResult.Failed($"Could not probe prepared source: {source.Error}");
+        MuxOutputProbeResult replacement = await MuxOutputVerification.ProbeAsync(
+            ffprobePath, replacementFile, cancellationToken);
+        if (!replacement.Success)
+            return MuxOutputVerificationResult.Failed($"Could not probe replacement video: {replacement.Error}");
+        MuxOutputProbeResult assembled = await MuxOutputVerification.ProbeAsync(
+            ffprobePath, assembledFile, cancellationToken);
+        if (!assembled.Success)
+            return MuxOutputVerificationResult.Failed($"Could not probe assembled MKV: {assembled.Error}");
+
+        return MuxOutputVerification.VerifyAssembly(
+            source.Snapshot!, replacement.Snapshot!, assembled.Snapshot!);
+    }
+
+    private async Task<MuxOutputVerificationResult> VerifyFinalOutputAsync(
+        string ffprobePath,
+        string assembledFile,
+        string replacementFile,
+        string outputFile,
+        MuxPolicy policy,
+        CancellationToken cancellationToken)
+    {
+        MuxOutputProbeResult assembled = await MuxOutputVerification.ProbeAsync(
+            ffprobePath, assembledFile, cancellationToken);
+        if (!assembled.Success)
+            return MuxOutputVerificationResult.Failed($"Could not probe assembled source: {assembled.Error}");
+        MuxOutputProbeResult replacement = await MuxOutputVerification.ProbeAsync(
+            ffprobePath, replacementFile, cancellationToken);
+        if (!replacement.Success)
+            return MuxOutputVerificationResult.Failed($"Could not probe replacement video: {replacement.Error}");
+        MuxOutputProbeResult output = await MuxOutputVerification.ProbeAsync(
+            ffprobePath, outputFile, cancellationToken);
+        if (!output.Success)
+            return MuxOutputVerificationResult.Failed($"Could not probe final output: {output.Error}");
+
+        return MuxOutputVerification.VerifyFinalOutput(
+            assembled.Snapshot!, replacement.Snapshot!, output.Snapshot!, policy);
+    }
+
+    private static string CreateStagedOutputPath(string finalOutputFile, string extension)
+    {
+        string fullPath = Path.GetFullPath(finalOutputFile);
+        string outputDirectory = Path.GetDirectoryName(fullPath) ?? ".";
+        string fileName = Path.GetFileNameWithoutExtension(fullPath);
+        return Path.Combine(
+            outputDirectory,
+            $"{fileName}.postmux.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp.{extension}");
+    }
+
+    private static void PromoteStagedOutput(string stagedFile, string finalOutputFile, bool overwrite)
+    {
+        if (File.Exists(finalOutputFile) && !overwrite)
+            throw new IOException("Output exists (enable overwrite).");
+        File.Move(stagedFile, finalOutputFile, overwrite);
+    }
+
+    private void DeleteTemporaryFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (IOException ex)
+        {
+            EmitMessage($"Temporary output cleanup failed for '{path}': {ex.Message}");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            EmitMessage($"Temporary output cleanup failed for '{path}': {ex.Message}");
         }
     }
 
