@@ -410,7 +410,10 @@ public static class CommandLineParser
             }
         }
 
-        if (opts.Codec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
+        bool muxM4v = AudioModePolicy.GetWorkflow(opts) == AudioWorkflowContext.Mux &&
+                      AudioModePolicy.TryGetMuxMode(opts, out MuxOperationalMode selectedMode) &&
+                      selectedMode == MuxOperationalMode.M4v;
+        if (opts.Codec.Equals("m4v", StringComparison.OrdinalIgnoreCase) || muxM4v)
         {
             if (tools != null && string.IsNullOrEmpty(tools.Mp4Box))
             {

@@ -115,6 +115,22 @@ public static class AudioModePolicy
             replacementVideoCodec);
     }
 
+    public static AudioOutputMode? SelectPreferredMode(
+        IReadOnlyList<AudioOutputMode> availableModes,
+        AudioOutputMode? currentMode)
+    {
+        if (currentMode.HasValue)
+        {
+            foreach (AudioOutputMode mode in availableModes)
+            {
+                if (mode == currentMode.Value)
+                    return currentMode;
+            }
+        }
+
+        return availableModes.Count > 0 ? availableModes[0] : null;
+    }
+
     public static string? Validate(
         ConvertOptions options,
         string platform,

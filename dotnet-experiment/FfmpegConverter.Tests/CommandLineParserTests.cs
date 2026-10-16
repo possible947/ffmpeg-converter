@@ -136,6 +136,38 @@ public class CommandLineParserTests
     }
 
     [Fact]
+    public void Parse_MuxM4v_AcceptsExplicitAac()
+    {
+        string videoTrack = Path.GetTempFileName();
+        try
+        {
+            var tools = new ToolPaths
+            {
+                Mkvmerge = "mock-mkvmerge",
+                Mp4Box = "mock-mp4box"
+            };
+            var result = CommandLineParser.Parse(
+                new[]
+                {
+                    "-c", "mux", "--encoder", "m4v",
+                    "--audio-output", "fdk_aac_320",
+                    "--video-track", videoTrack,
+                    "input.mkv"
+                },
+                _presetDb,
+                "linux",
+                tools);
+
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.Equal(AudioOutputMode.Aac, result.Options.AudioOutputMode);
+        }
+        finally
+        {
+            File.Delete(videoTrack);
+        }
+    }
+
+    [Fact]
     public void Parse_AppleM4vParameters_ParsedAccurately()
     {
         string videoTrack = Path.GetTempFileName();

@@ -29,6 +29,7 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 | I — Shared preservation plan | PARTIAL | MKV, MOV, and M4V source/finalization paths now consume one typed preservation plan for stream ownership, audio selection, subtitles, chapters, metadata, language, dispositions, attachments, and replacement video. M4V attachment dropping now matches native policy; real-media verification remains. |
 | J — Output verification, errors, and cancellation | PARTIAL | Typed ffprobe snapshots verify openable containers, replacement video codec, audio/subtitle codecs and dispositions, chapters, attachments, and auxiliary-stream isolation. MOV/M4V finalizers stage output and promote only after verification; real-media and injected failure/cancellation tests remain. |
 | K — HQ handoff parity | PARTIAL | HQ output continues through the shared Add Track and typed policy path; cancellation now escalates from stop to worker kill and process-tree termination. Runtime encoder and native HQ integration tests remain unavailable. |
+| L — CLI and Avalonia integration | PARTIAL | CLI probes and policy-validates replacement video before conversion; GUI audio choices refresh from current sources/replacement and policy selection, invalid Mux Add Track states disable Start, and Mux M4V checks MP4Box. GUI interaction automation remains. |
 
 ## 4. Files changed by phase
 
@@ -53,6 +54,8 @@ The immutable native reference is HEAD `ba42f4e0cd3a3c67f89951b86470d9084cdc90d5
 **Phase J:** `FfmpegConverter.Core/Engine/MuxOutputVerification.cs`; `FfmpegConverter.Core/Engine/MuxPipeline.cs`; `FfmpegConverter.Core/Engine/AppleM4vPipeline.cs`; `FfmpegConverter.Tests/MuxOutputVerificationTests.cs`.
 
 **Phase K:** `FfmpegConverter.Core/Engine/HqAdapter.cs`; `FfmpegConverter.Core/Engine/HqWorker.cs`.
+
+**Phase L:** `FfmpegConverter.Core/Policy/AudioModePolicy.cs`; `FfmpegConverter.Cli/CommandLineParser.cs`; `FfmpegConverter.Cli/Program.cs`; `FfmpegConverter.Gui/MainWindow.axaml.cs`; `FfmpegConverter.Tests/AudioModePolicyTests.cs`; `FfmpegConverter.Tests/CommandLineParserTests.cs`.
 
 ## 5. Policy parity status
 
@@ -88,13 +91,13 @@ Direct M4V remains a separate workflow selected outside the Mux group. Its dedic
 
 **Status: PARTIAL**
 
-CLI parsing and Core validation use the shared availability resolver. The interactive menu and Avalonia choices use policy order/defaults and filter Copy from one-pass contexts; Avalonia probes queued sources and the replacement track to refresh choices. GUI interaction automation and all invalid replacement-state combinations remain to be verified.
+CLI parsing and Core validation use the shared availability resolver. Before execution, CLI probes the replacement video and validates its codec against the selected Mux policy; the parser also rejects Mux M4V when MP4Box is unavailable. The interactive menu and Avalonia choices use policy order/defaults and filter Copy from one-pass contexts; Avalonia probes queued sources and the replacement track to refresh choices, preserves a still-valid audio selection, and disables Start for invalid replacement and missing-tool states. GUI interaction automation and all invalid replacement-state combinations remain to be verified.
 
 ## 11. Test results
 
 **Status: PASS**
 
-After phase J, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 270/270.
+After phase L, `dotnet build FfmpegConverter.slnx --no-restore` succeeded with zero warnings and errors; the full test suite passed 273/273.
 
 ## 12. Real-media results
 
@@ -141,6 +144,7 @@ Native Windows release validation is intentionally deferred until the non-Window
 | `84ad44e` | Match Mux M4V audio and preservation policy |
 | `e5f67ca` | Centralize mux stream preservation decisions |
 | `53c62fc` | Verify mux outputs and stage final files |
+| `0505ff0` | Harden HQ worker cancellation handoff |
 
 ## 18. Confirmation that C and Pascal remain unchanged
 

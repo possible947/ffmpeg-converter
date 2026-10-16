@@ -80,6 +80,34 @@ public class AudioModePolicyTests
     }
 
     [Fact]
+    public void SelectPreferredMode_PreservesValidChoiceAndDefaultsWhenInvalid()
+    {
+        AudioOutputMode[] choices = [AudioOutputMode.AacAc3, AudioOutputMode.Aac];
+
+        Assert.Equal(AudioOutputMode.Aac,
+            AudioModePolicy.SelectPreferredMode(choices, AudioOutputMode.Aac));
+        Assert.Equal(AudioOutputMode.AacAc3,
+            AudioModePolicy.SelectPreferredMode(choices, AudioOutputMode.Pcm));
+        Assert.Null(AudioModePolicy.SelectPreferredMode([], AudioOutputMode.Aac));
+    }
+
+    [Fact]
+    public void Validate_MuxM4vAcceptsExplicitAac()
+    {
+        var options = new ConvertOptions
+        {
+            SelectionGroup = "mux",
+            SelectionEncoder = "m4v",
+            Codec = "mux",
+            Preset = "m4v",
+            AudioOutputMode = AudioOutputMode.Aac
+        };
+
+        Assert.Null(AudioModePolicy.Validate(
+            options, "linux", replacementVideoCodec: MuxVideoCodec.H264));
+    }
+
+    [Fact]
     public void HqProRes_OffersAndRequiresPcm()
     {
         var options = new ConvertOptions

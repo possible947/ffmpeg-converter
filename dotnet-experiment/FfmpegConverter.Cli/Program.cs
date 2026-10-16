@@ -164,6 +164,31 @@ class Program
                 Console.Error.WriteLine("Mux mode requires a readable --video-track file.");
                 return 1;
             }
+
+            InputVideoProbeResult replacementProbe = await new ReplacementVideoProbe().ProbeAsync(
+                tools.Ffprobe ?? "",
+                opts.VideoTrackPath,
+                CancellationToken.None);
+            if (!replacementProbe.Success)
+            {
+                Console.Error.WriteLine(
+                    $"Mux replacement video validation failed: {replacementProbe.Detail ?? replacementProbe.Failure.ToString()}");
+                return 1;
+            }
+            string? replacementPolicyError = AudioModePolicy.Validate(
+                opts, platform, replacementVideoCodec: replacementProbe.Codec);
+            if (!string.IsNullOrEmpty(replacementPolicyError))
+            {
+                Console.Error.WriteLine($"Invalid Mux request: {replacementPolicyError}");
+                return 1;
+            }
+            if (AudioModePolicy.TryGetMuxMode(opts, out MuxOperationalMode selectedMode) &&
+                selectedMode == MuxOperationalMode.M4v &&
+                (string.IsNullOrEmpty(tools.Mp4Box) || !File.Exists(tools.Mp4Box)))
+            {
+                Console.Error.WriteLine("Apple M4V mode is not supported on this platform (MP4Box not found).");
+                return 1;
+            }
         }
 
         if (opts.Codec.Equals("m4v", StringComparison.OrdinalIgnoreCase))
