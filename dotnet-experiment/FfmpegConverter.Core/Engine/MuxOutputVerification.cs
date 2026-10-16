@@ -16,7 +16,8 @@ public sealed record MuxOutputStream(
     string CodecName,
     string? Language,
     bool IsDefault,
-    bool IsForced);
+    bool IsForced,
+    bool LanguageMustBeAbsent = false);
 
 public sealed record MuxOutputSnapshot(
     string FormatName,
@@ -333,7 +334,9 @@ public static class MuxOutputVerification
                     : subtitlePolicy.Encoder!.ToLowerInvariant(),
                 Language = policy.Container == MuxContainer.M4v
                     ? null
-                    : subtitle.Language
+                    : subtitle.Language,
+                LanguageMustBeAbsent = policy.Container == MuxContainer.Mov &&
+                                       MediaLanguageCodes.IsFrenchAlias(subtitle.Language)
             });
         }
         if ((policy.Container is MuxContainer.Mov or MuxContainer.M4v) &&
@@ -402,8 +405,12 @@ public static class MuxOutputVerification
                 !string.Equals(wanted.CodecName, found.CodecName, StringComparison.OrdinalIgnoreCase))
                 return MuxOutputVerificationResult.Failed(
                     $"{description} codec {index} is {found.CodecName}; expected {wanted.CodecName}.");
-            if (!string.IsNullOrEmpty(wanted.Language) &&
-                !string.Equals(wanted.Language, found.Language, StringComparison.OrdinalIgnoreCase))
+            if (wanted.LanguageMustBeAbsent && !string.IsNullOrEmpty(found.Language))
+                return MuxOutputVerificationResult.Failed(
+                    $"{description} language {index} is {found.Language}; expected no language tag.");
+            if (!wanted.LanguageMustBeAbsent &&
+                !string.IsNullOrEmpty(wanted.Language) &&
+                !MediaLanguageCodes.AreEquivalent(wanted.Language, found.Language))
                 return MuxOutputVerificationResult.Failed(
                     $"{description} language {index} is {found.Language ?? "unset"}; expected {wanted.Language}.");
             if (wanted.IsDefault != found.IsDefault || wanted.IsForced != found.IsForced)

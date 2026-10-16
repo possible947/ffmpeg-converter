@@ -275,6 +275,124 @@ public class MuxOutputVerificationTests
         Assert.Contains("default/forced", result.Error);
     }
 
+    [Theory]
+    [InlineData("fra", "fre", true)]
+    [InlineData("fre", "fra", true)]
+    [InlineData("eng", "eng", true)]
+    [InlineData("fra", "eng", false)]
+    [InlineData("eng", null, false)]
+    public void VerifyFinalOutput_UsesLanguageEquivalenceWithoutAcceptingMissingExpectedTags(
+        string? expectedLanguage,
+        string? actualLanguage,
+        bool expectedSuccess)
+    {
+        Assert.Equal(expectedSuccess, MediaLanguageCodes.AreEquivalent(expectedLanguage, actualLanguage));
+
+        foreach (MuxContainer container in new[] { MuxContainer.Mkv, MuxContainer.Mov })
+        {
+            MuxOperationalMode mode = container == MuxContainer.Mkv
+                ? MuxOperationalMode.Mkv
+                : MuxOperationalMode.Mov;
+            PolicyResult policy = MuxPolicyResolver.Resolve(
+                Profile, mode, AudioOutputMode.Pcm, MuxVideoCodec.Unknown, MuxVideoCodec.H264);
+            Assert.True(policy.Success, policy.ErrorMessage);
+
+            var assembled = new MuxOutputSnapshot(
+                "matroska,webm",
+                [
+                    new("video", "h264", null, true, false),
+                    new("audio", "pcm_s16le", expectedLanguage, true, false)
+                ],
+                0);
+            var replacement = new MuxOutputSnapshot(
+                "matroska,webm", [new("video", "h264", null, true, false)], 0);
+            var output = new MuxOutputSnapshot(
+                container == MuxContainer.Mkv ? "matroska,webm" : "mov,mp4,m4a",
+                [
+                    new("video", "h264", null, true, false),
+                    new("audio", "pcm_s16le", actualLanguage, true, false)
+                ],
+                0);
+
+            MuxOutputVerificationResult result = MuxOutputVerification.VerifyFinalOutput(
+                assembled, replacement, output, policy.Policy!);
+
+            Assert.Equal(expectedSuccess, result.Success);
+        }
+    }
+
+    [Fact]
+    public void VerifyFinalOutput_DoesNotAcceptMissingActualLanguageWhenExpected()
+    {
+        PolicyResult policy = MuxPolicyResolver.Resolve(
+            Profile, MuxOperationalMode.Mkv, AudioOutputMode.Pcm,
+            MuxVideoCodec.Unknown, MuxVideoCodec.H264);
+        Assert.True(policy.Success, policy.ErrorMessage);
+        var assembled = new MuxOutputSnapshot(
+            "matroska,webm",
+            [
+                new("video", "h264", null, true, false),
+                new("audio", "pcm_s16le", "eng", true, false)
+            ],
+            0);
+        var replacement = new MuxOutputSnapshot(
+            "matroska,webm", [new("video", "h264", null, true, false)], 0);
+        var output = new MuxOutputSnapshot(
+            "matroska,webm",
+            [
+                new("video", "h264", null, true, false),
+                new("audio", "pcm_s16le", null, true, false)
+            ],
+            0);
+
+        MuxOutputVerificationResult result = MuxOutputVerification.VerifyFinalOutput(
+            assembled, replacement, output, policy.Policy!);
+
+        Assert.False(result.Success);
+    }
+
+    [Fact]
+    public void VerifyFinalMov_RequiresNativeFrenchSubtitleLanguageDrop()
+    {
+        PolicyResult policy = MuxPolicyResolver.Resolve(
+            Profile, MuxOperationalMode.Mov, AudioOutputMode.Pcm,
+            MuxVideoCodec.Unknown, MuxVideoCodec.H264);
+        Assert.True(policy.Success, policy.ErrorMessage);
+        var assembled = new MuxOutputSnapshot(
+            "matroska,webm",
+            [
+                new("video", "h264", null, true, false),
+                new("audio", "pcm_s16le", "eng", true, false),
+                new("subtitle", "subrip", "fra", false, false)
+            ],
+            0);
+        var replacement = new MuxOutputSnapshot(
+            "matroska,webm", [new("video", "h264", null, true, false)], 0);
+        var output = new MuxOutputSnapshot(
+            "mov,mp4,m4a",
+            [
+                new("video", "h264", null, true, false),
+                new("audio", "pcm_s16le", "eng", true, false),
+                new("subtitle", "mov_text", null, true, false)
+            ],
+            0);
+
+        Assert.True(MuxOutputVerification.VerifyFinalOutput(
+            assembled, replacement, output, policy.Policy!).Success);
+
+        foreach (string language in new[] { "eng", "fre" })
+        {
+            MuxOutputSnapshot unrelatedLanguage = output with
+            {
+                Streams = output.Streams.Select(stream => stream.CodecType == "subtitle"
+                    ? stream with { Language = language }
+                    : stream).ToArray()
+            };
+            Assert.False(MuxOutputVerification.VerifyFinalOutput(
+                assembled, replacement, unrelatedLanguage, policy.Policy!).Success);
+        }
+    }
+
     [Fact]
     public void ParseJson_FailsClosedWhenContainerMetadataIsMissing()
     {
