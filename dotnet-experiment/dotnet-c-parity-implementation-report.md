@@ -145,6 +145,7 @@ Native Windows release validation is intentionally deferred until the non-Window
 | `e5f67ca` | Centralize mux stream preservation decisions |
 | `53c62fc` | Verify mux outputs and stage final files |
 | `0505ff0` | Harden HQ worker cancellation handoff |
+| `e682846` | Integrate .NET CLI and GUI mux policy |
 
 ## 18. Confirmation that C and Pascal remain unchanged
 
