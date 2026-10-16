@@ -86,6 +86,42 @@ public class MuxPipelineTests
     }
 
     [Fact]
+    public async Task RunMuxPostprocess_InvalidM4vAudioPolicyIsRejectedBeforeToolsOrInputs()
+    {
+        PolicyResult validPolicy = MuxPolicyResolver.Resolve(
+            new MuxBuildProfile(MuxPlatform.Linux, MuxFfmpegVersion.V8_1),
+            MuxOperationalMode.M4v,
+            AudioOutputMode.Aac,
+            MuxVideoCodec.Unknown,
+            MuxVideoCodec.H264);
+        Assert.True(validPolicy.Success);
+        MuxPolicy invalidPolicy = validPolicy.Policy! with
+        {
+            AudioMode = AudioOutputMode.Copy
+        };
+        var pipeline = new MuxPipeline();
+        var options = new ConvertOptions
+        {
+            Preset = "m4v",
+            AudioOutputMode = AudioOutputMode.Copy
+        };
+        string? error = null;
+        pipeline.ErrorOccurred += (_, args) => error = args.Text;
+
+        ConverterError result = await pipeline.RunMuxPostprocessAsync(
+            "/missing/intermediate.mkv",
+            "/missing/video.mkv",
+            "/missing/output.m4v",
+            options,
+            new ToolPaths(),
+            null,
+            policy: invalidPolicy);
+
+        Assert.Equal(ConverterError.InvalidOptions, result);
+        Assert.Contains("M4V stream policy is unavailable", error);
+    }
+
+    [Fact]
     public async Task ValidatePreparedSource_MissingProbeToolRejectsIntermediate()
     {
         string intermediate = Path.GetTempFileName();

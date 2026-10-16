@@ -209,6 +209,19 @@ public class MuxPipeline
         CancellationToken cancellationToken = default,
         MuxPolicy? policy = null)
     {
+        string requestedPreset = opts.Preset.ToLowerInvariant();
+        if ((requestedPreset is "mov" or "m4v") &&
+            (policy == null ||
+             (requestedPreset == "mov" && policy.Container != MuxContainer.Mov) ||
+             (requestedPreset == "m4v" &&
+              (policy.Container != MuxContainer.M4v ||
+               policy.AudioMode is not (AudioOutputMode.Aac or AudioOutputMode.AacAc3) ||
+               opts.AudioOutputMode != policy.AudioMode))))
+        {
+            EmitError($"post-mux failed: {requestedPreset.ToUpperInvariant()} stream policy is unavailable", ConverterError.InvalidOptions);
+            return ConverterError.InvalidOptions;
+        }
+
         if (!File.Exists(intermediateFile))
         {
             EmitError("post-mux failed: intermediate file not found", ConverterError.InputNotFound);
@@ -293,13 +306,8 @@ public class MuxPipeline
             }
             else if (preset == "mov")
             {
-                if (policy == null || policy.Container != MuxContainer.Mov)
-                {
-                    EmitError("post-mux failed: MOV stream policy is unavailable", ConverterError.InvalidOptions);
-                    return ConverterError.InvalidOptions;
-                }
                 ConverterError remuxError = await RunMovRemuxAsync(
-                    tempOutput, finalOutputFile, tools, policy, cancellationToken);
+                    tempOutput, finalOutputFile, tools, policy!, cancellationToken);
                 if (remuxError != ConverterError.Ok)
                     return remuxError;
             }
@@ -311,10 +319,15 @@ public class MuxPipeline
                 m4vPipe.MessageLogged += (s, ev) => EmitMessage(ev);
                 m4vPipe.ErrorOccurred += (s, ev) => EmitError(ev.Text, ev.Code);
 
-                var err = await m4vPipe.CreateM4vAsync(tempOutput, finalOutputFile, opts, tools, probeResult, cancellationToken);
+                var err = await m4vPipe.CreateMuxM4vAsync(
+                    tempOutput, finalOutputFile, opts, tools, probeResult, policy!,
+                    cancellationToken);
                 if (err != ConverterError.Ok)
-                {
                     return err;
+                if (!await ValidateMuxOutputAsync(tools.Ffprobe, finalOutputFile, cancellationToken))
+                {
+                    EmitError("post-mux failed: final M4V output validation failed", ConverterError.FfprobeFailed);
+                    return ConverterError.FfprobeFailed;
                 }
             }
             else

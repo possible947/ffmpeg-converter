@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FfmpegConverter.Core.Models;
+using FfmpegConverter.Core.Policy;
 using FfmpegConverter.Core.Probing;
 
 namespace FfmpegConverter.Core.Engine;
@@ -35,13 +37,21 @@ public class AppleM4vPipeline
             return (false, "", "ffprobe binary not found");
 
         // 1. Probe video codec
-        string vArgs = $"-v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 \"{inputFile}\"";
         string vOutput;
         try
         {
-            vOutput = await RunCaptureOutputAsync(ffprobePath, vArgs, cancellationToken);
+            vOutput = await RunCaptureOutputAsync(ffprobePath, new[]
+            {
+                "-v", "error", "-select_streams", "v:0", "-show_entries",
+                "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1",
+                inputFile
+            }, cancellationToken);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             return (false, "", $"Failed to probe video codec: {ex.Message}");
         }
@@ -53,13 +63,21 @@ public class AppleM4vPipeline
         }
 
         // 2. Check for usable audio stream
-        string aArgs = $"-v error -select_streams a:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 \"{inputFile}\"";
         string aOutput;
         try
         {
-            aOutput = await RunCaptureOutputAsync(ffprobePath, aArgs, cancellationToken);
+            aOutput = await RunCaptureOutputAsync(ffprobePath, new[]
+            {
+                "-v", "error", "-select_streams", "a:0", "-show_entries",
+                "stream=codec_type", "-of", "default=noprint_wrappers=1:nokey=1",
+                inputFile
+            }, cancellationToken);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             return (false, videoCodec, $"Failed to probe audio stream: {ex.Message}");
         }
@@ -74,10 +92,14 @@ public class AppleM4vPipeline
 
     public static async Task<double> ProbeFpsAsync(string ffprobePath, string inputFile, CancellationToken cancellationToken = default)
     {
-        string args = $"-v error -select_streams v:0 -show_entries stream=avg_frame_rate -of default=noprint_wrappers=1:nokey=1 \"{inputFile}\"";
         try
         {
-            string outStr = await RunCaptureOutputAsync(ffprobePath, args, cancellationToken);
+            string outStr = await RunCaptureOutputAsync(ffprobePath, new[]
+            {
+                "-v", "error", "-select_streams", "v:0", "-show_entries",
+                "stream=avg_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1",
+                inputFile
+            }, cancellationToken);
             outStr = outStr.Trim();
             if (!string.IsNullOrEmpty(outStr) && outStr != "0/0")
             {
@@ -96,8 +118,12 @@ public class AppleM4vPipeline
             }
 
             // Fallback to r_frame_rate
-            string rArgs = $"-v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 \"{inputFile}\"";
-            string rOut = await RunCaptureOutputAsync(ffprobePath, rArgs, cancellationToken);
+            string rOut = await RunCaptureOutputAsync(ffprobePath, new[]
+            {
+                "-v", "error", "-select_streams", "v:0", "-show_entries",
+                "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1",
+                inputFile
+            }, cancellationToken);
             rOut = rOut.Trim();
             if (!string.IsNullOrEmpty(rOut) && rOut != "0/0")
             {
@@ -111,19 +137,61 @@ public class AppleM4vPipeline
                 }
             }
         }
-        catch { }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            return 25.0;
+        }
 
         return 25.0;
     }
 
-    public async Task<ConverterError> CreateM4vAsync(
+    public Task<ConverterError> CreateM4vAsync(
         string inputFile,
         string outputFile,
         ConvertOptions opts,
         ToolPaths tools,
         HardwareProbeResult? probeResult,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        CreateM4vCoreAsync(inputFile, outputFile, opts, tools, probeResult, null, cancellationToken);
+
+    public Task<ConverterError> CreateMuxM4vAsync(
+        string inputFile,
+        string outputFile,
+        ConvertOptions opts,
+        ToolPaths tools,
+        HardwareProbeResult? probeResult,
+        MuxPolicy policy,
+        CancellationToken cancellationToken = default) =>
+        CreateM4vCoreAsync(inputFile, outputFile, opts, tools, probeResult, policy, cancellationToken);
+
+    private async Task<ConverterError> CreateM4vCoreAsync(
+        string inputFile,
+        string outputFile,
+        ConvertOptions opts,
+        ToolPaths tools,
+        HardwareProbeResult? probeResult,
+        MuxPolicy? muxPolicy,
+        CancellationToken cancellationToken)
     {
+        if (muxPolicy != null &&
+            (muxPolicy.Container != MuxContainer.M4v ||
+             muxPolicy.AudioMode is not (AudioOutputMode.Aac or AudioOutputMode.AacAc3) ||
+             opts.AudioOutputMode != muxPolicy.AudioMode))
+        {
+            EmitError("Mux M4V requires AAC or AAC+AC3 audio output.", ConverterError.InvalidOptions);
+            return ConverterError.InvalidOptions;
+        }
+
+        if (File.Exists(outputFile) && !opts.Overwrite)
+        {
+            EmitError("Output exists (enable overwrite)", ConverterError.OutputExists);
+            return ConverterError.OutputExists;
+        }
+
         if (string.IsNullOrEmpty(tools.Ffmpeg) || !File.Exists(tools.Ffmpeg) ||
             string.IsNullOrEmpty(tools.Ffprobe) || !File.Exists(tools.Ffprobe) ||
             string.IsNullOrEmpty(tools.Mp4Box) || !File.Exists(tools.Mp4Box))
@@ -140,15 +208,54 @@ public class AppleM4vPipeline
         }
 
         string videoCodec = validation.VideoCodec;
-        string? outputDir = Path.GetDirectoryName(Path.GetFullPath(outputFile));
-        if (string.IsNullOrEmpty(outputDir)) outputDir = ".";
+        bool isMuxWorkflow = muxPolicy != null;
+        if (isMuxWorkflow &&
+            videoCodec is not ("h264" or "hevc"))
+        {
+            EmitError("Mux M4V requires an H.264 or HEVC replacement video track.", ConverterError.InvalidOptions);
+            return ConverterError.InvalidOptions;
+        }
+        bool addAc3 = muxPolicy == null || muxPolicy.AudioMode == AudioOutputMode.AacAc3;
+        int videoTrackIndex = isMuxWorkflow ? 0 : opts.M4vVideoTrackIndex;
+        int audioTrackIndex = isMuxWorkflow ? 0 : opts.M4vAudioTrackIndex;
+        string lang = isMuxWorkflow
+            ? "rus"
+            : !string.IsNullOrEmpty(opts.M4vAudioLang) ? opts.M4vAudioLang : "rus";
+        int ac3Bitrate = isMuxWorkflow
+            ? 640
+            : opts.M4vAc3BitrateKbps > 0 ? opts.M4vAc3BitrateKbps : 640;
+        bool addChapters = muxPolicy?.ChapterAction == StreamAction.Preserve ||
+                           (muxPolicy == null && opts.M4vAddChapters);
 
-        string workDir = Path.Combine(outputDir, $"m4v_tmp_{Guid.NewGuid():N}");
+        string outputDir;
+        try
+        {
+            outputDir = Path.GetDirectoryName(Path.GetFullPath(outputFile)) ?? ".";
+            if (string.IsNullOrEmpty(outputDir))
+                outputDir = ".";
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            EmitError($"Invalid M4V output path: {ex.Message}", ConverterError.InvalidOptions);
+            return ConverterError.InvalidOptions;
+        }
+
+        string workRoot;
+        try
+        {
+            workRoot = SelectWorkRoot(outputFile, outputDir, Path.GetTempPath());
+        }
+        catch (ArgumentException ex)
+        {
+            EmitError(ex.Message, ConverterError.InvalidOptions);
+            return ConverterError.InvalidOptions;
+        }
+        string workDir = Path.Combine(workRoot, $"m4v_tmp_{Guid.NewGuid():N}");
         try
         {
             Directory.CreateDirectory(workDir);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             EmitError($"Failed to create temp dir: {ex.Message}", ConverterError.Unknown);
             return ConverterError.Unknown;
@@ -159,11 +266,11 @@ public class AppleM4vPipeline
         string ac3Mp4 = Path.Combine(workDir, "audio_ac3.mp4");
         string dispositionM4v = Path.Combine(workDir, "with_disposition.m4v");
         string chaptersM4v = Path.Combine(workDir, "with_chapters.m4v");
+        string subtitlesM4v = Path.Combine(workDir, "with_subtitles.m4v");
 
         try
         {
             double fps = await ProbeFpsAsync(tools.Ffprobe, inputFile, cancellationToken);
-            string lang = !string.IsNullOrEmpty(opts.M4vAudioLang) ? opts.M4vAudioLang : "rus";
 
             var videoInfo = await InputVideoInfo.ProbeAsync(tools.Ffprobe, inputFile, cancellationToken);
             string colorPrimaries = !string.IsNullOrEmpty(videoInfo?.ColorPrimaries) ? videoInfo.ColorPrimaries : "bt709";
@@ -176,11 +283,9 @@ public class AppleM4vPipeline
             // ----------------------------------------------------
             EmitStage("Apple M4V step 1/6: video copy");
             bool isHevc = videoCodec.Equals("hevc", StringComparison.OrdinalIgnoreCase);
-            string tagArg = isHevc ? "-tag:v hvc1 " : "";
-
-            string step1Args = $"-y -nostdin -i \"{inputFile}\" -map 0:v:{opts.M4vVideoTrackIndex} -c:v copy {tagArg}" +
-                               $"-color_primaries {colorPrimaries} -color_trc {colorTrc} -colorspace {colorSpace} -color_range {colorRange} " +
-                               $"-an -sn -dn -f mp4 \"{videoMp4}\"";
+            IReadOnlyList<string> step1Args = BuildVideoCopyArguments(
+                inputFile, videoTrackIndex, videoMp4, isHevc,
+                colorPrimaries, colorTrc, colorSpace, colorRange);
 
             int rc = await RunProcessAsync(tools.Ffmpeg, step1Args, cancellationToken);
             if (rc != 0)
@@ -193,10 +298,13 @@ public class AppleM4vPipeline
             // Step 2/6: AAC encode
             // ----------------------------------------------------
             EmitStage("Apple M4V step 2/6: AAC encode");
-            string aacEncoder = (probeResult?.HasAacAt == true) ? "aac_at" :
-                                (probeResult?.HasLibfdkAac == true) ? "libfdk_aac" : "aac";
+            string aacEncoder = isMuxWorkflow
+                ? "libfdk_aac"
+                : (probeResult?.HasAacAt == true) ? "aac_at" :
+                  (probeResult?.HasLibfdkAac == true) ? "libfdk_aac" : "aac";
 
-            string step2Args = $"-y -nostdin -i \"{inputFile}\" -map 0:a:{opts.M4vAudioTrackIndex} -c:a {aacEncoder} -b:a 320k -ar 48000 -f mp4 \"{aacM4a}\"";
+            IReadOnlyList<string> step2Args = BuildAudioEncodeArguments(
+                inputFile, audioTrackIndex, aacEncoder, "320k", aacM4a, "mp4");
             rc = await RunProcessAsync(tools.Ffmpeg, step2Args, cancellationToken);
             if (rc != 0)
             {
@@ -207,14 +315,18 @@ public class AppleM4vPipeline
             // ----------------------------------------------------
             // Step 3/6: AC3 encode
             // ----------------------------------------------------
-            EmitStage("Apple M4V step 3/6: AC3 encode");
-            int ac3Bitrate = opts.M4vAc3BitrateKbps > 0 ? opts.M4vAc3BitrateKbps : 640;
-            string step3Args = $"-y -nostdin -i \"{inputFile}\" -map 0:a:{opts.M4vAudioTrackIndex} -c:a ac3 -b:a {ac3Bitrate}k -f mp4 \"{ac3Mp4}\"";
-            rc = await RunProcessAsync(tools.Ffmpeg, step3Args, cancellationToken);
-            if (rc != 0)
+            if (addAc3)
             {
-                EmitError("Apple M4V AC3 encode failed", ConverterError.FfmpegFailed);
-                return ConverterError.FfmpegFailed;
+                EmitStage("Apple M4V step 3/6: AC3 encode");
+                IReadOnlyList<string> step3Args = BuildAudioEncodeArguments(
+                    inputFile, audioTrackIndex, "ac3", $"{ac3Bitrate}k", ac3Mp4, "mp4",
+                    sampleRate: null);
+                rc = await RunProcessAsync(tools.Ffmpeg, step3Args, cancellationToken);
+                if (rc != 0)
+                {
+                    EmitError("Apple M4V AC3 encode failed", ConverterError.FfmpegFailed);
+                    return ConverterError.FfmpegFailed;
+                }
             }
 
             // ----------------------------------------------------
@@ -224,8 +336,8 @@ public class AppleM4vPipeline
             string videoAdd = $"{videoMp4}#video:fps={fps.ToString("F6", CultureInfo.InvariantCulture)}:name=Video";
             string aacAdd = $"{aacM4a}#audio:name=AAC:lang={lang}";
             string ac3Add = $"{ac3Mp4}#audio:name=AC3 {ac3Bitrate}k:lang={lang}";
-
-            string step4Args = $"-new -brand \"M4V :0\" -ab mp42 -ab isom -add \"{videoAdd}\" -add \"{aacAdd}\" -add \"{ac3Add}\" \"{outputFile}\"";
+            IReadOnlyList<string> step4Args = BuildMp4BoxArguments(
+                videoAdd, aacAdd, ac3Add, outputFile, addAc3);
 
             if (File.Exists(outputFile))
             {
@@ -248,8 +360,8 @@ public class AppleM4vPipeline
             // Step 5/6: Set audio disposition
             // ----------------------------------------------------
             EmitStage("Apple M4V step 5/6: set audio disposition");
-            string step5Args = $"-y -nostdin -i \"{outputFile}\" -map 0:v:0 -map 0:a:0 -map 0:a:1 -c:v copy -c:a copy " +
-                               $"-disposition:a:0 default -disposition:a:1 0 -f mp4 \"{dispositionM4v}\"";
+            IReadOnlyList<string> step5Args = BuildDispositionArguments(
+                outputFile, dispositionM4v, addAc3);
 
             rc = await RunProcessAsync(tools.Ffmpeg, step5Args, cancellationToken);
             if (rc != 0)
@@ -258,24 +370,56 @@ public class AppleM4vPipeline
                 return ConverterError.FfmpegFailed;
             }
 
-            File.Move(dispositionM4v, outputFile, overwrite: true);
+            MoveOrCopyFile(dispositionM4v, outputFile);
 
             // ----------------------------------------------------
             // Step 6/6: Chapters (optional)
             // ----------------------------------------------------
-            if (opts.M4vAddChapters)
+            if (addChapters)
             {
                 EmitStage("Apple M4V step 6/6: chapters");
-                string step6Args = $"-y -nostdin -i \"{outputFile}\" -i \"{inputFile}\" -map 0 -map_chapters 1 -c copy -f mp4 \"{chaptersM4v}\"";
+                IReadOnlyList<string> step6Args = BuildChapterArguments(
+                    outputFile, inputFile, chaptersM4v);
                 rc = await RunProcessAsync(tools.Ffmpeg, step6Args, cancellationToken);
                 if (rc == 0 && File.Exists(chaptersM4v))
                 {
-                    File.Move(chaptersM4v, outputFile, overwrite: true);
+                    MoveOrCopyFile(chaptersM4v, outputFile);
                 }
                 else
                 {
                     EmitMessage("Apple M4V chapters warning: chapter import skipped or failed");
                 }
+            }
+
+            if (muxPolicy != null)
+            {
+                MuxSourcePreservationResult preservationResult =
+                    await MuxSourcePreservation.ProbeAsync(
+                        tools.Ffprobe, inputFile, muxPolicy, cancellationToken);
+                if (!preservationResult.Success)
+                {
+                    string message = preservationResult.Error ??
+                                     "Apple M4V subtitle policy could not be resolved.";
+                    EmitError(message, ConverterError.FfprobeFailed);
+                    return ConverterError.FfprobeFailed;
+                }
+                foreach (string warning in preservationResult.Warnings)
+                    EmitMessage(warning);
+                if (preservationResult.HasAttachments &&
+                    muxPolicy.AttachmentAction == StreamAction.Drop)
+                    EmitMessage("Warning: input attachments are dropped by the selected output container.");
+
+                EmitStage("Apple M4V metadata and subtitle preservation");
+                IReadOnlyList<string> metadataArgs = BuildMuxMetadataSubtitleArguments(
+                    outputFile, inputFile, subtitlesM4v,
+                    preservationResult.Plan!, videoTrackIndex);
+                rc = await RunProcessAsync(tools.Ffmpeg, metadataArgs, cancellationToken);
+                if (rc != 0)
+                {
+                    EmitError("Apple M4V metadata remux failed", ConverterError.FfmpegFailed);
+                    return ConverterError.FfmpegFailed;
+                }
+                MoveOrCopyFile(subtitlesM4v, outputFile);
             }
 
             return ConverterError.Ok;
@@ -284,9 +428,16 @@ public class AppleM4vPipeline
         {
             if (File.Exists(outputFile))
             {
-                try { File.Delete(outputFile); } catch { }
+                try { File.Delete(outputFile); }
+                catch (IOException ex) { EmitMessage($"Apple M4V cancelled-output cleanup failed: {ex.Message}"); }
+                catch (UnauthorizedAccessException ex) { EmitMessage($"Apple M4V cancelled-output cleanup failed: {ex.Message}"); }
             }
             return ConverterError.SkipFile;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            EmitError($"Apple M4V processing failed: {ex.Message}", ConverterError.FfmpegFailed);
+            return ConverterError.FfmpegFailed;
         }
         finally
         {
@@ -295,24 +446,179 @@ public class AppleM4vPipeline
                 if (Directory.Exists(workDir))
                     Directory.Delete(workDir, recursive: true);
             }
-            catch { }
+            catch (IOException ex) { EmitMessage($"Apple M4V temporary cleanup failed: {ex.Message}"); }
+            catch (UnauthorizedAccessException ex) { EmitMessage($"Apple M4V temporary cleanup failed: {ex.Message}"); }
         }
     }
 
-    private async Task<int> RunProcessAsync(string executable, string arguments, CancellationToken cancellationToken)
+    public static IReadOnlyList<string> BuildVideoCopyArguments(
+        string inputFile,
+        int videoTrackIndex,
+        string outputFile,
+        bool isHevc,
+        string colorPrimaries,
+        string colorTransfer,
+        string colorSpace,
+        string colorRange)
     {
-        using var process = new Process
+        var arguments = new List<string>
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = executable,
-                Arguments = arguments,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            }
+            "-y", "-nostdin", "-i", inputFile, "-map", $"0:v:{videoTrackIndex}",
+            "-c:v", "copy"
         };
+        if (isHevc)
+            arguments.AddRange(new[] { "-tag:v", "hvc1" });
+        arguments.AddRange(new[]
+        {
+            "-color_primaries", colorPrimaries,
+            "-color_trc", colorTransfer,
+            "-colorspace", colorSpace,
+            "-color_range", colorRange,
+            "-an", "-sn", "-dn", "-f", "mp4", outputFile
+        });
+        return arguments;
+    }
+
+    public static string SelectWorkRoot(
+        string outputFile,
+        string outputDirectory,
+        string systemTempDirectory)
+    {
+        if (!outputFile.Contains('+'))
+            return outputDirectory;
+        if (systemTempDirectory.Contains('+'))
+            throw new ArgumentException(
+                "Could not select a temporary directory safe for the MP4Box import path.");
+        return systemTempDirectory;
+    }
+
+    public static IReadOnlyList<string> BuildAudioEncodeArguments(
+        string inputFile,
+        int audioTrackIndex,
+        string encoder,
+        string bitrate,
+        string outputFile,
+        string format,
+        string? sampleRate = "48000")
+    {
+        var arguments = new List<string>
+        {
+            "-y", "-nostdin", "-i", inputFile, "-map", $"0:a:{audioTrackIndex}",
+            "-c:a", encoder, "-b:a", bitrate
+        };
+        if (sampleRate != null)
+            arguments.AddRange(new[] { "-ar", sampleRate });
+        arguments.AddRange(new[] { "-f", format, outputFile });
+        return arguments;
+    }
+
+    public static IReadOnlyList<string> BuildMp4BoxArguments(
+        string videoAdd,
+        string aacAdd,
+        string ac3Add,
+        string outputFile,
+        bool addAc3)
+    {
+        var arguments = new List<string>
+        {
+            "-new", "-brand", "M4V :0", "-ab", "mp42", "-ab", "isom",
+            "-add", videoAdd, "-add", aacAdd
+        };
+        if (addAc3)
+            arguments.AddRange(new[] { "-add", ac3Add });
+        arguments.Add(outputFile);
+        return arguments;
+    }
+
+    public static IReadOnlyList<string> BuildDispositionArguments(
+        string inputFile,
+        string outputFile,
+        bool hasAc3)
+    {
+        var arguments = new List<string>
+        {
+            "-y", "-nostdin", "-i", inputFile,
+            "-map", "0:v:0", "-map", "0:a:0"
+        };
+        if (hasAc3)
+            arguments.AddRange(new[] { "-map", "0:a:1" });
+        arguments.AddRange(new[]
+        {
+            "-c:v", "copy", "-c:a", "copy",
+            "-disposition:a:0", "default"
+        });
+        if (hasAc3)
+            arguments.AddRange(new[] { "-disposition:a:1", "0" });
+        arguments.AddRange(new[] { "-f", "mp4", outputFile });
+        return arguments;
+    }
+
+    public static IReadOnlyList<string> BuildChapterArguments(
+        string inputFile,
+        string sourceFile,
+        string outputFile) =>
+        new[]
+        {
+            "-y", "-nostdin", "-i", inputFile, "-i", sourceFile,
+            "-map", "0", "-map_chapters", "1", "-c", "copy", "-f", "mp4",
+            outputFile
+        };
+
+    public static IReadOnlyList<string> BuildMuxMetadataSubtitleArguments(
+        string inputFile,
+        string sourceFile,
+        string outputFile,
+        MuxSourcePreservationPlan sourcePlan,
+        int sourceVideoTrackIndex)
+    {
+        var arguments = new List<string>
+        {
+            "-y", "-nostdin", "-i", inputFile, "-i", sourceFile,
+            "-map", "0", "-map_metadata", "1",
+            "-map_metadata:s:v:0", $"1:s:v:{sourceVideoTrackIndex}",
+            "-map_chapters", "0", "-c", "copy"
+        };
+        foreach (SubtitleStreamMapping subtitle in sourcePlan.SubtitleStreams)
+        {
+            arguments.Add("-map");
+            arguments.Add($"1:{subtitle.StreamIndex}");
+            arguments.Add($"-c:s:{subtitle.OutputIndex}");
+            arguments.Add(subtitle.Encoder);
+        }
+        arguments.AddRange(new[] { "-f", "mp4", outputFile });
+        return arguments;
+    }
+
+    private static void MoveOrCopyFile(string source, string destination)
+    {
+        try
+        {
+            File.Move(source, destination, overwrite: true);
+        }
+        catch (IOException)
+        {
+            File.Copy(source, destination, overwrite: true);
+            File.Delete(source);
+        }
+    }
+
+    private async Task<int> RunProcessAsync(
+        string executable,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (string argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = startInfo };
 
         process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) EmitMessage(e.Data); };
         process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) EmitMessage(e.Data); };
@@ -321,28 +627,61 @@ public class AppleM4vPipeline
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { }
+                catch (Win32Exception) { }
+            }
+            await process.WaitForExitAsync(CancellationToken.None);
+            throw;
+        }
         return process.ExitCode;
     }
 
-    private static async Task<string> RunCaptureOutputAsync(string executable, string arguments, CancellationToken cancellationToken)
+    private static async Task<string> RunCaptureOutputAsync(
+        string executable,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
     {
-        using var process = new Process
+        var startInfo = new ProcessStartInfo
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = executable,
-                Arguments = arguments,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            }
+            FileName = executable,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
+        foreach (string argument in arguments)
+            startInfo.ArgumentList.Add(argument);
 
+        using var process = new Process { StartInfo = startInfo };
         process.Start();
-        string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> errorTask = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { }
+                catch (Win32Exception) { }
+            }
+            await process.WaitForExitAsync(CancellationToken.None);
+            throw;
+        }
+        string output = await outputTask;
+        _ = await errorTask;
         return output;
     }
 
