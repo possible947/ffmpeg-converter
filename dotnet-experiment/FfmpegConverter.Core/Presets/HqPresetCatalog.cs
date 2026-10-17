@@ -103,6 +103,10 @@ public sealed class HqPresetCatalog
 
     private static string? ResolveRuntimeRoot()
     {
+        string? releaseRoot = PreparedReleaseLayout.FindRoot(AppContext.BaseDirectory);
+        if (releaseRoot != null)
+            return Path.Combine(releaseRoot, "hq_converter");
+
         string? overrideRoot = Environment.GetEnvironmentVariable("FFC_HQ_ROOT");
         if (!string.IsNullOrWhiteSpace(overrideRoot))
             return overrideRoot;

@@ -8,6 +8,31 @@ namespace FfmpegConverter.Tests;
 
 public class PresetDbTests
 {
+    [Fact]
+    public void Load_PreparedReleaseUsesPackagedCatalogBeforeEnvironmentAndWorkingDirectory()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"ffmpeg-release-presets-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(root);
+            File.WriteAllText(Path.Combine(root, "ffmpeg-converter.release"), "linux-x64");
+            string packaged = Path.Combine(root, "presets.json");
+            File.WriteAllText(packaged, "{\"version\":\"packaged\",\"features\":{},\"selection\":{}}");
+            string external = Path.Combine(root, "external.json");
+            File.WriteAllText(external, "{\"version\":\"external\",\"features\":{},\"selection\":{}}");
+            var context = new PresetDbPathContext(external, external, Path.Combine(root, "app"), "", "", root);
+
+            var db = PresetDb.Load(pathContext: context);
+
+            Assert.Equal(packaged, db.LoadedPath);
+            Assert.Equal("packaged", db.Version);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private readonly PresetDb _presetDb;
 
     public PresetDbTests()

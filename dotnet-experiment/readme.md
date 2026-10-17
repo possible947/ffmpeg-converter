@@ -6,6 +6,103 @@
 
 ---
 
+## Linux standalone release
+
+Development builds are unchanged:
+
+```bash
+cd dotnet-experiment
+dotnet build
+```
+
+Prepare one shared, self-contained CLI/Avalonia release (Linux x86_64 host,
+.NET 10 SDK):
+
+```bash
+dotnet build release-support/PrepareRelease.proj -c Release -t:PrepareRelease
+```
+
+The orchestration project deliberately publishes both entry points, not separate
+`linux_cli` / `linux_gui` releases. It validates inputs **before** publishing or
+replacing output, restores/publishes Release applications, stages ready-made
+external artifacts, then checks the resulting structure. It does not build
+FFmpeg/HQ, run encoding or hardware probes, or run tests. Ordinary solution
+builds do not invoke it. The orchestration project lives under `release-support/`
+so it does not interfere with automatic solution selection by `dotnet build`.
+
+All inputs and the output location are overridable MSBuild properties:
+
+| Property | Default (relative to repository unless absolute) |
+|---|---|
+| `ConverterFfmpegReleaseRoot` | `src/platform/linux/bin` (`ffmpeg`, `ffprobe`) |
+| `HqReleaseRoot` | `third_party/hq_converter` (complete prepared release) |
+| `MkvMergePath` | `/usr/bin/mkvmerge` |
+| `Mp4BoxPath` | `/usr/bin/MP4Box` |
+| `PresetsPath` | `presets.json` |
+| `ReleaseRoot` | `dotnet-experiment/release/linux-x64` |
+| `RuntimeIdentifier` | `linux-x64` (currently the only supported RID) |
+
+For example, from `dotnet-experiment/`:
+
+```bash
+dotnet build release-support/PrepareRelease.proj -c Release -t:PrepareRelease \
+  -p:ConverterFfmpegReleaseRoot=/opt/releases/converter-ffmpeg \
+  -p:HqReleaseRoot=/opt/releases/hq_converter \
+  -p:MkvMergePath=/opt/releases/mkvtoolnix/mkvmerge \
+  -p:Mp4BoxPath=/opt/releases/gpac/MP4Box \
+  -p:PresetsPath="$PWD/../presets.json" \
+  -p:ReleaseRoot=/tmp/ffmpeg-converter-dotnet-release
+```
+
+No assembly-time fallback to `PATH` is used. Missing/empty artifacts and
+non-executable tools fail with their paths. HQ checks use the current native
+package's entry points, shared library, segmentator, toolchain configuration,
+and encoder catalog/schema; the **whole** HQ release is copied with permissions
+and symlinks preserved, not reconstructed from that validation list.
+Converter and HQ keep separate FFmpeg/tool ownership.
+Relative property paths are resolved from `dotnet-experiment/`.
+
+```text
+release/linux-x64/
+  ffmpeg-converter-cli
+  ffmpeg-converter-gui
+  ffmpeg-converter.release
+  app/                         # both apphosts, shared Core, .NET runtime,
+                               # Avalonia/Skia and application dependencies
+  tools/{ffmpeg,ffprobe,mkvmerge,MP4Box}
+  hq_converter/                # intact external release
+  presets.json
+  share/applications/ffmpeg-converter.desktop
+  share/icons/hicolor/1024x1024/apps/ffmpeg-converter.png
+```
+
+Run `release/linux-x64/ffmpeg-converter-cli --help` or
+`release/linux-x64/ffmpeg-converter-gui`. Both launchers work from any working
+directory, preserve arguments, and need no installed .NET SDK/runtime.
+The release marker tells shared Core discovery to prefer release-local tools,
+presets and HQ over development/environment lookups. Explicit preset/HQ API
+arguments remain available. No release paths are baked into the binaries.
+Unmarked development execution retains its existing discovery rules.
+
+Re-running the target replaces a previously marked release to avoid stale
+assets; it refuses to replace a nonempty unmarked directory or a directory
+containing input artifacts. Generated releases are gitignored. Keep user files
+outside this managed output directory.
+
+For a quick manual relocation check, copy the **entire** release elsewhere,
+change to a directory outside the repository, and run its CLI `--help` /
+`--version` and GUI launcher. No full media matrix is needed for assembly.
+Linux desktop/system shared libraries (including the supplied mux tools'
+dependencies) must still be provided by the target distribution, as with the
+native package; self-contained refers to the .NET runtime, not a static Linux
+system image. Cross-distribution dependency qualification remains release work.
+Desktop metadata expects the launcher on `PATH` when installed; no desktop
+installation is performed here.
+
+Future AppImage staging should consume this directory as its sole application
+input. No AppImage, Windows packaging, Nix isolation, RPATH changes or new
+library-path environment is introduced by this target.
+
 ## 🗺️ Структура Портированного Приложения
 
 Порт разделен на четыре логических проекта в рамках единого решения (`FfmpegConverter.slnx`):

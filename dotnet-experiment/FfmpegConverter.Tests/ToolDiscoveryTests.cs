@@ -7,6 +7,37 @@ namespace FfmpegConverter.Tests;
 
 public class ToolDiscoveryTests
 {
+    [Theory]
+    [InlineData("ffmpeg")]
+    [InlineData("ffprobe")]
+    [InlineData("mkvmerge")]
+    [InlineData("MP4Box")]
+    public void Resolve_PreparedReleaseUsesPackagedToolsBeforeEnvironmentAndRepository(string tool)
+    {
+        using var layout = new TemporaryLayout();
+        layout.CreateFile("release/ffmpeg-converter.release");
+        string packaged = layout.CreateFile($"release/tools/{tool}");
+        string external = layout.CreateFile($"external/{tool}");
+        var context = Context(Path.Combine(layout.Root, "release", "app"), "linux",
+            new Dictionary<string, string> { [$"{tool.ToUpperInvariant()}_BIN"] = external },
+            Path.GetDirectoryName(external)!);
+
+        Assert.Equal(packaged, ToolDiscovery.Resolve(tool, context));
+    }
+
+    [Fact]
+    public void Resolve_PreparedReleaseDoesNotFallBackToDevelopmentTools()
+    {
+        using var layout = new TemporaryLayout();
+        layout.CreateFile("release/ffmpeg-converter.release");
+        string external = layout.CreateFile("external/ffmpeg");
+        var context = Context(Path.Combine(layout.Root, "release", "app"), "linux",
+            new Dictionary<string, string> { ["FFMPEG_BIN"] = external },
+            Path.GetDirectoryName(external)!);
+
+        Assert.Equal("", ToolDiscovery.Resolve("ffmpeg", context));
+    }
+
     [Fact]
     public void Resolve_EnvironmentOverrideTakesPrecedenceOverExecutableAndPath()
     {

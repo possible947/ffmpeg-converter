@@ -366,6 +366,10 @@ public class PresetDb
             if (File.Exists(subP)) return subP;
         }
 
+        string? releaseRoot = PreparedReleaseLayout.FindRoot(context.ExecutableDirectory);
+        if (releaseRoot != null)
+            return Path.Combine(releaseRoot, "presets.json");
+
         // 1. Env Var PRESETS_V2_PATH
         string? v2Path = context.PresetsV2Path;
         if (!string.IsNullOrEmpty(v2Path))

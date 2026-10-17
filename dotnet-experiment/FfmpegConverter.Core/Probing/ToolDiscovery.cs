@@ -62,6 +62,13 @@ public static class ToolDiscovery
     {
         string exeName = IsWindows(context) ? $"{toolName}.exe" : toolName;
 
+        string? releaseRoot = PreparedReleaseLayout.FindRoot(context.ExecutableDirectory);
+        if (releaseRoot != null)
+        {
+            string packagedTool = Path.Combine(releaseRoot, "tools", exeName);
+            return File.Exists(packagedTool) ? packagedTool : "";
+        }
+
         string? envPath = GetEnvironmentValue(context, GetPrimaryEnvironmentVariable(toolName));
         if (string.IsNullOrEmpty(envPath))
             envPath = GetEnvironmentValue(context, toolName.ToUpperInvariant());

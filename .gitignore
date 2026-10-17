@@ -89,6 +89,7 @@ src/platform/macos/bin/lib/
 *.res
 
 # .NET / C# build outputs
+/dotnet-experiment/release/
 **/[Bb]in/
 **/[Oo]bj/
 *.user

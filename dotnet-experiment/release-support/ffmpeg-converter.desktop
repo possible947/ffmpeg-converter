@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=FFMpeg-Converter (.NET)
+Comment=Convert video/audio using FFmpeg with audio normalization
+Exec=ffmpeg-converter-gui
+Icon=ffmpeg-converter
+Categories=AudioVideo;Video;
+Terminal=false
+StartupNotify=true

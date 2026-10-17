@@ -1,0 +1,121 @@
+<Project DefaultTargets="PrepareRelease"
+         TreatAsLocalProperty="ConverterFfmpegReleaseRoot;HqReleaseRoot;MkvMergePath;Mp4BoxPath;PresetsPath;ReleaseRoot">
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-x64</RuntimeIdentifier>
+    <DotNetRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</DotNetRoot>
+    <RepositoryRoot>$([System.IO.Path]::GetFullPath('$(DotNetRoot)/..'))</RepositoryRoot>
+    <ConverterFfmpegReleaseRoot Condition="'$(ConverterFfmpegReleaseRoot)' == ''">$(RepositoryRoot)/src/platform/linux/bin</ConverterFfmpegReleaseRoot>
+    <HqReleaseRoot Condition="'$(HqReleaseRoot)' == ''">$(RepositoryRoot)/third_party/hq_converter</HqReleaseRoot>
+    <MkvMergePath Condition="'$(MkvMergePath)' == ''">/usr/bin/mkvmerge</MkvMergePath>
+    <Mp4BoxPath Condition="'$(Mp4BoxPath)' == ''">/usr/bin/MP4Box</Mp4BoxPath>
+    <PresetsPath Condition="'$(PresetsPath)' == ''">$(RepositoryRoot)/presets.json</PresetsPath>
+    <ReleaseRoot Condition="'$(ReleaseRoot)' == ''">$(DotNetRoot)/release/$(RuntimeIdentifier)</ReleaseRoot>
+    <ConverterFfmpegReleaseRoot>$([System.IO.Path]::GetFullPath('$(ConverterFfmpegReleaseRoot)', '$(DotNetRoot)'))</ConverterFfmpegReleaseRoot>
+    <HqReleaseRoot>$([System.IO.Path]::GetFullPath('$(HqReleaseRoot)', '$(DotNetRoot)'))</HqReleaseRoot>
+    <MkvMergePath>$([System.IO.Path]::GetFullPath('$(MkvMergePath)', '$(DotNetRoot)'))</MkvMergePath>
+    <Mp4BoxPath>$([System.IO.Path]::GetFullPath('$(Mp4BoxPath)', '$(DotNetRoot)'))</Mp4BoxPath>
+    <PresetsPath>$([System.IO.Path]::GetFullPath('$(PresetsPath)', '$(DotNetRoot)'))</PresetsPath>
+    <ReleaseRoot>$([System.IO.Path]::GetFullPath('$(ReleaseRoot)', '$(DotNetRoot)'))</ReleaseRoot>
+    <_PublishRoot>$(ReleaseRoot)/app</_PublishRoot>
+  </PropertyGroup>
+
+  <UsingTask TaskName="CheckReleaseInputs" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <RepositoryRoot ParameterType="System.String" Required="true" />
+      <ReleaseRoot ParameterType="System.String" Required="true" />
+      <RequiredFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        foreach (var item in RequiredFiles)
+        {
+            string path = Path.GetFullPath(item.ItemSpec);
+            if (!File.Exists(path) || new FileInfo(path).Length == 0)
+                Log.LogError("PrepareRelease failed: required {0} not found or empty at {1}",
+                    item.GetMetadata("Kind"), path);
+        }
+        string output = Path.GetFullPath(ReleaseRoot).TrimEnd(Path.DirectorySeparatorChar);
+        string repo = Path.GetFullPath(RepositoryRoot);
+        if (output.Length == 0 || repo == output || repo.StartsWith(output + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            Log.LogError("PrepareRelease failed: unsafe ReleaseRoot: {0}", ReleaseRoot);
+        foreach (var item in RequiredFiles)
+        {
+            string input = Path.GetFullPath(item.ItemSpec);
+            if (input == output || input.StartsWith(output + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                Log.LogError("PrepareRelease failed: ReleaseRoot contains an input artifact: {0}", input);
+        }
+        if (Directory.Exists(output) && Directory.GetFileSystemEntries(output).Length != 0 &&
+            !File.Exists(Path.Combine(output, "ffmpeg-converter.release")))
+            Log.LogError("PrepareRelease failed: refusing to replace an unmarked directory: {0}", output);
+        if (Directory.Exists(output) && (File.GetAttributes(output) & FileAttributes.ReparsePoint) != 0)
+            Log.LogError("PrepareRelease failed: ReleaseRoot must not be a symlink: {0}", output);
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <!-- dotnet build invokes Restore on this orchestration project; application restore is explicit below. -->
+  <Target Name="Restore" />
+
+  <Target Name="_ValidateReleaseInputs">
+    <Error Condition="!$([MSBuild]::IsOSPlatform('Linux')) or '$(RuntimeIdentifier)' != 'linux-x64'"
+           Text="PrepareRelease currently supports Linux hosts and RuntimeIdentifier=linux-x64 only." />
+    <Error Condition="'$(Configuration)' != 'Release'" Text="PrepareRelease requires -c Release." />
+    <Error Condition="!Exists('$(ConverterFfmpegReleaseRoot)')" Text="PrepareRelease failed: Converter FFmpeg release not found at $(ConverterFfmpegReleaseRoot)" />
+    <Error Condition="!Exists('$(HqReleaseRoot)')" Text="PrepareRelease failed: HQ release not found at $(HqReleaseRoot)" />
+    <ItemGroup>
+      <_Tool Include="$(ConverterFfmpegReleaseRoot)/ffmpeg;$(ConverterFfmpegReleaseRoot)/ffprobe" Kind="Converter tool" />
+      <_Tool Include="$(MkvMergePath);$(Mp4BoxPath)" Kind="mux tool" />
+      <_HqExecutable Include="bin/ffmpeg;bin/ffprobe;bin/mkvmerge;bin/x264;bin/x265;bin/SvtHevcEncApp;bin/SvtAv1EncApp;modules/encoder_orchestrator_v2/runner/encoder_orchestrator_v2_runner" />
+      <_HqAsset Include="modules/library/bin/libhq_converter.so;bin/libseg_native.so.1;modules/segmentator/config/toolchain_runtime.ini;modules/encoder_orchestrator_v2/config/toolchain_runtime.ini;modules/encoder_orchestrator_v2/config/presets/encoder_presets_v2.json;modules/encoder_orchestrator_v2/config/presets/encoder_param_schema_v1.json" />
+      <_Tool Include="@(_HqExecutable->'$(HqReleaseRoot)/%(Identity)')" Kind="HQ executable" />
+      <_Required Include="@(_Tool)" />
+      <_Required Include="@(_HqAsset->'$(HqReleaseRoot)/%(Identity)')" Kind="HQ runtime asset" />
+      <_Required Include="$(PresetsPath)" Kind="preset catalog" />
+      <_Required Include="$(RepositoryRoot)/src/gui/icon.png" Kind="icon" />
+      <_Required Include="$(MSBuildThisFileDirectory)launcher.sh;$(MSBuildThisFileDirectory)ffmpeg-converter.desktop" Kind="release metadata" />
+    </ItemGroup>
+    <CheckReleaseInputs RepositoryRoot="$(RepositoryRoot)" ReleaseRoot="$(ReleaseRoot)" RequiredFiles="@(_Required)" />
+    <Exec Command="test -x &quot;%(_Tool.Identity)&quot; || { echo 'PrepareRelease failed: required executable is not executable: %(_Tool.Identity)' &gt;&amp;2; exit 1; }" />
+  </Target>
+
+  <Target Name="PrepareRelease" DependsOnTargets="_ValidateReleaseInputs">
+    <RemoveDir Directories="$(ReleaseRoot)" />
+    <MakeDir Directories="$(_PublishRoot);$(ReleaseRoot)/tools;$(ReleaseRoot)/share/applications;$(ReleaseRoot)/share/icons/hicolor/1024x1024/apps" />
+    <WriteLinesToFile File="$(ReleaseRoot)/ffmpeg-converter.release" Lines="linux-x64" Overwrite="true" />
+    <MSBuild Projects="$(DotNetRoot)/FfmpegConverter.Cli/FfmpegConverter.Cli.csproj;$(DotNetRoot)/FfmpegConverter.Gui/FfmpegConverter.Gui.csproj"
+             Targets="Restore;Publish" BuildInParallel="false"
+             Properties="Configuration=Release;RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=true;PublishDir=$(_PublishRoot)/;PrepareReleasePublish=true;PublishSingleFile=false;PublishTrimmed=false" />
+    <Copy SourceFiles="$(ConverterFfmpegReleaseRoot)/ffmpeg;$(ConverterFfmpegReleaseRoot)/ffprobe;$(MkvMergePath);$(Mp4BoxPath)"
+          DestinationFiles="$(ReleaseRoot)/tools/ffmpeg;$(ReleaseRoot)/tools/ffprobe;$(ReleaseRoot)/tools/mkvmerge;$(ReleaseRoot)/tools/MP4Box" />
+    <!-- Preserve the authoritative release, including symlinks and executable permissions. -->
+    <MakeDir Directories="$(ReleaseRoot)/hq_converter" />
+    <Exec Command="cp -a -- &quot;$(HqReleaseRoot)/.&quot; &quot;$(ReleaseRoot)/hq_converter/&quot;" />
+    <Copy SourceFiles="$(PresetsPath)" DestinationFiles="$(ReleaseRoot)/presets.json" />
+    <Copy SourceFiles="$(RepositoryRoot)/src/gui/icon.png"
+          DestinationFiles="$(ReleaseRoot)/share/icons/hicolor/1024x1024/apps/ffmpeg-converter.png" />
+    <ItemGroup>
+      <_PublishedExecutable Include="FfmpegConverter.Cli;FfmpegConverter.Gui" />
+    </ItemGroup>
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)launcher.sh"
+          DestinationFiles="$(ReleaseRoot)/ffmpeg-converter-cli" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)launcher.sh"
+          DestinationFiles="$(ReleaseRoot)/ffmpeg-converter-gui" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)ffmpeg-converter.desktop"
+          DestinationFolder="$(ReleaseRoot)/share/applications" />
+    <Exec Command="chmod +x &quot;$(ReleaseRoot)/ffmpeg-converter-cli&quot; &quot;$(ReleaseRoot)/ffmpeg-converter-gui&quot;" />
+    <Error Condition="!Exists('$(_PublishRoot)/libcoreclr.so') or !Exists('$(_PublishRoot)/libSkiaSharp.so') or !Exists('$(_PublishRoot)/FfmpegConverter.Core.dll')"
+           Text="PrepareRelease failed: self-contained runtime, Skia or Core missing from $(_PublishRoot)" />
+    <Exec Command="test -x &quot;$(_PublishRoot)/%(_PublishedExecutable.Identity)&quot;" />
+    <Exec Command="test -x &quot;$(ReleaseRoot)/hq_converter/%(_HqExecutable.Identity)&quot;" />
+    <ItemGroup>
+      <_Staged Include="@(_HqAsset->'$(ReleaseRoot)/hq_converter/%(Identity)')" />
+      <_Staged Include="$(ReleaseRoot)/tools/ffmpeg;$(ReleaseRoot)/tools/ffprobe;$(ReleaseRoot)/tools/mkvmerge;$(ReleaseRoot)/tools/MP4Box;$(ReleaseRoot)/presets.json;$(ReleaseRoot)/ffmpeg-converter-cli;$(ReleaseRoot)/ffmpeg-converter-gui" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(_Staged.Identity)')" Text="PrepareRelease failed: staged asset missing: %(_Staged.Identity)" />
+    <Message Importance="high" Text="Prepared standalone release: $(ReleaseRoot)" />
+  </Target>
+</Project>
