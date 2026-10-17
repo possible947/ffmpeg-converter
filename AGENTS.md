@@ -50,9 +50,27 @@ Windows builds do not include or expose HQ_converter. See
 
 ## Verification / tests
 
-- **No C test suite, no `ctest`, no lint/typecheck target.** Verify C changes by building the relevant target and running `ffmpeg_converter --help`.
+- C tests are registered with CTest and vary by platform. Build the relevant
+  targets before running `ctest --test-dir build --output-on-failure`; use `-R`
+  for focused tests. See `.github/copilot-instructions.md` for build/test commands.
+  Running `ffmpeg_converter --help` is a CLI smoke check, not a substitute for
+  behavioral tests.
 - Pascal entrypoint is `make -C fpc/build tests`, but **`fpc/test/` currently has no tracked sources** — the Makefile prints "No Pascal tests found… skipping" when empty. Check the directory exists before expecting tests to run.
 - The regression script (`fpc/test/run_all_regression_and_capture.sh`, referenced in docs) likewise only exists when `fpc/test/` is populated.
+
+## Validation Strategy
+
+Follow the repository-wide **Validation Strategy** in
+`.github/copilot-instructions.md`, including its applicable full-suite, runtime,
+commit, and evidence requirements. Core validation proves **WHAT** the application
+does; separate UI acceptance proves **HOW** validated behavior is presented.
+Appropriate Level 1 checks are required for implementation work; interactive UI
+testing is not a universal commit gate merely because a GUI consumes Core APIs.
+UI acceptance is representative, not a combinatorial media matrix. Reuse
+`dotnet-experiment/tests/ui/README-linux-ui-automation.md` and its existing driver,
+and require preflight PASS before acceptance. Connection failures are automation
+environment failures, not application failures. Keep shared guidance aligned with
+the committed Copilot instructions.
 
 ## C architecture notes
 

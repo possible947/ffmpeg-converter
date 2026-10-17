@@ -95,6 +95,131 @@ dotnet run --project FfmpegConverter.Cli/FfmpegConverter.Cli.csproj -- --help
 
 The last `dotnet test` command runs one test class; change the filter to the desired class or test name. There is no repository-defined lint target.
 
+## Validation Strategy
+
+**Core validation proves WHAT the application does. UI acceptance proves HOW
+validated behavior is presented.** Core coverage must be comprehensive for the
+affected behavior; UI coverage is representative, focused, and non-combinatorial.
+
+### Level 1: Core and Behavioral Validation (default)
+
+Implementation work requires appropriate Level 1 checks. This covers policies,
+input validation, command construction, audio modes, queues, FFmpeg processing,
+Mux, Add Track, MKV/MOV/M4V, HQ, stream preservation, output verification, errors,
+cancellation, runtime discovery, hardware backends, and non-UI platform behavior.
+
+For Core-only work: implement -> focused automated tests -> full applicable
+automated suite -> targeted CLI/Core runtime or media validation when required
+-> commit. Use deterministic fixtures, representative real-media smoke tests,
+and ffprobe verification where the changed behavior warrants them. Select the
+applicable suite for the changed implementation/platform, not unrelated suites
+merely to increase test volume. Report unavailable checks explicitly; do not
+treat missing tools or skipped checks as passing validation.
+
+Interactive UI automation is **not required merely because a GUI consumes a
+changed Core API or event**. Passing appropriate Level 1 checks verifies that
+Core implementation and permits its commit. Do not block it for lack of
+interactive testing or use expensive GUI runs to re-prove Core/CLI media behavior.
+
+### Level 2: UI Acceptance
+
+Run UI acceptance separately when a change affects controls, availability or
+enabled state, selections or persistence, dialogs, progress/status, speed/ETA,
+queue presentation, workflow transitions, errors, or completion presentation.
+This validates presentation, not a duplicate Core behavioral matrix.
+
+Choose the minimum scenarios covering distinct presentation contracts. A
+representative Converter matrix may include one Legacy single-file conversion,
+one Legacy queue containing success and failure, one HQ workflow, one Mux MKV
+workflow, one Mux MOV workflow if its visible stages differ, and one Mux M4V
+workflow because its MKV and MP4Box stages are visually distinct. Run only the
+scenarios relevant to the change. Do not exhaustively cross every encoder,
+preset, audio mode, container, and source codec through the GUI when Core tests
+already establish those combinations.
+
+Core validation establishes codecs, audio track counts, Copy policy, AAC+AC3,
+subtitles, chapters, attachments, replacement isolation, and hardware encoder
+output. UI checks primarily establish correct controls/selections, operation
+start, current filename, progress/status, stage transitions, queue items matching
+actual results, and correct completion/failure. File existence or a successful
+probe is an acceptable UI smoke check; do not repeat the complete semantic
+ffprobe matrix for every GUI workflow.
+
+Keep progress contracts distinct, even when sharing presentation infrastructure:
+
+| Source | Presentation contract |
+|--------|-----------------------|
+| Legacy | FFmpeg-derived stage, percentage, speed, and ETA |
+| HQ | HQ/segmentator stage and checkpoint percentage; no fabricated Legacy speed/ETA |
+| Mux | Source-preparation FFmpeg telemetry where applicable; structured Mux stages; mkvmerge/MP4Box stage-local percentages where available; status-only stages when percentage is unreliable |
+
+Preserve the semantic source/workflow; do not impose one universal progress
+interpretation or fabricate speed/ETA for non-FFmpeg stages.
+
+### Reuse UI automation and preflight first
+
+Before writing GUI automation, locate existing repository scripts, read their
+documentation, and reuse them. For Linux Avalonia, consult
+[`dotnet-experiment/tests/ui/README-linux-ui-automation.md`](../dotnet-experiment/tests/ui/README-linux-ui-automation.md)
+and its `UiSmoke.csproj` / `StartupHook.cs` driver before interactive testing.
+Extend the driver only for a confirmed harness defect or genuinely new UI
+workflow; keep generally useful scenarios/scripts in the repository. Prefer
+extending and retaining this infrastructure over recreating temporary,
+coordinate-based or session-specific scripts. Screenshots, videos, logs, and
+media fixtures normally stay outside tracked source unless explicitly required.
+
+Run a cheap preflight before expensive acceptance: launch the app, identify the
+correct process/window, confirm graphical-session access and relevant UI
+inspection, and verify one harmless interaction. Only proceed after preflight
+PASS. A failed connection/preflight is **UI AUTOMATION ENVIRONMENT FAILURE**,
+with application UI **NOT TESTED**, not application failure. Do not modify
+production code to compensate for broken automation.
+
+GNOME can use a Wayland desktop while Avalonia uses X11/XWayland. Do not infer
+the application backend solely from `XDG_SESSION_TYPE`; use the documented
+preflight/runtime evidence. Do not force native Wayland or X11 behavior, or
+change the desktop session, merely for testing.
+
+### Proportionality, task separation, and commits
+
+Select validation by the changed component, not an automatic maximal matrix:
+
+| Change | Appropriate validation |
+|--------|------------------------|
+| Policy only | Focused policy tests and full applicable automated suite |
+| Media execution | Focused tests, full applicable suite, representative real-media validation |
+| UI presentation | Focused presenter tests, full applicable suite, separate UI acceptance |
+| Packaging only | Package structural validation and targeted packaged smoke |
+| Hardware backend | Backend-specific runtime matrix, preserving hardware-probe safety rules |
+| Instructions/documentation only | Review the documentation/diff; no application, media, or UI tests unless documentation tests apply |
+
+Do not automatically run full real-media, HQ encoder, hardware backend, UI,
+packaging, or cross-platform matrices after every change. Repeat a proven matrix
+only when relevant production code changes, dependencies/toolchains can affect
+its behavior, a regression implicates that subsystem, or release qualification
+requires it. A different agent is not a reason to repeat unaffected passing work.
+
+Prefer two-stage agent work: Stage 1 implements, runs focused tests, the full
+applicable automated suite and targeted runtime checks, then commits. Stage 2,
+only when needed, runs UI preflight and representative acceptance, fixes only
+demonstrated presentation defects, and confirms final UI acceptance. Do not add
+Stage 2 to every implementation task; this separation reduces runtime, cost,
+and risk.
+
+Interactive UI acceptance is not a universal commit gate. If appropriate Level 1
+checks pass but required UI acceptance is intentionally deferred, report
+**IMPLEMENTATION VERIFIED** and **UI ACCEPTANCE PENDING**. This does not invalidate
+passing Core tests. Do not modify, revert, or reimplement a passing change merely
+because GUI automation is unavailable. After later acceptance, update its status
+and fix demonstrated UI defects without reopening validated Core behavior absent
+evidence.
+
+Use precise evidence/statuses: **PASS**, **FAIL**, **NOT TESTED**,
+**NOT AVAILABLE**, **ENVIRONMENT LIMITATION**, **UI ACCEPTANCE PENDING**, and
+**OUT OF SCOPE**. Do not claim UI PASS from ViewModel/presenter tests alone, Core
+failure from an automation connection failure, or behavioral parity from
+screenshots alone. Match each claim to evidence from the appropriate layer.
+
 ## Architecture at a glance
 
 The C/CMake implementation is the primary product implementation:
@@ -164,7 +289,7 @@ Implemented separately in C (`src/m4v/`, `src/gui_macos_native/apple_m4v_creator
 
 - Prefer small, targeted changes that honor the dual C/Pascal architecture.
 - When editing codec/preset behavior, update the matching runtime presets and the encoding tables used by the C and Pascal command builders together.
-- Validate the changed behavior with the smallest build or target-level check available.
+- Start validation with the smallest build or target-level check available, then complete the applicable checks in Validation Strategy.
 
 ## Troubleshooting Common Agent Errors
 
