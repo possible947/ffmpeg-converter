@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GuiBuildDir Condition="'$(GuiBuildDir)' == ''">$(MSBuildThisFileDirectory)../../FfmpegConverter.Gui/bin/Debug/net10.0</GuiBuildDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="FfmpegConverter.Gui" HintPath="$(GuiBuildDir)/FfmpegConverter.Gui.dll" />
+    <Reference Include="Avalonia.Base" HintPath="$(GuiBuildDir)/Avalonia.Base.dll" />
+    <Reference Include="Avalonia.Controls" HintPath="$(GuiBuildDir)/Avalonia.Controls.dll" />
+    <Reference Include="Avalonia.Desktop" HintPath="$(GuiBuildDir)/Avalonia.Desktop.dll" />
+  </ItemGroup>
+</Project>
