@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FfmpegConverter.Core\FfmpegConverter.Core.csproj" />
     <ProjectReference Include="..\FfmpegConverter.Cli\FfmpegConverter.Cli.csproj" />
+    <ProjectReference Include="..\FfmpegConverter.Gui\FfmpegConverter.Gui.csproj" />
   </ItemGroup>
 
 </Project>

@@ -21,6 +21,8 @@ namespace FfmpegConverter.Gui;
 
 public partial class MainWindow : Window
 {
+    private long _progressRunSequence;
+    private long _activeProgressRunId;
     private readonly ToolPaths _tools;
     private readonly PresetDb _presetDb;
     private readonly string _platform;
@@ -1067,39 +1069,33 @@ public partial class MainWindow : Window
         {
             var converter = new Core.Engine.Converter();
             string? lastError = null;
-            ConverterError hqFileStatus = ConverterError.Ok;
+            long progressRunId = Interlocked.Increment(ref _progressRunSequence);
+            Interlocked.Exchange(ref _activeProgressRunId, progressRunId);
+            var progressDisplay = new ProgressDisplayState(
+                progressRunId,
+                selectedGroup == "hq_converter" ? ProgressWorkflow.Hq : ProgressWorkflow.Legacy);
+            int activeFileIndex = 0;
 
             converter.FileBegin += (s, ev) =>
             {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    StatusLabel.Text = $"Processing [{ev.Index}/{ev.Total}]: {Path.GetFileName(ev.FileName)}";
-                    FileProgressBar.Value = 0;
-                });
+                Volatile.Write(ref activeFileIndex, ev.Index);
+                ProgressDisplaySnapshot? snapshot =
+                    progressDisplay.BeginFile(progressRunId, ev.Index, ev.Total, ev.FileName);
+                PostProgressSnapshot(progressDisplay, snapshot);
                 AppendLog($"Processing file [{ev.Index}/{ev.Total}]: {ev.FileName}");
             };
 
             converter.FileEnd += (s, ev) =>
             {
-                if (selectedGroup == "hq_converter" && ev.Status != ConverterError.Ok)
-                    hqFileStatus = ev.Status;
+                progressDisplay.RecordFileEnd(
+                    progressRunId, Volatile.Read(ref activeFileIndex), ev.Status);
                 AppendLog($"Finished file: {Path.GetFileName(ev.FileName)} - Status: {ev.Status}");
             };
 
             converter.StageChanged += (s, ev) =>
             {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    DetailsLabel.Text = $"Stage: {ev}";
-                    if (selectedGroup == "hq_converter")
-                    {
-                        StatusLabel.Text = $"Stage: {ev}";
-                        if (ev is "preparing" or "analyzing" or "encoding")
-                            FileProgressBar.Value = 0;
-                        else if (ev == "completed")
-                            FileProgressBar.Value = 100;
-                    }
-                });
+                int fileIndex = Volatile.Read(ref activeFileIndex);
+                PostProgressSnapshot(progressDisplay, progressDisplay.UpdateStage(progressRunId, fileIndex, ev));
                 AppendLog($"Stage changed to: {ev}");
             };
 
@@ -1111,28 +1107,21 @@ public partial class MainWindow : Window
             converter.ErrorOccurred += (s, ev) =>
             {
                 lastError = ev.Text;
-                Dispatcher.UIThread.Post(() => StatusLabel.Text = ev.Text);
+                int fileIndex = Volatile.Read(ref activeFileIndex);
+                PostProgressSnapshot(progressDisplay, progressDisplay.UpdateError(progressRunId, fileIndex, ev.Text));
                 AppendLog($"[Error] {ev.Text} (Code: {ev.Code})");
             };
 
             converter.ProgressAnalysis += (s, ev) =>
             {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    FileProgressBar.Value = ev.Percent;
-                    string etaStr = ev.EtaSeconds > 0 ? $"ETA: {TimeSpan.FromSeconds(ev.EtaSeconds):hh\\:mm\\:ss}" : "ETA: --:--:--";
-                    DetailsLabel.Text = $"Analysis: {ev.Percent:F1}% | {etaStr}";
-                });
+                int fileIndex = Volatile.Read(ref activeFileIndex);
+                PostProgressSnapshot(progressDisplay, progressDisplay.UpdateAnalysis(progressRunId, fileIndex, ev));
             };
 
             converter.ProgressEncode += (s, ev) =>
             {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    FileProgressBar.Value = ev.Percent;
-                    string etaStr = ev.EtaSeconds > 0 ? $"ETA: {TimeSpan.FromSeconds(ev.EtaSeconds):hh\\:mm\\:ss}" : "ETA: --:--:--";
-                    DetailsLabel.Text = $"Encoding: {ev.Percent:F1}% | FPS: {ev.Fps:F0} | {etaStr}";
-                });
+                int fileIndex = Volatile.Read(ref activeFileIndex);
+                PostProgressSnapshot(progressDisplay, progressDisplay.UpdateEncoding(progressRunId, fileIndex, ev));
             };
 
             var result = await Task.Run(async () =>
@@ -1147,8 +1136,9 @@ public partial class MainWindow : Window
                 return await converter.ProcessFilesAsync(_inputFiles, opts, _cts.Token);
             });
 
-            if (selectedGroup == "hq_converter" && result == ConverterError.Ok)
-                result = hqFileStatus;
+            progressDisplay.FinishRun(progressRunId);
+            if (result == ConverterError.Ok && progressDisplay.RunResult != ConverterError.Ok)
+                result = progressDisplay.RunResult;
 
             if (_cts.IsCancellationRequested || result == ConverterError.SkipFile)
             {
@@ -1183,6 +1173,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            Interlocked.Exchange(ref _activeProgressRunId, 0);
             if (_cts != null)
             {
                 _cts.Dispose();
@@ -1190,6 +1181,24 @@ public partial class MainWindow : Window
             }
             SetUiState(false);
         }
+    }
+
+    private void PostProgressSnapshot(
+        ProgressDisplayState progressDisplay, ProgressDisplaySnapshot? snapshot)
+    {
+        if (snapshot == null)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (Volatile.Read(ref _activeProgressRunId) != snapshot.RunId ||
+                !progressDisplay.IsLatest(snapshot))
+                return;
+
+            StatusLabel.Text = snapshot.Status;
+            DetailsLabel.Text = snapshot.Details;
+            FileProgressBar.Value = snapshot.Percent;
+        });
     }
 
     public void OnCancelClick(object? sender, RoutedEventArgs e)
