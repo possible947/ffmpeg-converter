@@ -113,6 +113,23 @@ notifications, while numeric updates stay out of the console. Raw worker
 stdout/stderr is drained and discarded, not logged. Structured failures and
 cancellation remain visible; successful conversion ends at 100%.
 
+## Mux progress
+
+Mux workflows expose file-bound `MuxProgressChanged` events to both the CLI and
+Avalonia. Source preparation retains normal FFmpeg percentage/FPS/ETA.
+Assembly parses mkvmerge's `Progress: N%` and MP4Box's
+`ISO File Writing: ... (N/100)` counters as **stage-local** percentages, not
+overall workflow completion. MOV finalization, M4V component preparation,
+metadata preservation, and verification report status only when they have no
+supported numeric producer; prior speed/ETA and percentage are cleared.
+Completion follows final verification and output promotion, not intermediate MKV
+or HQ completion.
+
+Avalonia applies queued current-file snapshots in revision order while rejecting
+older already-superseded snapshots and updates from previous files/runs.
+The displayed GNOME Wayland/XWayland smoke procedure is documented in
+[tests/ui/README-linux-ui-automation.md](tests/ui/README-linux-ui-automation.md).
+
 ## 🗺️ Структура Портированного Приложения
 
 Порт разделен на четыре логических проекта в рамках единого решения (`FfmpegConverter.slnx`):

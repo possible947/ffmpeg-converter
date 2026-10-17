@@ -232,6 +232,26 @@ class Program
             Console.WriteLine($"  Stage: {e}");
         };
 
+        string lastMuxStatus = "";
+        int lastMuxPercent = -1;
+        converter.MuxProgressChanged += (s, e) =>
+        {
+            int percent = e.Percent.HasValue ? (int)Math.Round(e.Percent.Value) : -1;
+            if (e.Status == lastMuxStatus)
+            {
+                if (percent < 0 || (lastMuxPercent >= 0 &&
+                    Math.Abs(percent - lastMuxPercent) < 5 && percent != 100))
+                    return;
+            }
+
+            string percentText = e.Percent.HasValue
+                ? $" ({e.Percent.Value:F1}% for this stage)"
+                : "";
+            Console.WriteLine($"  Mux: {e.Status}{percentText}");
+            lastMuxStatus = e.Status;
+            lastMuxPercent = percent;
+        };
+
         converter.MessageLogged += (s, e) =>
         {
             Console.WriteLine($"  [Log] {e.Text}");

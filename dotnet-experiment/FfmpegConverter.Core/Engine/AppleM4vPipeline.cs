@@ -15,8 +15,10 @@ namespace FfmpegConverter.Core.Engine;
 public class AppleM4vPipeline
 {
     public event EventHandler<string>? StageChanged;
+    public event EventHandler<MuxProgressEventArgs>? MuxProgressChanged;
     public event EventHandler<string>? MessageLogged;
     public event EventHandler<(string Text, ConverterError Code)>? ErrorOccurred;
+    private long _progressRevision;
 
     public static bool IsSupportedVideoCodec(string? codecName)
     {
@@ -156,7 +158,7 @@ public class AppleM4vPipeline
         ToolPaths tools,
         HardwareProbeResult? probeResult,
         CancellationToken cancellationToken = default) =>
-        CreateM4vCoreAsync(inputFile, outputFile, opts, tools, null, cancellationToken);
+        CreateM4vCoreAsync(inputFile, outputFile, opts, tools, null, cancellationToken, inputFile);
 
     public Task<ConverterError> CreateMuxM4vAsync(
         string inputFile,
@@ -165,8 +167,10 @@ public class AppleM4vPipeline
         ToolPaths tools,
         HardwareProbeResult? probeResult,
         MuxPolicy policy,
-        CancellationToken cancellationToken = default) =>
-        CreateM4vCoreAsync(inputFile, outputFile, opts, tools, policy, cancellationToken);
+        CancellationToken cancellationToken = default,
+        string? progressFilePath = null) =>
+        CreateM4vCoreAsync(
+            inputFile, outputFile, opts, tools, policy, cancellationToken, progressFilePath ?? inputFile);
 
     private async Task<ConverterError> CreateM4vCoreAsync(
         string inputFile,
@@ -174,7 +178,8 @@ public class AppleM4vPipeline
         ConvertOptions opts,
         ToolPaths tools,
         MuxPolicy? muxPolicy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string progressFilePath)
     {
         if (muxPolicy != null &&
             (muxPolicy.Container != MuxContainer.M4v ||
@@ -347,6 +352,11 @@ public class AppleM4vPipeline
             // ----------------------------------------------------
             // Step 4/6: MP4Box mux
             // ----------------------------------------------------
+            EmitMuxProgress(
+                muxPolicy,
+                MuxProgressStage.PackagingM4v,
+                "Creating M4V with MP4Box...",
+                progressFilePath);
             EmitStage("Apple M4V step 4/6: MP4Box mux");
             string videoAdd = $"{videoMp4}#video:fps={fps.ToString("F6", CultureInfo.InvariantCulture)}:name=Video";
             string aacAdd = $"{aacM4a}#audio:name=AAC:lang={lang}";
@@ -354,7 +364,19 @@ public class AppleM4vPipeline
             IReadOnlyList<string> step4Args = BuildMp4BoxArguments(
                 videoAdd, aacAdd, ac3Add, assembledM4v, addAc3);
 
-            rc = await RunProcessAsync(tools.Mp4Box, step4Args, cancellationToken);
+            rc = await RunProcessAsync(
+                tools.Mp4Box,
+                step4Args,
+                cancellationToken,
+                percent => EmitMuxProgress(
+                    muxPolicy,
+                    MuxProgressStage.PackagingM4v,
+                    "Creating M4V with MP4Box...",
+                    progressFilePath,
+                    percent),
+                line => MuxToolProgressParser.TryParseMp4BoxProgress(line, out float percent)
+                    ? percent
+                    : null);
             if (rc != 0)
             {
                 EmitError("Apple M4V MP4Box mux failed", ConverterError.FfmpegFailed);
@@ -364,6 +386,11 @@ public class AppleM4vPipeline
             // ----------------------------------------------------
             // Step 5/6: Set audio disposition
             // ----------------------------------------------------
+            EmitMuxProgress(
+                muxPolicy,
+                MuxProgressStage.PreservingMetadata,
+                "Finalizing M4V metadata and track dispositions...",
+                progressFilePath);
             EmitStage("Apple M4V step 5/6: set audio disposition");
             IReadOnlyList<string> step5Args = BuildDispositionArguments(
                 assembledM4v, dispositionM4v, addAc3);
@@ -382,6 +409,11 @@ public class AppleM4vPipeline
             // ----------------------------------------------------
             if (addChapters)
             {
+                EmitMuxProgress(
+                    muxPolicy,
+                    MuxProgressStage.PreservingMetadata,
+                    "Preserving M4V chapters...",
+                    progressFilePath);
                 EmitStage("Apple M4V step 6/6: chapters");
                 IReadOnlyList<string> step6Args = BuildChapterArguments(
                     assembledM4v, inputFile, chaptersM4v);
@@ -396,6 +428,11 @@ public class AppleM4vPipeline
                 }
             }
 
+            EmitMuxProgress(
+                muxPolicy,
+                MuxProgressStage.PreservingMetadata,
+                "Preserving M4V metadata and subtitles...",
+                progressFilePath);
             EmitStage("Apple M4V metadata and subtitle preservation");
             IReadOnlyList<string> metadataArgs = BuildMuxMetadataSubtitleArguments(
                 assembledM4v, inputFile, subtitlesM4v,
@@ -413,6 +450,7 @@ public class AppleM4vPipeline
         }
         catch (OperationCanceledException)
         {
+            EmitMuxProgress(muxPolicy, MuxProgressStage.Canceled, "M4V processing canceled", progressFilePath);
             return ConverterError.SkipFile;
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException or ArgumentException)
@@ -611,7 +649,9 @@ public class AppleM4vPipeline
     private async Task<int> RunProcessAsync(
         string executable,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<float>? progress = null,
+        Func<string, float?>? parseProgress = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -626,8 +666,20 @@ public class AppleM4vPipeline
 
         using var process = new Process { StartInfo = startInfo };
 
-        process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) EmitMessage(e.Data); };
-        process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) EmitMessage(e.Data); };
+        void HandleLine(string? line)
+        {
+            if (string.IsNullOrEmpty(line))
+                return;
+            if (parseProgress?.Invoke(line) is float percent)
+            {
+                progress?.Invoke(percent);
+                return;
+            }
+            EmitMessage(line);
+        }
+
+        process.OutputDataReceived += (s, e) => HandleLine(e.Data);
+        process.ErrorDataReceived += (s, e) => HandleLine(e.Data);
 
         process.Start();
         process.BeginOutputReadLine();
@@ -692,6 +744,24 @@ public class AppleM4vPipeline
     }
 
     private void EmitStage(string text) => StageChanged?.Invoke(this, text);
+    private void EmitMuxProgress(
+        MuxPolicy? muxPolicy,
+        MuxProgressStage stage,
+        string status,
+        string filePath,
+        float? percent = null)
+    {
+        if (muxPolicy == null)
+            return;
+        MuxProgressChanged?.Invoke(
+            this,
+            new MuxProgressEventArgs(
+                stage,
+                System.Threading.Interlocked.Increment(ref _progressRevision),
+                filePath,
+                status,
+                percent));
+    }
     private void EmitMessage(string text) => MessageLogged?.Invoke(this, text);
     private void EmitError(string text, ConverterError code) => ErrorOccurred?.Invoke(this, (text, code));
 }

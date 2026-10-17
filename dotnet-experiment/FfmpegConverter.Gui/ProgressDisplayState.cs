@@ -8,7 +8,8 @@ namespace FfmpegConverter.Gui;
 internal enum ProgressWorkflow
 {
     Legacy,
-    Hq
+    Hq,
+    Mux
 }
 
 internal sealed record ProgressDisplaySnapshot(
@@ -24,11 +25,18 @@ internal sealed class ProgressDisplayState
 {
     private readonly object _gate = new();
     private readonly long _runId;
-    private readonly ProgressWorkflow _workflow;
+    private readonly ProgressWorkflow _initialWorkflow;
+    private ProgressWorkflow _workflow;
     private bool _active = true;
     private int _fileIndex;
     private int _revision;
+    private int _displayedRevision;
+    private long _muxProgressRevision;
+    private string _filePath = "";
     private string _stage = "";
+    private string _muxStatus = "";
+    private bool _muxUsesFfmpegProgress;
+    private bool _muxTerminal;
     private string _status = "";
     private string _details = "";
     private double _percent;
@@ -38,6 +46,7 @@ internal sealed class ProgressDisplayState
     public ProgressDisplayState(long runId, ProgressWorkflow workflow)
     {
         _runId = runId;
+        _initialWorkflow = workflow;
         _workflow = workflow;
     }
 
@@ -68,7 +77,13 @@ internal sealed class ProgressDisplayState
                 return null;
 
             _fileIndex = fileIndex;
+            _filePath = fileName;
+            _workflow = _initialWorkflow;
+            _muxProgressRevision = 0;
             _stage = "";
+            _muxStatus = "";
+            _muxUsesFfmpegProgress = false;
+            _muxTerminal = false;
             _status = $"Processing [{fileIndex}/{total}]: {Path.GetFileName(fileName)}";
             _details = "";
             _percent = 0;
@@ -86,6 +101,16 @@ internal sealed class ProgressDisplayState
                 return null;
 
             _stage = stage;
+            if (_workflow == ProgressWorkflow.Mux)
+            {
+                if (!_muxUsesFfmpegProgress)
+                    return null;
+
+                _details = $"Stage: {_muxStatus} | FFmpeg: {stage}";
+                _revision++;
+                return Snapshot();
+            }
+
             _details = $"Stage: {stage}";
             if (_workflow == ProgressWorkflow.Hq)
             {
@@ -100,6 +125,33 @@ internal sealed class ProgressDisplayState
         }
     }
 
+    public ProgressDisplaySnapshot? UpdateMuxProgress(
+        long runId, int fileIndex, MuxProgressEventArgs progress)
+    {
+        lock (_gate)
+        {
+            if (!IsCurrentFile(runId, fileIndex) ||
+                _muxTerminal ||
+                progress.Revision <= _muxProgressRevision ||
+                !string.Equals(progress.FilePath, _filePath, StringComparison.Ordinal))
+                return null;
+
+            _workflow = ProgressWorkflow.Mux;
+            _muxProgressRevision = progress.Revision;
+            _stage = progress.Stage.ToString();
+            _muxStatus = progress.Status;
+            _muxUsesFfmpegProgress = progress.UsesFfmpegProgress;
+            _muxTerminal = progress.Stage is MuxProgressStage.Completed or MuxProgressStage.Canceled;
+            _status = progress.Status;
+            _percent = progress.Percent ?? 0;
+            _details = progress.Percent.HasValue
+                ? $"Stage: {progress.Status} | {progress.Percent.Value:F1}%"
+                : $"Stage: {progress.Status}";
+            _revision++;
+            return Snapshot();
+        }
+    }
+
     public ProgressDisplaySnapshot? UpdateAnalysis(
         long runId, int fileIndex, ProgressAnalysisEventArgs progress)
     {
@@ -108,8 +160,16 @@ internal sealed class ProgressDisplayState
             if (!IsCurrentFile(runId, fileIndex))
                 return null;
 
+            if (_workflow == ProgressWorkflow.Mux && !_muxUsesFfmpegProgress)
+                return null;
+
             _percent = progress.Percent;
-            if (_workflow == ProgressWorkflow.Hq && _stage == "analyzing")
+            if (_workflow == ProgressWorkflow.Mux)
+            {
+                string eta = FormatEta(progress.EtaSeconds);
+                _details = $"Stage: {_muxStatus} | Analysis: {progress.Percent:F1}% | {eta}";
+            }
+            else if (_workflow == ProgressWorkflow.Hq && _stage == "analyzing")
             {
                 _details = $"Stage: analyzing | Checkpoint: {progress.Percent:F1}%";
             }
@@ -132,8 +192,16 @@ internal sealed class ProgressDisplayState
             if (!IsCurrentFile(runId, fileIndex))
                 return null;
 
+            if (_workflow == ProgressWorkflow.Mux && !_muxUsesFfmpegProgress)
+                return null;
+
             _percent = progress.Percent;
-            if (_workflow == ProgressWorkflow.Hq && _stage == "encoding")
+            if (_workflow == ProgressWorkflow.Mux)
+            {
+                string eta = FormatEta(progress.EtaSeconds);
+                _details = $"Stage: {_muxStatus} | Encoding: {progress.Percent:F1}% | FPS: {progress.Fps:F0} | {eta}";
+            }
+            else if (_workflow == ProgressWorkflow.Hq && _stage == "encoding")
             {
                 _details = $"Stage: encoding | {progress.Percent:F1}%";
             }
@@ -157,7 +225,16 @@ internal sealed class ProgressDisplayState
                 return null;
 
             _status = message;
-            _details = "Finished with errors";
+            if (_workflow == ProgressWorkflow.Mux)
+            {
+                string activeStage = string.IsNullOrEmpty(_muxStatus) ? "Mux" : _muxStatus;
+                _details = $"Failed during {activeStage}: {message}";
+                _muxTerminal = true;
+            }
+            else
+            {
+                _details = "Finished with errors";
+            }
             _revision++;
             return Snapshot();
         }
@@ -177,14 +254,19 @@ internal sealed class ProgressDisplayState
         }
     }
 
-    public bool IsLatest(ProgressDisplaySnapshot snapshot)
+    public bool TryAcceptForDisplay(ProgressDisplaySnapshot snapshot)
     {
         lock (_gate)
         {
-            return _active &&
-                   snapshot.RunId == _runId &&
-                   snapshot.FileIndex == _fileIndex &&
-                   snapshot.Revision == _revision;
+            if (!_active ||
+                snapshot.RunId != _runId ||
+                snapshot.FileIndex != _fileIndex ||
+                snapshot.Revision <= _displayedRevision ||
+                snapshot.Revision > _revision)
+                return false;
+
+            _displayedRevision = snapshot.Revision;
+            return true;
         }
     }
 

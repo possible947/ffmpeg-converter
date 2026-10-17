@@ -63,6 +63,7 @@ public class Converter
     public event EventHandler<FileBeginEventArgs>? FileBegin;
     public event EventHandler<FileEndEventArgs>? FileEnd;
     public event EventHandler<string>? StageChanged;
+    public event EventHandler<MuxProgressEventArgs>? MuxProgressChanged;
     public event EventHandler<ProgressEncodeEventArgs>? ProgressEncode;
     public event EventHandler<ProgressAnalysisEventArgs>? ProgressAnalysis;
     public event EventHandler<MessageEventArgs>? MessageLogged;
@@ -73,6 +74,7 @@ public class Converter
     private readonly PresetDb _presetDb;
     private readonly IReplacementVideoProbe _replacementVideoProbe;
     private HardwareProbeResult? _probeResult;
+    private long _muxProgressRevision;
 
     public Converter(
         ToolPaths? tools = null,
@@ -782,6 +784,11 @@ public class Converter
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            EmitMuxProgress(
+                input,
+                MuxProgressStage.PreparingSource,
+                "Preparing source...",
+                usesFfmpegProgress: true);
             PolicyResult sourcePolicyResult = AudioModePolicy.ResolveSourcePreparationPolicy(
                 platform, request.Policy.AudioMode);
             if (!sourcePolicyResult.Success)
@@ -855,11 +862,17 @@ public class Converter
 
             var mux = new MuxPipeline();
             mux.StageChanged += (s, stage) => StageChanged?.Invoke(this, stage);
+            mux.MuxProgressChanged += (s, progress) => EmitMuxProgress(
+                input,
+                progress.Stage,
+                progress.Status,
+                progress.Percent,
+                progress.UsesFfmpegProgress);
             mux.MessageLogged += (s, message) => RaiseMessage(message);
             mux.ErrorOccurred += (s, error) => RaiseError(error.Text, error.Code);
             ConverterError muxError = await mux.RunMuxPostprocessAsync(intermediateFile, videoTrack,
                 output, muxOptions, _tools, _probeResult, cancellationToken,
-                request.Policy, preservationResult.Plan);
+                request.Policy, preservationResult.Plan, input);
             return muxError == ConverterError.Ok
                 ? AddTrackResult.Completed()
                 : AddTrackResult.Failed(
@@ -867,6 +880,7 @@ public class Converter
         }
         catch (OperationCanceledException)
         {
+            EmitMuxProgress(input, MuxProgressStage.Canceled, "Mux canceled");
             return AddTrackResult.Failed(
                 ConverterError.SkipFile, AddTrackStage.SourcePreparation, "Add Track operation was cancelled.");
         }
@@ -1221,4 +1235,20 @@ public class Converter
 
     private void RaiseMessage(string text) => MessageLogged?.Invoke(this, new MessageEventArgs(text));
     private void RaiseError(string text, ConverterError code) => ErrorOccurred?.Invoke(this, new ErrorEventArgs(text, code));
+
+    private void EmitMuxProgress(
+        string filePath,
+        MuxProgressStage stage,
+        string status,
+        float? percent = null,
+        bool usesFfmpegProgress = false) =>
+        MuxProgressChanged?.Invoke(
+            this,
+            new MuxProgressEventArgs(
+                stage,
+                System.Threading.Interlocked.Increment(ref _muxProgressRevision),
+                filePath,
+                status,
+                percent,
+                usesFfmpegProgress));
 }

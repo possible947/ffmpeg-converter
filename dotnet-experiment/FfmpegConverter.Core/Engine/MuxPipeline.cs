@@ -14,8 +14,10 @@ namespace FfmpegConverter.Core.Engine;
 public class MuxPipeline
 {
     public event EventHandler<string>? StageChanged;
+    public event EventHandler<MuxProgressEventArgs>? MuxProgressChanged;
     public event EventHandler<string>? MessageLogged;
     public event EventHandler<(string Text, ConverterError Code)>? ErrorOccurred;
+    private long _progressRevision;
 
     public static bool VideoTrackNeedsForcedFps(string path)
     {
@@ -186,7 +188,8 @@ public class MuxPipeline
         HardwareProbeResult? probeResult,
         CancellationToken cancellationToken = default,
         MuxPolicy? policy = null,
-        MuxSourcePreservationPlan? sourcePreservationPlan = null)
+        MuxSourcePreservationPlan? sourcePreservationPlan = null,
+        string? progressFilePath = null)
     {
         string requestedPreset = opts.Preset.ToLowerInvariant();
         if (requestedPreset == "m4v" &&
@@ -240,6 +243,10 @@ public class MuxPipeline
         string? stagedFinalOutput = null;
         try
         {
+            EmitMuxProgress(
+                MuxProgressStage.AssemblingContainer,
+                "Assembling intermediate MKV...",
+                progressFilePath ?? intermediateFile);
             string rate = "";
             if (VideoTrackNeedsForcedFps(videoTrackFile))
             {
@@ -273,13 +280,28 @@ public class MuxPipeline
             EmitStage("Post-mux (mkvmerge)");
             EmitMessage($"Executing: \"{tools.Mkvmerge}\" {string.Join(" ", mkvmergeArgs)}");
 
-            int rc = await RunProcessAsync(tools.Mkvmerge, mkvmergeArgs, cancellationToken);
+            int rc = await RunProcessAsync(
+                tools.Mkvmerge,
+                mkvmergeArgs,
+                cancellationToken,
+                percent => EmitMuxProgress(
+                    MuxProgressStage.AssemblingContainer,
+                    "Assembling intermediate MKV...",
+                    progressFilePath ?? intermediateFile,
+                    percent),
+                line => MuxToolProgressParser.TryParseMkvmergeProgress(line, out float percent)
+                    ? percent
+                    : null);
             if (rc != 0)
             {
                 EmitError("post-mux failed: mkvmerge returned error", ConverterError.FfmpegFailed);
                 return ConverterError.FfmpegFailed;
             }
 
+            EmitMuxProgress(
+                MuxProgressStage.VerifyingOutput,
+                "Verifying assembled MKV...",
+                progressFilePath ?? intermediateFile);
             MuxOutputVerificationResult assemblyResult = await VerifyAssemblyAsync(
                 tools.Ffprobe, intermediateFile, videoTrackFile, tempOutput, cancellationToken);
             if (!assemblyResult.Success)
@@ -290,6 +312,10 @@ public class MuxPipeline
 
             if (policy.Container == MuxContainer.Mkv)
             {
+                EmitMuxProgress(
+                    MuxProgressStage.VerifyingOutput,
+                    "Verifying final output...",
+                    progressFilePath ?? intermediateFile);
                 MuxOutputVerificationResult finalResult = await VerifyFinalOutputAsync(
                     tools.Ffprobe, tempOutput, videoTrackFile, tempOutput, policy, cancellationToken);
                 if (!finalResult.Success)
@@ -302,10 +328,18 @@ public class MuxPipeline
             else if (policy.Container == MuxContainer.Mov)
             {
                 stagedFinalOutput = CreateStagedOutputPath(finalOutputFile, "mov");
+                EmitMuxProgress(
+                    MuxProgressStage.FinalizingContainer,
+                    "Finalizing MOV...",
+                    progressFilePath ?? intermediateFile);
                 ConverterError remuxError = await RunMovRemuxAsync(
                     tempOutput, stagedFinalOutput, tools, policy, cancellationToken);
                 if (remuxError != ConverterError.Ok)
                     return remuxError;
+                EmitMuxProgress(
+                    MuxProgressStage.VerifyingOutput,
+                    "Verifying final output...",
+                    progressFilePath ?? intermediateFile);
                 MuxOutputVerificationResult finalResult = await VerifyFinalOutputAsync(
                     tools.Ffprobe, tempOutput, videoTrackFile, stagedFinalOutput, policy, cancellationToken);
                 if (!finalResult.Success)
@@ -319,16 +353,26 @@ public class MuxPipeline
             {
                 stagedFinalOutput = CreateStagedOutputPath(finalOutputFile, "m4v");
                 EmitStage("Post-mux: Apple M4V pipeline");
+                EmitMuxProgress(
+                    MuxProgressStage.PreparingM4vComponents,
+                    "Preparing M4V components...",
+                    progressFilePath ?? intermediateFile);
                 var m4vPipe = new AppleM4vPipeline();
                 m4vPipe.StageChanged += (s, ev) => EmitStage(ev);
+                m4vPipe.MuxProgressChanged += (s, ev) => EmitMuxProgress(
+                    ev.Stage, ev.Status, progressFilePath ?? ev.FilePath, ev.Percent, ev.UsesFfmpegProgress);
                 m4vPipe.MessageLogged += (s, ev) => EmitMessage(ev);
                 m4vPipe.ErrorOccurred += (s, ev) => EmitError(ev.Text, ev.Code);
 
                 var err = await m4vPipe.CreateMuxM4vAsync(
                     tempOutput, stagedFinalOutput, opts, tools, probeResult, policy,
-                    cancellationToken);
+                    cancellationToken, progressFilePath ?? intermediateFile);
                 if (err != ConverterError.Ok)
                     return err;
+                EmitMuxProgress(
+                    MuxProgressStage.VerifyingOutput,
+                    "Verifying final M4V...",
+                    progressFilePath ?? intermediateFile);
                 MuxOutputVerificationResult finalResult = await VerifyFinalOutputAsync(
                     tools.Ffprobe, tempOutput, videoTrackFile, stagedFinalOutput, policy, cancellationToken);
                 if (!finalResult.Success)
@@ -344,11 +388,20 @@ public class MuxPipeline
                 return ConverterError.InvalidOptions;
             }
 
+            EmitMuxProgress(
+                MuxProgressStage.Completed,
+                "Complete",
+                progressFilePath ?? intermediateFile,
+                100);
             EmitMessage("Post-mux completed");
             return ConverterError.Ok;
         }
         catch (OperationCanceledException)
         {
+            EmitMuxProgress(
+                MuxProgressStage.Canceled,
+                "Mux canceled",
+                progressFilePath ?? intermediateFile);
             return ConverterError.SkipFile;
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException or UnauthorizedAccessException or ArgumentException)
@@ -584,7 +637,9 @@ public class MuxPipeline
     private async Task<int> RunProcessAsync(
         string executable,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<float>? progress = null,
+        Func<string, float?>? parseProgress = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -602,8 +657,20 @@ public class MuxPipeline
             StartInfo = startInfo
         };
 
-        process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) EmitMessage(e.Data); };
-        process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) EmitMessage(e.Data); };
+        void HandleLine(string? line)
+        {
+            if (string.IsNullOrEmpty(line))
+                return;
+            if (parseProgress?.Invoke(line) is float percent)
+            {
+                progress?.Invoke(percent);
+                return;
+            }
+            EmitMessage(line);
+        }
+
+        process.OutputDataReceived += (s, e) => HandleLine(e.Data);
+        process.ErrorDataReceived += (s, e) => HandleLine(e.Data);
 
         process.Start();
         process.BeginOutputReadLine();
@@ -678,6 +745,21 @@ public class MuxPipeline
     }
 
     private void EmitStage(string text) => StageChanged?.Invoke(this, text);
+    private void EmitMuxProgress(
+        MuxProgressStage stage,
+        string status,
+        string filePath,
+        float? percent = null,
+        bool usesFfmpegProgress = false) =>
+        MuxProgressChanged?.Invoke(
+            this,
+            new MuxProgressEventArgs(
+                stage,
+                System.Threading.Interlocked.Increment(ref _progressRevision),
+                filePath,
+                status,
+                percent,
+                usesFfmpegProgress));
     private void EmitMessage(string text) => MessageLogged?.Invoke(this, text);
     private void EmitError(string text, ConverterError code) => ErrorOccurred?.Invoke(this, (text, code));
 }

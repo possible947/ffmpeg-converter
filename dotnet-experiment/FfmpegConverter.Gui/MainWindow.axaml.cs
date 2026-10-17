@@ -1073,7 +1073,8 @@ public partial class MainWindow : Window
             Interlocked.Exchange(ref _activeProgressRunId, progressRunId);
             var progressDisplay = new ProgressDisplayState(
                 progressRunId,
-                selectedGroup == "hq_converter" ? ProgressWorkflow.Hq : ProgressWorkflow.Legacy);
+                selectedGroup == "hq_converter" ? ProgressWorkflow.Hq :
+                selectedGroup == "mux" ? ProgressWorkflow.Mux : ProgressWorkflow.Legacy);
             int activeFileIndex = 0;
 
             converter.FileBegin += (s, ev) =>
@@ -1097,6 +1098,17 @@ public partial class MainWindow : Window
                 int fileIndex = Volatile.Read(ref activeFileIndex);
                 PostProgressSnapshot(progressDisplay, progressDisplay.UpdateStage(progressRunId, fileIndex, ev));
                 AppendLog($"Stage changed to: {ev}");
+            };
+
+            converter.MuxProgressChanged += (s, ev) =>
+            {
+                int fileIndex = Volatile.Read(ref activeFileIndex);
+                PostProgressSnapshot(
+                    progressDisplay,
+                    progressDisplay.UpdateMuxProgress(progressRunId, fileIndex, ev));
+                AppendLog(ev.Percent.HasValue
+                    ? $"Mux stage: {ev.Status} ({ev.Percent.Value:F1}%)"
+                    : $"Mux stage: {ev.Status}");
             };
 
             converter.MessageLogged += (s, ev) =>
@@ -1136,6 +1148,8 @@ public partial class MainWindow : Window
                 return await converter.ProcessFilesAsync(_inputFiles, opts, _cts.Token);
             });
 
+            // Apply queued stage snapshots before making the run terminal.
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
             progressDisplay.FinishRun(progressRunId);
             if (result == ConverterError.Ok && progressDisplay.RunResult != ConverterError.Ok)
                 result = progressDisplay.RunResult;
@@ -1192,7 +1206,7 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             if (Volatile.Read(ref _activeProgressRunId) != snapshot.RunId ||
-                !progressDisplay.IsLatest(snapshot))
+                !progressDisplay.TryAcceptForDisplay(snapshot))
                 return;
 
             StatusLabel.Text = snapshot.Status;

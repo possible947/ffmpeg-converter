@@ -180,7 +180,7 @@ public class ProgressDisplayStateTests
         ProgressDisplaySnapshot delayedHq =
             firstRun.UpdateAnalysis(1, 1, new ProgressAnalysisEventArgs(50, 0))!;
         firstRun.BeginFile(1, 2, 2, "next-hq.mp4");
-        Assert.False(firstRun.IsLatest(delayedHq));
+        Assert.False(firstRun.TryAcceptForDisplay(delayedHq));
 
         firstRun.FinishRun(1);
         var nextRun = NewRun(2, ProgressWorkflow.Legacy);
@@ -188,6 +188,222 @@ public class ProgressDisplayStateTests
         Assert.Null(firstRun.UpdateAnalysis(1, 2, new ProgressAnalysisEventArgs(99, 0)));
         Assert.Equal(0, nextLegacy.Percent);
     }
+
+    [Fact]
+    public void QueuedMuxStages_RemainDisplayableInOrderAfterFileEnd()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.mkv");
+        ProgressDisplaySnapshot assembly = display.UpdateMuxProgress(
+            1, 1, Mux(1, MuxProgressStage.AssemblingContainer, "Assembling intermediate MKV...", 4))!;
+        ProgressDisplaySnapshot verification = display.UpdateMuxProgress(
+            1, 1, Mux(2, MuxProgressStage.VerifyingOutput, "Verifying final output..."))!;
+        ProgressDisplaySnapshot complete = display.UpdateMuxProgress(
+            1, 1, Mux(3, MuxProgressStage.Completed, "Complete", 100))!;
+        display.RecordFileEnd(1, 1, ConverterError.Ok);
+
+        Assert.True(display.TryAcceptForDisplay(assembly));
+        Assert.True(display.TryAcceptForDisplay(verification));
+        Assert.True(display.TryAcceptForDisplay(complete));
+        Assert.False(display.TryAcceptForDisplay(assembly));
+    }
+
+    [Fact]
+    public void DisplayedNewerMuxStage_RejectsOlderQueuedSnapshot()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.mkv");
+        ProgressDisplaySnapshot assembly = display.UpdateMuxProgress(
+            1, 1, Mux(1, MuxProgressStage.AssemblingContainer, "Assembling intermediate MKV...", 4))!;
+        ProgressDisplaySnapshot verification = display.UpdateMuxProgress(
+            1, 1, Mux(2, MuxProgressStage.VerifyingOutput, "Verifying final output..."))!;
+
+        Assert.True(display.TryAcceptForDisplay(verification));
+        Assert.False(display.TryAcceptForDisplay(assembly));
+        display.FinishRun(1);
+        Assert.False(display.TryAcceptForDisplay(verification));
+    }
+
+    [Fact]
+    public void MuxMkv_TransitionsFromFfmpegPreparationThroughVerificationToComplete()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.mkv");
+        display.UpdateMuxProgress(1, 1, Mux(1, MuxProgressStage.PreparingSource, "Preparing source...", ffmpeg: true));
+        display.UpdateEncoding(1, 1, new ProgressEncodeEventArgs(72, 25, 14));
+
+        ProgressDisplaySnapshot assembly = display.UpdateMuxProgress(
+            1, 1, Mux(2, MuxProgressStage.AssemblingContainer, "Assembling intermediate MKV..."))!;
+        Assert.Equal("Assembling intermediate MKV...", assembly.Status);
+        Assert.Equal(0, assembly.Percent);
+        Assert.DoesNotContain("FPS", assembly.Details);
+        Assert.DoesNotContain("ETA", assembly.Details);
+
+        Assert.Equal(
+            "Verifying assembled MKV...",
+            display.UpdateMuxProgress(1, 1, Mux(3, MuxProgressStage.VerifyingOutput, "Verifying assembled MKV..."))!.Status);
+        ProgressDisplaySnapshot complete =
+            display.UpdateMuxProgress(1, 1, Mux(4, MuxProgressStage.Completed, "Complete", 100))!;
+        Assert.Equal("Complete", complete.Status);
+        Assert.Equal(100, complete.Percent);
+    }
+
+    [Fact]
+    public void MuxMov_DistinguishesIntermediateAssemblyAndMovFinalization()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.mov");
+        display.UpdateMuxProgress(1, 1, Mux(1, MuxProgressStage.PreparingSource, "Preparing source...", ffmpeg: true, filePath: "input.mov"));
+        display.UpdateEncoding(1, 1, new ProgressEncodeEventArgs(100, 30, 0));
+
+        Assert.Equal(
+            "Assembling intermediate MKV...",
+            display.UpdateMuxProgress(1, 1, Mux(2, MuxProgressStage.AssemblingContainer, "Assembling intermediate MKV...", filePath: "input.mov"))!.Status);
+        Assert.Equal(
+            "Finalizing MOV...",
+            display.UpdateMuxProgress(1, 1, Mux(3, MuxProgressStage.FinalizingContainer, "Finalizing MOV...", filePath: "input.mov"))!.Status);
+        Assert.Equal(
+            "Verifying final output...",
+            display.UpdateMuxProgress(1, 1, Mux(4, MuxProgressStage.VerifyingOutput, "Verifying final output...", filePath: "input.mov"))!.Status);
+        Assert.Equal(
+            "Complete",
+            display.UpdateMuxProgress(1, 1, Mux(5, MuxProgressStage.Completed, "Complete", 100, filePath: "input.mov"))!.Status);
+    }
+
+    [Fact]
+    public void MuxM4v_SeparatesComponentsMp4BoxPreservationAndFinalVerification()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.mkv");
+
+        string[] expected =
+        [
+            "Assembling intermediate MKV...",
+            "Preparing M4V components...",
+            "Creating M4V with MP4Box...",
+            "Preserving M4V metadata and subtitles...",
+            "Verifying final M4V...",
+            "Complete"
+        ];
+        MuxProgressStage[] stages =
+        [
+            MuxProgressStage.AssemblingContainer,
+            MuxProgressStage.PreparingM4vComponents,
+            MuxProgressStage.PackagingM4v,
+            MuxProgressStage.PreservingMetadata,
+            MuxProgressStage.VerifyingOutput,
+            MuxProgressStage.Completed
+        ];
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            ProgressDisplaySnapshot snapshot = display.UpdateMuxProgress(
+                1, 1, Mux(i + 1, stages[i], expected[i], i == expected.Length - 1 ? 100 : null, filePath: "input.mkv"))!;
+            Assert.Equal(expected[i], snapshot.Status);
+        }
+    }
+
+    [Fact]
+    public void MuxStageSwitch_ClearsFfmpegSpeedEtaAndPreviousPercentage()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.mkv");
+        display.UpdateMuxProgress(1, 1, Mux(1, MuxProgressStage.PreparingSource, "Preparing source...", ffmpeg: true));
+        display.UpdateEncoding(1, 1, new ProgressEncodeEventArgs(68, 32, 18));
+
+        ProgressDisplaySnapshot assembly = display.UpdateMuxProgress(
+            1, 1, Mux(2, MuxProgressStage.AssemblingContainer, "Assembling MKV..."))!;
+        Assert.Equal("Assembling MKV...", assembly.Status);
+        Assert.Equal(0, assembly.Percent);
+        Assert.DoesNotContain("FPS", assembly.Details);
+        Assert.DoesNotContain("ETA", assembly.Details);
+    }
+
+    [Fact]
+    public void HqToMux_DoesNotLeakHqCheckpointFieldsIntoMuxStage()
+    {
+        var display = NewRun(1, ProgressWorkflow.Hq);
+        display.BeginFile(1, 1, 1, "input.mkv");
+        display.UpdateStage(1, 1, "analyzing");
+        display.UpdateAnalysis(1, 1, new ProgressAnalysisEventArgs(45, 0));
+
+        ProgressDisplaySnapshot muxStage = display.UpdateMuxProgress(
+            1, 1, Mux(1, MuxProgressStage.AssemblingContainer, "Assembling intermediate MKV..."))!;
+        Assert.Equal("Assembling intermediate MKV...", muxStage.Status);
+        Assert.DoesNotContain("Checkpoint", muxStage.Details);
+        Assert.DoesNotContain("FPS", muxStage.Details);
+        Assert.DoesNotContain("ETA", muxStage.Details);
+    }
+
+    [Fact]
+    public void MuxStageLocalPercentageMayResetWhenStageChanges()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.m4v");
+        display.UpdateMuxProgress(1, 1, Mux(1, MuxProgressStage.AssemblingContainer, "Assembling MKV...", 100, filePath: "input.m4v"));
+
+        ProgressDisplaySnapshot nextStage = display.UpdateMuxProgress(
+            1, 1, Mux(2, MuxProgressStage.PackagingM4v, "Creating M4V with MP4Box...", 10, filePath: "input.m4v"))!;
+        Assert.Equal("Creating M4V with MP4Box...", nextStage.Status);
+        Assert.Equal(10, nextStage.Percent);
+    }
+
+    [Fact]
+    public void MuxFailure_RetainsActiveStageAndRealErrorWithoutCompleting()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.m4v");
+        display.UpdateMuxProgress(
+            1, 1, Mux(1, MuxProgressStage.PackagingM4v, "Creating M4V with MP4Box...", filePath: "input.m4v"));
+
+        ProgressDisplaySnapshot failure = display.UpdateError(1, 1, "MP4Box returned error")!;
+        Assert.Equal("MP4Box returned error", failure.Status);
+        Assert.Contains("Creating M4V with MP4Box", failure.Details);
+        Assert.Contains("MP4Box returned error", failure.Details);
+        Assert.NotEqual(100, failure.Percent);
+        Assert.Null(display.UpdateMuxProgress(
+            1, 1, Mux(2, MuxProgressStage.Completed, "Complete", 100, filePath: "input.m4v")));
+    }
+
+    [Fact]
+    public void MuxCancellation_IsTerminalAndRejectsLateCompletion()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.m4v");
+        display.UpdateMuxProgress(
+            1, 1, Mux(1, MuxProgressStage.PackagingM4v, "Creating M4V with MP4Box...", 45, filePath: "input.m4v"));
+
+        ProgressDisplaySnapshot canceled = display.UpdateMuxProgress(
+            1, 1, Mux(2, MuxProgressStage.Canceled, "Mux canceled", filePath: "input.m4v"))!;
+        Assert.Equal("Mux canceled", canceled.Status);
+        Assert.NotEqual(100, canceled.Percent);
+        Assert.Null(display.UpdateMuxProgress(
+            1, 1, Mux(3, MuxProgressStage.Completed, "Complete", 100, filePath: "input.m4v")));
+    }
+
+    [Fact]
+    public void StaleMuxStageProgress_IsRejectedAfterLaterStageBegins()
+    {
+        var display = NewRun(1, ProgressWorkflow.Mux);
+        display.BeginFile(1, 1, 1, "input.m4v");
+        display.UpdateMuxProgress(
+            1, 1, Mux(1, MuxProgressStage.AssemblingContainer, "Assembling MKV...", 100, filePath: "input.m4v"));
+        ProgressDisplaySnapshot current = display.UpdateMuxProgress(
+            1, 1, Mux(2, MuxProgressStage.PackagingM4v, "Creating M4V with MP4Box...", 10, filePath: "input.m4v"))!;
+
+        Assert.Null(display.UpdateMuxProgress(
+            1, 1, Mux(1, MuxProgressStage.AssemblingContainer, "Assembling MKV...", 99, filePath: "input.m4v")));
+        Assert.Equal("Creating M4V with MP4Box...", current.Status);
+    }
+
+    private static MuxProgressEventArgs Mux(
+        long revision,
+        MuxProgressStage stage,
+        string status,
+        float? percent = null,
+        bool ffmpeg = false,
+        string filePath = "input.mkv") =>
+        new(stage, revision, filePath, status, percent, ffmpeg);
 
     private static ProgressDisplayState NewRun(long id, ProgressWorkflow workflow)
         => new(id, workflow);
