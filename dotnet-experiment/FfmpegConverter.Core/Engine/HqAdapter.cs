@@ -14,6 +14,9 @@ namespace FfmpegConverter.Core.Engine;
 
 public sealed class HqAdapter
 {
+    private string _lastStage = "";
+    private string _lastMessage = "";
+
     public event EventHandler<string>? StageChanged;
     public event EventHandler<string>? MessageLogged;
     public event EventHandler<ProgressEncodeEventArgs>? ProgressEncode;
@@ -28,6 +31,8 @@ public sealed class HqAdapter
         string preset,
         CancellationToken cancellationToken = default)
     {
+        _lastStage = "";
+        _lastMessage = "";
         if (cancellationToken.IsCancellationRequested)
             return (1, "HQ job cancelled.");
 
@@ -84,8 +89,8 @@ public sealed class HqAdapter
             TrySendWorkerCommand(process, "stop");
         });
 
-        Task stdoutPump = PumpProcessOutputAsync(process.StandardOutput, "HQ worker: ");
-        Task stderrPump = PumpProcessOutputAsync(process.StandardError, "HQ worker: ");
+        Task stdoutPump = DrainProcessOutputAsync(process.StandardOutput);
+        Task stderrPump = DrainProcessOutputAsync(process.StandardError);
         int result = 2;
         string error = "HQ worker exited without reporting a result.";
 
@@ -255,13 +260,10 @@ public sealed class HqAdapter
         return info;
     }
 
-    private async Task PumpProcessOutputAsync(StreamReader reader, string prefix)
-    {
-        while (await reader.ReadLineAsync() is { } line)
-            MessageLogged?.Invoke(this, prefix + line);
-    }
+    internal static Task DrainProcessOutputAsync(StreamReader reader)
+        => reader.BaseStream.CopyToAsync(Stream.Null);
 
-    private void ForwardStatus(string json)
+    internal void ForwardStatus(string json)
     {
         try
         {
@@ -273,18 +275,28 @@ public sealed class HqAdapter
             float fps = GetFloat(root, "fps");
             float eta = GetFloat(root, "remaining_time_sec");
 
-            if (stage.Length > 0)
+            bool stageChanged = stage.Length > 0 && stage != _lastStage;
+            bool messageChanged = stageChanged || message != _lastMessage;
+            _lastMessage = message;
+            if (stageChanged)
+            {
+                _lastStage = stage;
                 StageChanged?.Invoke(this, stage);
-            if (message.Length > 0)
-                MessageLogged?.Invoke(this, message);
+            }
 
             switch (stage)
             {
+                case "preparing" when messageChanged:
+                    MessageLogged?.Invoke(this, message.Length > 0 ? message : "Preparing HQ session...");
+                    break;
                 case "analyzing":
                     ProgressAnalysis?.Invoke(this, new ProgressAnalysisEventArgs(percent, eta));
                     break;
                 case "encoding":
                     ProgressEncode?.Invoke(this, new ProgressEncodeEventArgs(percent, fps, eta));
+                    break;
+                case "completed" when messageChanged:
+                    MessageLogged?.Invoke(this, message.Length > 0 ? message : "HQ encoding complete");
                     break;
                 case "failed":
                     ErrorOccurred?.Invoke(this, new ErrorEventArgs(

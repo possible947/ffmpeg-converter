@@ -1066,6 +1066,8 @@ public partial class MainWindow : Window
         try
         {
             var converter = new Core.Engine.Converter();
+            string? lastError = null;
+            ConverterError hqFileStatus = ConverterError.Ok;
 
             converter.FileBegin += (s, ev) =>
             {
@@ -1079,6 +1081,8 @@ public partial class MainWindow : Window
 
             converter.FileEnd += (s, ev) =>
             {
+                if (selectedGroup == "hq_converter" && ev.Status != ConverterError.Ok)
+                    hqFileStatus = ev.Status;
                 AppendLog($"Finished file: {Path.GetFileName(ev.FileName)} - Status: {ev.Status}");
             };
 
@@ -1087,6 +1091,14 @@ public partial class MainWindow : Window
                 Dispatcher.UIThread.Post(() =>
                 {
                     DetailsLabel.Text = $"Stage: {ev}";
+                    if (selectedGroup == "hq_converter")
+                    {
+                        StatusLabel.Text = $"Stage: {ev}";
+                        if (ev is "preparing" or "analyzing" or "encoding")
+                            FileProgressBar.Value = 0;
+                        else if (ev == "completed")
+                            FileProgressBar.Value = 100;
+                    }
                 });
                 AppendLog($"Stage changed to: {ev}");
             };
@@ -1098,7 +1110,19 @@ public partial class MainWindow : Window
 
             converter.ErrorOccurred += (s, ev) =>
             {
+                lastError = ev.Text;
+                Dispatcher.UIThread.Post(() => StatusLabel.Text = ev.Text);
                 AppendLog($"[Error] {ev.Text} (Code: {ev.Code})");
+            };
+
+            converter.ProgressAnalysis += (s, ev) =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    FileProgressBar.Value = ev.Percent;
+                    string etaStr = ev.EtaSeconds > 0 ? $"ETA: {TimeSpan.FromSeconds(ev.EtaSeconds):hh\\:mm\\:ss}" : "ETA: --:--:--";
+                    DetailsLabel.Text = $"Analysis: {ev.Percent:F1}% | {etaStr}";
+                });
             };
 
             converter.ProgressEncode += (s, ev) =>
@@ -1123,25 +1147,38 @@ public partial class MainWindow : Window
                 return await converter.ProcessFilesAsync(_inputFiles, opts, _cts.Token);
             });
 
-            if (result == ConverterError.Ok)
+            if (selectedGroup == "hq_converter" && result == ConverterError.Ok)
+                result = hqFileStatus;
+
+            if (_cts.IsCancellationRequested || result == ConverterError.SkipFile)
             {
+                StatusLabel.Text = "Conversion cancelled by user.";
+                DetailsLabel.Text = "Stopped";
+                AppendLog("Conversion session cancelled by user.");
+            }
+            else if (result == ConverterError.Ok)
+            {
+                FileProgressBar.Value = 100;
                 StatusLabel.Text = "Conversion completed successfully!";
                 AppendLog("All conversion tasks finished successfully.");
             }
             else
             {
-                StatusLabel.Text = $"Conversion finished with status: {result}";
+                StatusLabel.Text = lastError ?? $"Conversion finished with status: {result}";
+                DetailsLabel.Text = "Finished with errors";
                 AppendLog($"Conversion finished with status/errors: {result}");
             }
         }
         catch (OperationCanceledException)
         {
             StatusLabel.Text = "Conversion cancelled by user.";
+            DetailsLabel.Text = "Stopped";
             AppendLog("Conversion session cancelled by user.");
         }
         catch (Exception ex)
         {
-            StatusLabel.Text = "An error occurred during conversion.";
+            StatusLabel.Text = $"Error: {ex.Message}";
+            DetailsLabel.Text = "Finished with errors";
             AppendLog($"Exception: {ex.Message}");
         }
         finally

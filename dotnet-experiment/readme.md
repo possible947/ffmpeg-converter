@@ -103,6 +103,16 @@ Future AppImage staging should consume this directory as its sole application
 input. No AppImage, Windows packaging, Nix isolation, RPATH changes or new
 library-path environment is introduced by this target.
 
+## HQ status and progress
+
+HQ uses its structured library status callback for both entry points. In
+Avalonia, `analyzing` (including Segmentator) advances the same progress bar
+as `encoding`; each stage uses its own reported percentage. Preparing is
+status-only. Stage changes and preparing/completed messages are concise console
+notifications, while numeric updates stay out of the console. Raw worker
+stdout/stderr is drained and discarded, not logged. Structured failures and
+cancellation remain visible; successful conversion ends at 100%.
+
 ## 🗺️ Структура Портированного Приложения
 
 Порт разделен на четыре логических проекта в рамках единого решения (`FfmpegConverter.slnx`):
