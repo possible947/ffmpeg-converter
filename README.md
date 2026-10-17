@@ -13,8 +13,8 @@ prepared but still require native compile, runtime, and hardware validation.
 
 Two independent implementations share the same conversion logic and CLI behavior:
 
-- **C/CMake** (`src/`) — primary engine; macOS native Cocoa GUI, Linux GTK4 GUI,
-  Windows CLI (MSVC build).
+- **C/CMake** (`src/`) — primary engine; macOS native Cocoa GUI, Linux GTK4 GUI.
+  There is no Windows C build: a Windows C port never worked and was removed.
 - **Free Pascal** (`fpc/`) — complete port with CLI and GUI; Windows is the
   native release target, while Linux is a functional development/debug target
   used for parallel work and preliminary Windows validation (macOS version
@@ -83,7 +83,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 - Data-driven definitions live in `presets.json` (both C `preset_loader.c`
   and Pascal `preset_loader.pas` consume it for `--codecs-list`/menu
   population); the actual ffmpeg command flags are built from matching
-  hardcoded tables in `converter_linux.c`/`converter_windows.c` (C) and
+  hardcoded tables in `converter_linux.c` (C) and
   `converter_cmd_builder.pas` (Pascal) — both must be kept in sync with
   `presets.json` for any future preset changes. See `docs/v3.0-Phase2.md`
   for the full codec/preset specification and system requirements.
@@ -156,7 +156,7 @@ Two independent implementations share the same conversion logic and CLI behavior
 
 ## Version 3.0 Phase 3.0 – Phase 3.1 Updates
 
-**Phase 3 status: fully implemented** (Linux and macOS; Windows C/FPC excluded
+**Phase 3 status: fully implemented** (Linux and macOS; Windows (Pascal) excluded
 from HQ Converter scope — see `docs/v3.0-Phase3.1.md`).
 
 ### Phase 3.0 — Pre-integration refactor
@@ -176,10 +176,10 @@ duplicating them:
   collapsed into one shared pipeline called from `add_track_execute()`.
 - **Interactive CLI menu removed**: the CLI is now flag/argument-driven only
   (`-c`, `--encoder`, `--preset`, etc.), no interactive prompt mode.
-- **Windows C version removed** (later reintroduced separately as an
-  MSVC-only CLI target, excluded from HQ Converter scope): legacy Windows
+- **Windows C version removed**: the C Windows port never worked; its
   platform sources and build branches were dropped from the C implementation
-  as part of this cleanup pass.
+  and it has not been reintroduced. Windows is Pascal (planned replacement:
+  .NET).
 
 ### Phase 3.1 — HQ Converter integration
 
@@ -232,9 +232,9 @@ on Linux and macOS:
   development/debug implementation. It has known interface issues and is not
   the primary Linux release package.
 
-### Windows (C CLI and Pascal CLI/GUI)
-- **C CLI is the most complete version** — full functionality, MSVC build, bundled
-  binaries, new PowerShell/CMD build scripts.
+### Windows (Pascal CLI/GUI)
+- There is no Windows C implementation. Windows hardware acceleration
+  (NVENC/AMF/QSV/Vulkan) was developed and validated in the Pascal version.
 - **Windows Pascal CLI and GUI** — feature-matched implementation with native
   Vulkan ProRes support in GUI. The source path is prepared; Windows build and
   runtime validation remain required before release.
@@ -281,14 +281,12 @@ on Linux and macOS:
 ## Requirements
 
 ### C/CMake path
-- `cmake` ≥ 3.16, C compiler (clang/gcc on Linux/macOS; MSVC on Windows).
+- `cmake` ≥ 3.16, C compiler (clang/gcc on Linux/macOS).
 - `jansson` library (JSON parsing for loudnorm).
 - `ffmpeg` + `ffprobe` (platform-specific bundling):
   - **Linux**: staged next to CLI/GUI in `build/bin` when available from `src/platform/linux/bin/`.
   - **macOS**: bundled inside native `.app` from `src/platform/macos/bin/`; CLI also
     checks MacPorts paths (`/opt/local/bin`, `/opt/homebrew/bin`).
-  - **Windows (MSVC)**: required in `src/platform/windows/bin/` (`ffmpeg.exe`, `ffprobe.exe`,
-    and all DLL dependencies); copied next to `ffmpeg_converter.exe` at build time.
 - **AV1 input decoding** (Linux/Windows): requires ffmpeg compiled with `--enable-libdav1d`
   and `libdav1d-7.dll` present in `bin/` folder (already included in default bundled sets).
 - **AMF encoding** (`h264_amf`/`hevc_amf`/`av1_amf`, Linux/Windows): requires ffmpeg compiled
@@ -359,52 +357,6 @@ cmake --build . --target macos_gui_native
 cmake --install .   # produces build/install/ffmpeg_converter_gui_macos.app
 ```
 
-### C/CMake — Windows (MSVC)
-
-Prepare bundled binaries before build:
-
-```text
-src/platform/windows/bin/
-  ffmpeg.exe
-  ffprobe.exe
-  *.dll (all runtime dependencies required by ffmpeg/ffprobe)
-```
-
-**Recommended — use the build script** (PowerShell 5.1+, auto-detects VS/CMake):
-
-```powershell
-# Incremental build (most common)
-.\scripts\windows_build.ps1
-
-# Clean build (wipes build-msvc and reconfigures)
-.\scripts\windows_build.ps1 -Clean
-
-# Debug build
-.\scripts\windows_build.ps1 -Config Debug
-
-# Show all options
-.\scripts\windows_build.ps1 -Help
-```
-
-Or via the `.bat` launcher (works from CMD and Explorer):
-
-```bat
-scripts\windows_build.bat
-scripts\windows_build.bat -Clean
-scripts\windows_build.bat -Config Debug
-```
-
-Manual build from **x64 Native Tools Command Prompt for VS 2022**:
-
-```powershell
-cmake -S . -B build-msvc -G "Visual Studio 17 2022" -A x64
-cmake --build build-msvc --target windows_cli --config Release
-```
-
-Output folder:
-- `build-msvc/src/cli/Release/`
-- Contains `ffmpeg_converter.exe` plus copied bundled `ffmpeg.exe`, `ffprobe.exe`, and DLL dependencies.
-
 ### Free Pascal (Windows release, Linux development/debug)
 
 ```bash
@@ -449,7 +401,6 @@ GUI:
 - **Linux (Pascal development)**: `./fpc/bin/ffmpeg_converter_gui` after a direct
   GTK3 or Qt6 Lazarus build; no Linux Pascal AppImage is currently a release artifact.
 - **macOS (C)**: `open build/install/ffmpeg_converter_gui_macos.app`
-- **Windows (C CLI)**: `build-msvc/src/cli/Release/ffmpeg_converter.exe` (CLI only, most complete)
 - **Windows (Pascal)**: GUI: `fpc/gui/ffmpeg_converter_gui.exe` or CLI: `fpc/cli/ffmpeg_converter_windows.exe`
 
 ## Release Verification Status
@@ -459,7 +410,7 @@ Linux release path. The Pascal CLI/Lazarus GUI is separately maintained as a
 functional development/debug target and is not covered by Linux release-package
 verification.
 
-**Windows required before release:** build the C MSVC CLI and Pascal CLI/GUI on
+**Windows required before release:** build the Pascal CLI/GUI on
 Windows; verify `presets.json` beside staged Pascal executables; run `--help`,
 `--codecs-list`, codec/preset validation, Vulkan auto/manual device selection,
 and one conversion per detected backend.
@@ -547,7 +498,6 @@ third_party/   Vendored jansson (C path)
   MP4Box + dependent dylibs at build time.
 - macOS Pascal support discontinued in v2.4; use native C GUI instead.
 - Bundled ffmpeg/ffprobe targets Intel x86_64; runs via Rosetta 2 on Apple Silicon on macOS.
-- Windows MSVC CLI requires bundled ffmpeg/ffprobe payload in `src/platform/windows/bin/`; build copies that directory content next to the generated `.exe`.
 - Windows Pascal GUI/CLI auto-detect Vulkan devices for GPU-accelerated ProRes encoding.
 
 ---

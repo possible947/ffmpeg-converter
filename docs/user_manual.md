@@ -298,28 +298,7 @@ Benefits:
 
 ## Windows Usage
 
-Windows users can choose between the C CLI (most complete) or Pascal CLI/GUI.
-
-### Windows C CLI
-
-The C implementation provides command-line conversion:
-
-```bash
-# From build directory
-.\build-msvc\src\cli\Release\ffmpeg_converter.exe --help
-
-# Or if copied to another location
-ffmpeg_converter.exe input.mp4
-
-# ProRes conversion
-ffmpeg_converter.exe -c prores -p standard -a loudnorm input.mov
-
-# Batch conversion
-ffmpeg_converter.exe -o D:\output -c prores *.mov
-
-# Mux mode
-ffmpeg_converter.exe -c mux --video-track new_video.hevc input.mkv
-```
+Windows is served by the Free Pascal CLI/GUI (there is no Windows C build).
 
 ### Windows Pascal GUI
 
@@ -327,10 +306,10 @@ The Pascal implementation provides both CLI and Lazarus GUI:
 
 ```bash
 # GUI
-fpc\gui\ffmpeg_converter_gui.exe
+fpc\bin\ffmpeg_converter_gui.exe
 
 # CLI
-fpc\cli\ffmpeg_converter_windows.exe input.mp4
+fpc\bin\ffmpeg_converter.exe input.mp4
 ```
 
 #### Pascal GUI Features
@@ -400,8 +379,8 @@ ffmpeg_converter.exe -c h264_nvenc input.mov
 
 ### Windows Requirements and Tips
 
-- **ffmpeg/ffprobe 8.1**: Must be co-located in `build-msvc\src\cli\Release\` (or same directory as ffmpeg_converter.exe)
-  - Copy ffmpeg.exe and ffprobe.exe from `src/platform/windows/bin/` to build output directory
+- **ffmpeg/ffprobe 8.1**: Must be co-located with `ffmpeg_converter.exe` (`fpc\bin\`)
+  - The Pascal build copies them from `src/platform/windows/bin/` when that directory exists
   - Verify version: `ffmpeg.exe -version | findstr version` (should show version 8.x)
   - Verify fdk_aac: `ffmpeg.exe -codecs | findstr fdk_aac`
   - Verify soxr: `ffmpeg.exe -filters | findstr soxr`
@@ -742,23 +721,17 @@ open build/install/ffmpeg_converter_gui_macos.app
 
 **Windows:**
 ```powershell
-# 1. Verify ffmpeg 8.1 with fdk_aac/soxr is in build-msvc\src\cli\Release
-dir build-msvc\src\cli\Release\ffmpeg.exe
+# 1. Verify ffmpeg 8.1 with fdk_aac/soxr is next to the executable
+dir fpc\bin\ffmpeg.exe
+.\fpc\bin\ffmpeg.exe -version | Select-Object -First 1
+.\fpc\bin\ffmpeg.exe -codecs | Select-String "fdk_aac"
+.\fpc\bin\ffmpeg.exe -filters | Select-String "soxr"
 
-# 2. Verify version and codecs
-.\build-msvc\src\cli\Release\ffmpeg.exe -version | Select-Object -First 1
-.\build-msvc\src\cli\Release\ffmpeg.exe -codecs | Select-String "fdk_aac"
-.\build-msvc\src\cli\Release\ffmpeg.exe -filters | Select-String "soxr"
+# 2. If missing, copy from src/platform/windows/bin/ (exe and all DLLs)
+copy src\platform\windows\bin\* fpc\bin\
 
-# 3. If missing, copy from src/platform/windows/bin/
-copy src\platform\windows\bin\ffmpeg.exe build-msvc\src\cli\Release\
-copy src\platform\windows\bin\ffprobe.exe build-msvc\src\cli\Release\
-
-# 4. Copy all DLL dependencies as well
-copy src\platform\windows\bin\*.dll build-msvc\src\cli\Release\
-
-# 5. Run conversion (do NOT use system ffmpeg)
-.\build-msvc\src\cli\Release\ffmpeg_converter.exe input.mov
+# 3. Run conversion (do NOT use system ffmpeg)
+.\fpc\bin\ffmpeg_converter.exe input.mov
 ```
 
 **Verify bundled tools:**
@@ -909,7 +882,7 @@ choco install gpac
    ./build/bin/ffmpeg -filters | grep soxr
    
    # Windows
-   .\build-msvc\src\cli\Release\ffmpeg.exe -filters | findstr soxr
+   .\fpc\bin\ffmpeg.exe -filters | findstr soxr
    ```
    If soxr is not found, rebuild ffmpeg 8.1 with soxr support.
 

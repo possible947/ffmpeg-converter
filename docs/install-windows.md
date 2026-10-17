@@ -1,111 +1,14 @@
 # Windows Install and Build
 
-This document covers Windows install/build for both project paths:
-- C/CMake (`src/`) using MSVC (Visual Studio Build Tools)
-- Free Pascal (`fpc/`)
+This document covers Windows install/build. Windows is built with Free Pascal
+(`fpc/`) only; there is no Windows C/CMake build.
 
-## 1. C/CMake Path (MSVC only, recommended)
+## 1. C/CMake Path (not available on Windows)
 
-Install Visual Studio 2022 Build Tools (or Visual Studio 2022 with C++ workload).
-
-### 1.1 Install dependencies
-- Install Visual Studio Build Tools with MSVC (x64) and CMake tools.
-- `ffmpeg`/`ffprobe` are **not** taken from system PATH for this build flow.
-
-### 1.2 Prepare bundled ffmpeg payload
-Before configuring/building, place Windows binaries in:
-
-```text
-src/platform/windows/bin/
-  ffmpeg.exe
-  ffprobe.exe
-  *.dll (all runtime dependencies required by ffmpeg/ffprobe)
-```
-
-Rules:
-- Keep all dependent DLLs in the same `bin` folder.
-- Do not rely on system-installed ffmpeg for the C/MSVC target.
-- `mkvmerge` and `MP4Box` may still be provided through system PATH at runtime.
-
-**AV1 input decoding requirement:**
-To decode AV1 source files, `ffmpeg.exe` must be compiled with `--enable-libdav1d` and
-`libdav1d-7.dll` must be present in the `bin/` folder alongside `ffmpeg.exe`.
-The default bundled binary set in this repository already includes both.
-Build `ffmpeg` in MSYS2 ucrt64 with at minimum:
-```bash
-./configure --enable-libdav1d ...other-flags...
-```
-Then copy `libdav1d-7.dll` from `/ucrt64/bin/` into `src/platform/windows/bin/`.
-
-### 1.3 Build target
-
-#### Option A — Build script (recommended)
-
-The repo includes a PowerShell build script that automatically locates Visual
-Studio, detects the correct CMake generator, and drives the build. It is
-compatible with **PowerShell 5.1** (Windows built-in) and later.
-
-```powershell
-# Normal incremental build
-.\scripts\windows_build.ps1
-
-# Clean build — deletes build-msvc/ and reconfigures from scratch
-.\scripts\windows_build.ps1 -Clean
-
-# Debug build
-.\scripts\windows_build.ps1 -Config Debug
-
-# Force full recompile of all sources (no CMake reconfigure)
-.\scripts\windows_build.ps1 -Rebuild
-
-# Build all targets (not just windows_cli)
-.\scripts\windows_build.ps1 -Target ALL_BUILD
-
-# Show all options
-.\scripts\windows_build.ps1 -Help
-```
-
-A thin CMD launcher is also provided for use from the Windows Explorer or
-Command Prompt:
-
-```bat
-scripts\windows_build.bat
-scripts\windows_build.bat -Clean
-scripts\windows_build.bat -Config Debug
-```
-
-The script:
-- Finds `vswhere.exe` to locate the Visual Studio install path and MSBuild.
-- Auto-detects the CMake generator string from the installed VS version
-  (e.g. `Visual Studio 17 2022` for VS 2022, `Visual Studio 18 2025` for VS 2025).
-- Falls back to reading the generator from an existing `build-msvc/CMakeCache.txt`.
-- Skips CMake configuration when `build-msvc/CMakeCache.txt` already exists.
-- Finds `cmake.exe` on PATH or falls back to the copy bundled inside VS.
-
-#### Option B — Manual build
-
-From repository root in **x64 Native Tools Command Prompt for VS 2022**:
-```powershell
-cmake -S . -B build-msvc -G "Visual Studio 17 2022" -A x64
-cmake --build build-msvc --target windows_cli --config Release
-```
-
-Optional debug build:
-
-```powershell
-cmake --build build-msvc --target windows_cli --config Debug
-```
-
-### 1.4 Output layout
-Release output folder:
-
-```text
-build-msvc/src/cli/Release/
-  ffmpeg_converter.exe
-  ffmpeg.exe
-  ffprobe.exe
-  *.dll (copied from src/platform/windows/bin)
-```
+There is no Windows C/CMake build. A Windows C port never worked and was removed
+(commit `b369127`); `windows_cli`, `scripts/windows_build.ps1` and the MSVC workflow no longer exist. Use the
+Free Pascal path below (the planned replacement is the .NET port in
+`dotnet-experiment/`).
 
 ## 2. Windows Codec Support
 

@@ -169,8 +169,6 @@ Run these checks on a real Windows host before release:
 
 1. Run `scripts/windows_build_fpc.ps1` for CLI and GUI, then confirm
   `fpc/bin/presets.json` is staged beside the executables.
-2. Run `scripts/windows_build.ps1 -BuildFPC -BuildGUI`, then confirm
-  `build-msvc/fpc/presets.json` is present for the legacy combined path.
-3. Verify `--help`, `--codecs-list`, valid and invalid codec/preset pairs,
+2. Verify `--help`, `--codecs-list`, valid and invalid codec/preset pairs,
   and Vulkan auto/manual device selection.
-4. Smoke-test each detected NVENC, AMF, QSV, and Vulkan codec on real hardware.
+3. Smoke-test each detected NVENC, AMF, QSV, and Vulkan codec on real hardware.

@@ -1,14 +1,13 @@
 # Copilot instructions for ffmpeg-converter
 
-Prefer executable sources in this repo (CMake, Makefiles, scripts, and platform code) over prose docs when they disagree. The C/CMake implementation in `src/` is the primary implementation. The Windows Free Pascal port in `fpc/` is deprecated for new development and retained as a legacy implementation; avoid adding new Pascal features unless explicitly requested. The experimental .NET 10 port in `dotnet-experiment/` is planned to replace Pascal as the native Windows implementation, but it is not yet integrated into the release/build pipeline. Older documents may still describe Pascal as actively maintained.
+Prefer executable sources in this repo (CMake, Makefiles, scripts, and platform code) over prose docs when they disagree. The C/CMake implementation in `src/` is the primary implementation for Linux and macOS and the reference for Phase 3 mux/M4V/policy behavior. **There is no Windows C implementation: it was never functional and its platform sources were removed (`b369127`, Phase 3.0).** Windows has only ever shipped the Free Pascal port, which is also where the hardware-acceleration (NVENC/AMF/QSV/Vulkan) logic was developed and validated; Linux hardware/Vulkan encoding is compatibility-only. Phase 4 (filter engine) targets Windows first. The Windows Free Pascal port in `fpc/` is deprecated for new development and retained as a legacy implementation; avoid adding new Pascal features unless explicitly requested. The experimental .NET 10 port in `dotnet-experiment/` is planned to replace Pascal as the native Windows implementation, but it is not yet integrated into the release/build pipeline. Older documents may still describe Pascal as actively maintained.
 
 ## ⚠️ Critical Prerequisites (read before building)
 
 - **FFmpeg version 8.1** (not system FFmpeg) compiled with `--enable-libfdk_aac` and `--enable-soxr` is **mandatory**
   - macOS: must be in `src/platform/macos/bin/ffmpeg` and `src/platform/macos/bin/ffprobe` → build fails with `FATAL_ERROR` if missing
-  - Windows: must be in `src/platform/windows/bin/` with all runtime DLLs → build fails with `FATAL_ERROR` if missing
   - Linux: optional for build, but binary won't work at runtime without it
-- **Windows GUI is Pascal-only** (`fpc/gui/`) — there is NO Windows C GUI
+- **Windows has no C build at all** (no CLI, no GUI, no CMake target) — Windows is Pascal (`fpc/`) today, with the .NET port as its planned replacement
 - **macOS Pascal is discontinued** (v2.4+) — use C/Cocoa GUI only; FPC Makefile hard-blocks Darwin with exit error
 - `presets.json` is copied next to each binary automatically by the build system
 - HQ_converter is an external Linux/macOS dependency. Its prepared release must
@@ -36,12 +35,7 @@ cmake --build build --target macos_gui_native
 cmake --install build   # produces build/install/ffmpeg_converter_gui_macos.app
 ```
 
-Windows (MSVC, from x64 Native Tools Command Prompt):
-```powershell
-.\scripts\windows_build.ps1
-.\scripts\windows_build.ps1 -Clean
-cmake --build build-msvc --target windows_cli --config Release
-```
+Windows has no C/CMake target. Use the Free Pascal or .NET builds below.
 
 C/CMake tests are registered with CTest and vary by platform. Build before running them:
 ```bash
@@ -81,7 +75,7 @@ make -C fpc/build tests
 
 Run Pascal targets from Windows; the Makefile rejects Linux and macOS builds.
 
-Pascal build notes: default `FPCFLAGS=-Mobjfpc -Sh -O2`; compiled units land in `fpc/build/.units/`, binaries in `fpc/bin/` (never commit these). On Windows/MSYS2, bash mangles `-Fu` include paths — the Makefile wraps them with `cygpath -w` + double quotes; follow that pattern for any new `-Fu` flag. Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat` (distinct from the MSVC `windows_build.ps1`).
+Pascal build notes: default `FPCFLAGS=-Mobjfpc -Sh -O2`; compiled units land in `fpc/build/.units/`, binaries in `fpc/bin/` (never commit these). On Windows/MSYS2, bash mangles `-Fu` include paths — the Makefile wraps them with `cygpath -w` + double quotes; follow that pattern for any new `-Fu` flag. Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat`.
 
 ### Experimental .NET port (planned Windows Pascal replacement)
 
@@ -224,7 +218,7 @@ screenshots alone. Match each claim to evidence from the appropriate layer.
 
 The C/CMake implementation is the primary product implementation:
 
-- `src/` is the primary C/CMake implementation. It contains the converter core, platform-specific code, CLI entry points (including the Windows CLI), and native macOS/Linux GUIs.
+- `src/` is the primary C/CMake implementation. It contains the converter core, platform-specific code, CLI entry points, and native macOS/Linux GUIs. It has no Windows code.
 - `fpc/` is the deprecated legacy Pascal port, with existing Windows CLI/GUI/library targets. When maintaining shared behavior or ABI, keep it aligned with C; do not assume it is the preferred place for new features.
 - `dotnet-experiment/` is an exploratory .NET 10 implementation with Core, CLI, Avalonia GUI, and xUnit projects. It is the planned native Windows replacement for the Pascal port, but remains experimental and is not yet wired into the release/build pipeline.
 
@@ -276,7 +270,7 @@ Implemented separately in C (`src/m4v/`, `src/gui_macos_native/apple_m4v_creator
 
 ## CI / releases
 
-`.github/workflows/` is **tag-driven**: pushing tag `macos` → macOS build/release; tag `windows` → MSVC build/release. Both also support `workflow_dispatch`. Each builds only `macos_cli` / `windows_cli` and creates a GitHub Release with an auto-generated changelog.
+`.github/workflows/` contains only the tag-driven macOS workflow (tag `macos`, also `workflow_dispatch`): it builds `macos_cli` and creates a GitHub Release with an auto-generated changelog. There is no Windows workflow (the former one built a nonexistent C `windows_cli` and was removed); Windows is built manually with `scripts/windows_build_fpc.ps1`.
 
 ## Further reading
 
@@ -296,9 +290,9 @@ Implemented separately in C (`src/m4v/`, `src/gui_macos_native/apple_m4v_creator
 | Problem | Likely Cause | Solution |
 |---------|--------------|----------|
 | macOS CMake fails: "src/platform/macos/bin/ffmpeg not found" | FFmpeg not bundled | Place static FFmpeg 8.1 binary in `src/platform/macos/bin/` |
-| Windows CMake fails: "src/platform/windows/bin not found" | FFmpeg not bundled | Place `ffmpeg.exe`, `ffprobe.exe` + all DLLs in `src/platform/windows/bin/` |
+| Windows: no `windows_cli` target | C Windows port never worked and was removed | Use the Pascal build (`make -C fpc/build cli`/`gui`, `scripts/windows_build_fpc.ps1`) or the .NET port |
 | Linux CLI builds but fails at runtime: "ffmpeg not found" | No bundled binary, missing env var | Set `FFMPEG_BIN=/path/to/ffmpeg` or place binary next to `ffmpeg_converter` |
-| Windows: GUI doesn't exist | Tried to build C GUI on Windows | Windows GUI is Pascal-only (`fpc/gui/`). Use `fpc/` build or use macOS C GUI + CLI. |
+| Windows: GUI doesn't exist in C | Tried to build C on Windows | Windows GUI is Pascal-only (`fpc/gui/`) until the .NET/Avalonia port replaces it. |
 | macOS: Error when building FPC | Pascal support discontinued | Use C implementation (`cmake --build build --target macos_cli`). FPC Makefile exits with error on Darwin. |
 | Both C & Pascal sync issue | Changed `converter.h` but not Pascal export | Any change to `src/converter/converter.h` → mirror in `fpc/converter/converter_pas.lpr` (8 exported functions) |
 | M4V pipeline broken after edit | C and Pascal M4V diverged | Keep `src/m4v/` + `src/gui_macos_native/apple_m4v_creator.m` synchronized with `fpc/converter/apple_m4v_creator.pas` |

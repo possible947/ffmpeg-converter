@@ -5,7 +5,7 @@ sources (CMake/Makefile/scripts) over docs when they conflict.
 
 ## Two implementations — keep in sync
 
-- **C/CMake** (`src/`) — primary engine for all platforms: macOS (Cocoa GUI + CLI), Linux (GTK4 GUI + CLI), Windows (CLI only, MSVC).
+- **C/CMake** (`src/`) — primary engine for macOS (Cocoa GUI + CLI) and Linux (GTK4 GUI + CLI). **There is no Windows C implementation**: it never worked and was removed (`b369127`).
 - **Free Pascal** (`fpc/`) — Windows-only CLI/GUI/library. Linux and macOS Pascal builds were removed; do not re-add them.
 
 Both share the same CLI and conversion model. Cross-cutting concepts (Apple M4V pipeline, codec strings, audio modes) are implemented independently in each — change one, update the other.
@@ -20,7 +20,6 @@ cmake --build build --target linux_cli        # → build/bin/ffmpeg_converter
 cmake --build build --target linux_gui        # needs libgtk-4-dev; gated by ENABLE_LINUX_GUI
 cmake --build build --target macos_cli
 cmake --build build --target macos_gui_native && cmake --install build   # .app bundle
-cmake --build build --target windows_cli --config Release   # VS x64 prompt, or scripts/windows_build.ps1
 ```
 
 Free Pascal (`fpc/build/Makefile`, Windows only, default `FPCFLAGS=-Mobjfpc -Sh -O2`):
@@ -31,7 +30,7 @@ make -C fpc/build lib        # → fpc/converter/converter_pas.dll
 make -C fpc/build gui        # needs lazbuild
 ```
 
-Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat` (distinct from the MSVC `windows_build.ps1`). Linux and macOS use the C/CMake implementation.
+Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat`. Linux and macOS use the C/CMake implementation.
 
 HQ_converter is an external Linux/macOS project. Its prepared release must be
 placed in `third_party/hq_converter/` before configuring or building this
@@ -44,7 +43,6 @@ Windows builds do not include or expose HQ_converter. See
 ### Hard prerequisites that abort the build
 
 - **macOS**: static `ffmpeg` + `ffprobe` in `src/platform/macos/bin/` — CMake `FATAL_ERROR` if missing. Pass `-DCMAKE_PREFIX_PATH=/opt/local` so MacPorts `jansson` is found (CI uses this).
-- **Windows**: `src/platform/windows/bin/` must contain `ffmpeg.exe`, `ffprobe.exe` + DLLs — `FATAL_ERROR` if missing; copied next to the `.exe`.
 - **Linux**: missing bundled binaries only emit a CMake WARNING; runtime falls back to env vars / PATH.
 - `jansson` is vendored under `third_party/` (added via `add_subdirectory`); don't assume a system jansson except macOS/MacPorts.
 
@@ -80,7 +78,7 @@ the committed Copilot instructions.
 - `ConvertOptions.codec` / `.audio_norm` / `.audio_output_mode` are fixed `char[32]` — use `snprintf`/`strncpy`, never `strcpy`.
 - In `src/CMakeLists.txt`, `core`, `utils`, `progress`, `audio`, `video`, `ffmpeg_cmd` are **INTERFACE (header-only)** libs. Don't add `.c` files there; put implementation in `converter/`, `mux/`, `m4v/`, or `platform/`.
 - Platform code is split by OS dir `src/platform/{linux,macos,windows}/`. Guard with `CMAKE_SYSTEM_NAME` / `#if defined(_WIN32)` / `#if defined(__APPLE__)`. Never put Linux code in macos/windows subdirs.
-- **No Windows C GUI** — Windows is CLI only; the Windows GUI lives in the Pascal port.
+- **No Windows C code at all** — Windows is Pascal (`fpc/`), planned replacement .NET. The hardware-acceleration logic was developed and validated on Windows; Linux hw/Vulkan is compatibility-only; Phase 4 targets Windows first.
 
 ## Pascal notes
 
@@ -97,7 +95,7 @@ Implemented separately in C (`src/m4v/`, `src/gui_macos_native/apple_m4v_creator
 
 ## CI / releases
 
-`.github/workflows/` is **tag-driven**: pushing tag `macos` → macOS build/release; tag `windows` → MSVC build/release. Both also support `workflow_dispatch`. Each builds only `macos_cli` / `windows_cli` and creates a GitHub Release with an auto-generated changelog.
+`.github/workflows/` contains only the tag-driven macOS workflow (tag `macos`, also `workflow_dispatch`): it builds `macos_cli` and creates a GitHub Release with an auto-generated changelog. There is no Windows workflow; Windows is built manually with `scripts/windows_build_fpc.ps1`.
 
 ## Gotchas
 
