@@ -31,6 +31,8 @@ ConverterError mux_run_postprocess_for_preset(
 );
 
 /* Probe the codec of the first video stream without changing the input. */
+const char *mux_probe_last_detail(void);
+
 ConverterError mux_probe_video_codec(const char *input_file,
                                      MuxVideoCodec *codec_out);
 

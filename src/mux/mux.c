@@ -141,6 +141,13 @@ static int probe_video_rate_string(const char* ffprobe_bin,
     return rate_out[0] != '\0' && strcmp(rate_out, "0/0") != 0;
 }
 
+static char g_probe_detail[512];
+
+const char *mux_probe_last_detail(void)
+{
+    return g_probe_detail;
+}
+
 ConverterError mux_probe_video_codec(const char *input_file,
                                      MuxVideoCodec *codec_out)
 {
@@ -148,10 +155,13 @@ ConverterError mux_probe_video_codec(const char *input_file,
     char quoted_tool[2048];
     char quoted_input[2048];
     char cmd[8192];
-    char codec_name[128];
+    char output[1024];
+    size_t used = 0;
+    size_t n;
     FILE *fp;
     int status;
 
+    g_probe_detail[0] = '\0';
     if (!input_file || !input_file[0] || !codec_out)
         return ERR_INVALID_OPTIONS;
     if (!platform_file_is_regular(input_file))
@@ -165,23 +175,32 @@ ConverterError mux_probe_video_codec(const char *input_file,
     platform_shell_quote(input_file, quoted_input, sizeof(quoted_input));
     snprintf(cmd, sizeof(cmd),
              "%s -v error -select_streams v:0 -show_entries stream=codec_name "
-             "-of default=noprint_wrappers=1:nokey=1 %s %s",
-             quoted_tool, quoted_input, platform_null_redirect());
+             "-of default=noprint_wrappers=1:nokey=1 %s 2>&1",
+             quoted_tool, quoted_input);
     fp = mux_platform_popen(cmd, "r");
     if (!fp)
         return ERR_POPEN_FAILED;
-    if (!fgets(codec_name, sizeof(codec_name), fp)) {
-        status = platform_pclose_exitcode(fp);
+    while (used < sizeof(output) - 1 &&
+           (n = fread(output + used, 1, sizeof(output) - 1 - used, fp)) > 0)
+        used += n;
+    output[used] = '\0';
+    status = platform_pclose_exitcode(fp);
+    if (status != 0 || output[0] == '\0') {
+        output[strcspn(output, "\r\n")] = '\0';
+        snprintf(g_probe_detail, sizeof(g_probe_detail),
+                 "ffprobe exit %d: %s", status,
+                 output[0] ? output : "(no output)");
         return status == 0 ? ERR_INVALID_OPTIONS : ERR_FFPROBE_FAILED;
     }
-    status = platform_pclose_exitcode(fp);
-    if (status != 0)
-        return ERR_FFPROBE_FAILED;
 
-    codec_name[strcspn(codec_name, "\r\n")] = '\0';
-    *codec_out = mux_video_codec_parse(codec_name);
-    return *codec_out == MUX_VIDEO_UNSUPPORTED
-               ? ERR_INVALID_OPTIONS : ERR_OK;
+    output[strcspn(output, "\r\n")] = '\0';
+    *codec_out = mux_video_codec_parse(output);
+    if (*codec_out == MUX_VIDEO_UNSUPPORTED) {
+        snprintf(g_probe_detail, sizeof(g_probe_detail),
+                 "unsupported video codec '%s'", output);
+        return ERR_INVALID_OPTIONS;
+    }
+    return ERR_OK;
 }
 
 static int probe_source_metadata(const char* ffprobe_bin, const char* input_file,

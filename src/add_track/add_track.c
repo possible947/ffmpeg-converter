@@ -67,7 +67,7 @@ static int add_track_intermediate_is_usable(const char *path)
         return 0;
     }
     if (snprintf(command, sizeof(command),
-                 "%s -v error -show_entries stream=codec_type -of json %s 2>&1",
+                 "%s -v error -show_entries stream=codec_type -of json %s 2>/dev/null",
                  quoted_tool, quoted_path) >= (int)sizeof(command)) {
         free(quoted_tool);
         free(quoted_path);
@@ -145,8 +145,18 @@ ConverterError add_track_execute(Converter *converter,
         return ERR_INVALID_OPTIONS;
     err = mux_probe_video_codec(request->convert_options->video_track_path,
                                 &replacement_codec);
-    if (err != ERR_OK)
+    if (err != ERR_OK) {
+        const ConverterCallbacks *callbacks = converter_get_callbacks(converter);
+        if (callbacks && callbacks->on_error) {
+            char message[1400];
+            snprintf(message, sizeof(message),
+                     "could not probe replacement video track: %s (%s)",
+                     request->convert_options->video_track_path,
+                     mux_probe_last_detail());
+            callbacks->on_error(message, err);
+        }
         return err;
+    }
 
     if (!strcmp(request->convert_options->codec, "hq_converter")) {
         if (!mux_policy_resolve_hq(&profile, replacement_codec,
