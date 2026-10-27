@@ -5,6 +5,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [Unreleased] — macOS app bundle signing
+
+- The macOS app bundle is ad-hoc signed as the last POST_BUILD step
+  (`src/gui_macos_native/sign_app_bundle.sh`: dylibs, helpers, then the `.app`,
+  followed by `codesign --verify --deep --strict`). Unsigned bundled binaries
+  were re-checked by macOS security services on every process launch, which
+  lowered HQ encoding fps.
+- The HQ_converter runtime tree is copied with `cp -R` so symlinks are kept;
+  `cmake -E copy_directory` flattened `QtCore.framework`, making it unsignable.
+
 ## [Unreleased] — Context-aware audio availability
 
 - C GTK/macOS audio controls and CLI/pre-execution validation share one
