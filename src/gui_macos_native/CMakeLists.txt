@@ -106,7 +106,9 @@ endif()
 if (HQ_CONVERTER_ENABLED)
     add_custom_command(TARGET macos_gui_native POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/hq_converter"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${HQ_CONVERTER_RELEASE_DIR}" "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/hq_converter"
+        # cp -R keeps symlinks; cmake -E copy_directory flattens them, which breaks
+        # QtCore.framework (Versions/Current links) and cannot be code-signed.
+        COMMAND /bin/cp -R "${HQ_CONVERTER_RELEASE_DIR}/." "$<TARGET_FILE_DIR:macos_gui_native>/../Resources/hq_converter/"
         COMMENT "Bundling HQ_converter runtime tree into app Resources"
     )
 endif()
@@ -120,6 +122,16 @@ if (TARGET hq_worker)
     add_custom_command(TARGET macos_gui_native POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:hq_worker>" "$<TARGET_FILE_DIR:macos_gui_native>/hq_worker"
         COMMENT "Copying hq_worker helper into app bundle MacOS dir"
+    )
+endif()
+
+# Must stay the last POST_BUILD step: every earlier step (copy, install_name_tool)
+# invalidates signatures, so the whole bundle is re-signed ad-hoc here.
+set(SIGN_APP_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/sign_app_bundle.sh")
+if (EXISTS "${SIGN_APP_SCRIPT}")
+    add_custom_command(TARGET macos_gui_native POST_BUILD
+        COMMAND /bin/bash "${SIGN_APP_SCRIPT}" "$<TARGET_FILE_DIR:macos_gui_native>"
+        COMMENT "Ad-hoc signing app bundle"
     )
 endif()
 
