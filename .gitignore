@@ -17,6 +17,9 @@ src/platform/linux/bin/
 # External HQ_converter release; prepared separately and required locally at build time
 /third_party/hq_converter/
 
+# converter_core prepared tools and HQ_converter sets (built per host by scripts/*_prepare.sh)
+/converter_core/platform/
+
 # Local agent/project metadata
 AGENTS.md
 .qwen/
