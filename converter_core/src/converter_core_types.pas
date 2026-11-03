@@ -55,4 +55,11 @@ begin
   Inc(FItemsCount);
 end;
 
+function TPlatformlist.GetItem(Index: integer): string;
+begin
+  Result := '';
+  if (Index >= 0) and (Index < FItemsCount) then
+    Result := ItemsList[Index];
+end;
+
 end.
