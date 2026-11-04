@@ -16,18 +16,7 @@ const
   PLATFORM_DARWIN = 'darwin';
   PLATFORM_LINUX = 'linux';
   PLATFORM_WINDOWS = 'windows';
-  PLATFORM_ALL_ID1 = 'all';
-  PLATFORM_DARWIN_ID2 = 'darwin_MacPro61';
-  PLATFORM_DARWIN_ID3 = 'darwin_iMacPro11';
-  PLATFORM_DARWIN_ID4 = 'darwin_MacPro71';
-  PLATFORM_LINUX_ID5 = 'linux_vaapi';
-  PLATFORM_LINUX_ID6 = 'linux_nvenc7';
-  PLATFORM_LINUX_ID7 = 'linux_qsv_dgx1';
-  PLATFORM_LINUX_ID8 = 'linux_vulkan_nvidia';
-  PLATFORM_WINDOWS_ID9 = 'windows_nvenc7';
-  PLATFORM_WINDOWS_ID10 = 'windows_qsv_dgx1';
-  PLATFORM_WINDOWS_ID11 = 'windows_vulkan_nvidia';
-  PLATFORM_HQ_ID12 = 'hq-converter';
+  // Registry platform names (PLATFORM_ALL_ID1 ... PLATFORM_HQ_ID12) are in converter_core_types
 
   TOOLS_DIR_ENV = 'CONVERTER_CORE_TOOLS_DIR'; // Overrides the tools folder
   TOOLS_DIR_NAME = 'tools';

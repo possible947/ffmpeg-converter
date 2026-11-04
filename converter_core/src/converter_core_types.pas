@@ -8,6 +8,22 @@ unit converter_core_types;
 
 interface
 
+const
+  // Registry platform names. TPlatformDetection adds them to TPlatformlist,
+  // GetReestr (unit reestr) maps them to Registry Platform IDs.
+  PLATFORM_ALL_ID1 = 'all';
+  PLATFORM_DARWIN_ID2 = 'darwin_MacPro61';
+  PLATFORM_DARWIN_ID3 = 'darwin_iMacPro11';
+  PLATFORM_DARWIN_ID4 = 'darwin_MacPro71';
+  PLATFORM_LINUX_ID5 = 'linux_vaapi';
+  PLATFORM_LINUX_ID6 = 'linux_nvenc7';
+  PLATFORM_LINUX_ID7 = 'linux_qsv_dgx1';
+  PLATFORM_LINUX_ID8 = 'linux_vulkan_nvidia';
+  PLATFORM_WINDOWS_ID9 = 'windows_nvenc7';
+  PLATFORM_WINDOWS_ID10 = 'windows_qsv_dgx1';
+  PLATFORM_WINDOWS_ID11 = 'windows_vulkan_nvidia';
+  PLATFORM_HQ_ID12 = 'hq-converter';
+
 type
   TPlatformToolsList = record // Stores paths to platform tools
     FFmpegPath: string; // Path to the FFmpeg executable
@@ -53,13 +69,6 @@ begin
   SetLength(ItemsList, FItemsCount + 1);
   ItemsList[FItemsCount] := Value;
   Inc(FItemsCount);
-end;
-
-function TPlatformlist.GetItem(Index: integer): string;
-begin
-  Result := '';
-  if (Index >= 0) and (Index < FItemsCount) then
-    Result := ItemsList[Index];
 end;
 
 end.
