@@ -139,6 +139,21 @@ start. HQ_converter is changed only at preparation time, never at runtime.
 A full run takes about 10 minutes and produces roughly 375 MB in `tools/`
 (about 200 libraries, mostly MP4Box dependencies) and 355 MB in `hq_converter/`.
 
+Linux (requires system `mkvtoolnix`, `gpac`, `patchelf`):
+
+```bash
+converter_core/scripts/linux_prepare.sh
+```
+
+Sources: `tools/ffmpeg`, `tools/ffprobe` from `src/platform/linux/bin`;
+`tools/mkvmerge`, `tools/MP4Box` from `PATH` (override with `MKVMERGE_SRC` /
+`MP4BOX_SRC`); `hq_converter/` from `third_party/hq_converter`. Non-system
+shared libraries are copied to `<root>/lib` and referenced through an
+`$ORIGIN`-relative RUNPATH set with `patchelf`. glibc, libgcc_s, libstdc++ and
+GPU/driver libraries (libva, libvulkan, libdrm, libGL/EGL, CUDA) stay
+host-provided. The script fails if any other external library reference
+remains or any tool does not start without `LD_LIBRARY_PATH`.
+
 ## 7. Tests
 
 ```bash
