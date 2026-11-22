@@ -143,9 +143,10 @@ public class MuxPipelineTests
     {
         var tempInput = Path.GetTempFileName();
         var tempTrack = Path.GetTempFileName();
+        var fakeMkvmerge = Path.GetTempFileName();
         try
         {
-            var converter = new Converter();
+            var converter = CreateDryRunMuxConverter(fakeMkvmerge);
             var opts = new ConvertOptions
             {
                 Codec = "mux",
@@ -169,6 +170,7 @@ public class MuxPipelineTests
         {
             if (File.Exists(tempInput)) File.Delete(tempInput);
             if (File.Exists(tempTrack)) File.Delete(tempTrack);
+            if (File.Exists(fakeMkvmerge)) File.Delete(fakeMkvmerge);
         }
     }
 
@@ -322,9 +324,10 @@ public class MuxPipelineTests
     {
         string tempInput = Path.GetTempFileName();
         string tempTrack = Path.GetTempFileName();
+        string fakeMkvmerge = Path.GetTempFileName();
         try
         {
-            var converter = new Converter();
+            var converter = CreateDryRunMuxConverter(fakeMkvmerge);
             var opts = new ConvertOptions
             {
                 SelectionGroup = "mux",
@@ -354,8 +357,15 @@ public class MuxPipelineTests
         {
             File.Delete(tempInput);
             File.Delete(tempTrack);
+            File.Delete(fakeMkvmerge);
         }
     }
+
+    private static Converter CreateDryRunMuxConverter(string mkvmergePath) =>
+        new(
+            new ToolPaths { Ffmpeg = "unused-ffmpeg", Mkvmerge = mkvmergePath },
+            PresetDb.Load(),
+            new HardwareProbeResult());
 
     [Fact]
     public async Task Converter_RejectsUnsupportedReplacementBeforePreparationAfterOneProbe()

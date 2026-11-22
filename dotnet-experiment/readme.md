@@ -6,6 +6,66 @@
 
 ---
 
+## Windows standalone release
+
+On Windows x64, install the .NET 10 SDK and prepare the Windows FFmpeg release
+in `src/platform/windows/bin/`. Install MKVToolNix and GPAC, or provide paths
+to their executables:
+
+```powershell
+.\dotnet-experiment\release-support\PrepareWindowsRelease.ps1
+```
+
+By default the script discovers `mkvmerge.exe` and `MP4Box.exe` using
+`MKVMERGE_BIN`/`MKVMERGE` and `MP4BOX_BIN`/`MP4BOX`, standard installation
+locations, then `PATH`. Explicit paths take precedence. All inputs and the
+output can be overridden; relative paths are resolved from the current
+directory:
+
+```powershell
+.\dotnet-experiment\release-support\PrepareWindowsRelease.ps1 `
+    -FfmpegBundle 'C:\releases\ffmpeg' `
+    -MkvmergePath 'C:\Program Files\MKVToolNix\mkvmerge.exe' `
+    -Mp4BoxPath 'C:\Program Files\GPAC\MP4Box.exe' `
+    -PresetsPath '.\presets.json' `
+    -ReleaseRoot 'C:\releases\ffmpeg-converter-win-x64'
+```
+
+```text
+release/win-x64/
+  ffmpeg-converter.release
+  presets.json
+  app/                 # CLI and GUI, shared .NET runtime, Avalonia and Skia
+  tools/               # FFmpeg, FFprobe, mkvmerge, MP4Box and their runtime files
+```
+
+The script copies the complete prepared FFmpeg directory, adjacent MKVToolNix
+and GPAC DLLs, MKVToolNix `data`, `locale` and `tools`, and GPAC `share` when
+present. Differing files with the same destination cause an error. HQ Converter
+is not included on Windows. The script does not build FFmpeg, run the test suite,
+perform GPU probes or install the application.
+
+Inputs are checked before staging. Publishing and isolated startup checks run
+in a temporary sibling directory before an existing release is replaced. Only
+an existing directory marked `win-x64` may be replaced; its entire contents are
+managed by the script, so keep user files elsewhere. The script validates the
+four staged tools with a restricted `PATH`, plus CLI `--help` with an invalid
+`DOTNET_ROOT`; this is a startup check, not media or GUI acceptance. Run
+`app\FfmpegConverter.Cli.exe --help` or `app\FfmpegConverter.Gui.exe` from
+the release. A separate .NET runtime installation is not needed. Windows
+system libraries and appropriate GPU drivers remain target-machine prerequisites.
+Both Windows executables embed the shared project icon; no separate icon file is
+needed in the release directory.
+
+Run the Windows test suite separately:
+
+```powershell
+dotnet test .\dotnet-experiment\FfmpegConverter.Tests\FfmpegConverter.Tests.csproj -c Release
+```
+
+This prepares a portable release directory, not an installer; shortcuts,
+installation and removal are not yet implemented.
+
 ## Linux standalone release
 
 Development builds are unchanged:

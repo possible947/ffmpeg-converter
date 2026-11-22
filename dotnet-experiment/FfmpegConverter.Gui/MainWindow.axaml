@@ -95,6 +95,7 @@
                                 <ComboBoxItem Content="none" Tag="none" />
                                 <ComboBoxItem Content="peak_norm" Tag="peak_norm" />
                                 <ComboBoxItem Content="peak_norm_2pass" Tag="peak_norm_2pass" />
+                                <ComboBoxItem Content="loudness_norm" Tag="loudness_norm" />
                                 <ComboBoxItem Content="loudness_norm_2pass" Tag="loudness_norm_2pass" />
                             </ComboBox>
                         </Grid>

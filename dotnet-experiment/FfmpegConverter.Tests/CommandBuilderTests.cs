@@ -105,17 +105,29 @@ public class CommandBuilderTests
     [Fact]
     public void BuildOutputFilePath_ProResUsesMovExtension()
     {
-        var opts = new ConvertOptions { Codec = "prores_ks", Preset = "standard", OutputDir = "/tmp/out" };
-        string path = CommandBuilder.BuildOutputFilePath("/path/to/movie.mkv", opts, "linux", _presetDb);
-        Assert.Equal("/tmp/out/movie_converted.mov", path);
+        var opts = new ConvertOptions
+        {
+            Codec = "prores_ks",
+            Preset = "standard",
+            OutputDir = Path.Combine(Path.GetTempPath(), "out")
+        };
+        string input = Path.Combine("path", "to", "movie.mkv");
+        string path = CommandBuilder.BuildOutputFilePath(input, opts, "linux", _presetDb);
+        Assert.Equal(Path.Combine(opts.OutputDir, "movie_converted.mov"), path);
     }
 
     [Fact]
     public void BuildOutputFilePath_VideoToolboxUsesMp4Extension()
     {
-        var opts = new ConvertOptions { Codec = "hevc_videotoolbox", Preset = "default", OutputDir = "/tmp/out" };
-        string path = CommandBuilder.BuildOutputFilePath("/path/to/movie.mkv", opts, "macos", _presetDb);
-        Assert.Equal("/tmp/out/movie_converted.mp4", path);
+        var opts = new ConvertOptions
+        {
+            Codec = "hevc_videotoolbox",
+            Preset = "default",
+            OutputDir = Path.Combine(Path.GetTempPath(), "out")
+        };
+        string input = Path.Combine("path", "to", "movie.mkv");
+        string path = CommandBuilder.BuildOutputFilePath(input, opts, "macos", _presetDb);
+        Assert.Equal(Path.Combine(opts.OutputDir, "movie_converted.mp4"), path);
     }
 
     [Fact]

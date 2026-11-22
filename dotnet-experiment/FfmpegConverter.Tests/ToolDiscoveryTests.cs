@@ -15,9 +15,9 @@ public class ToolDiscoveryTests
     public void Resolve_PreparedReleaseUsesPackagedToolsBeforeEnvironmentAndRepository(string tool)
     {
         using var layout = new TemporaryLayout();
-        layout.CreateFile("release/ffmpeg-converter.release");
-        string packaged = layout.CreateFile($"release/tools/{tool}");
-        string external = layout.CreateFile($"external/{tool}");
+        layout.CreateFile(Path.Combine("release", "ffmpeg-converter.release"));
+        string packaged = layout.CreateFile(Path.Combine("release", "tools", tool));
+        string external = layout.CreateFile(Path.Combine("external", tool));
         var context = Context(Path.Combine(layout.Root, "release", "app"), "linux",
             new Dictionary<string, string> { [$"{tool.ToUpperInvariant()}_BIN"] = external },
             Path.GetDirectoryName(external)!);
@@ -36,6 +36,26 @@ public class ToolDiscoveryTests
             Path.GetDirectoryName(external)!);
 
         Assert.Equal("", ToolDiscovery.Resolve("ffmpeg", context));
+    }
+
+    [Theory]
+    [InlineData("ffmpeg")]
+    [InlineData("ffprobe")]
+    [InlineData("mkvmerge")]
+    [InlineData("MP4Box")]
+    public void Resolve_WindowsPreparedReleaseUsesPackagedExecutable(string tool)
+    {
+        using var layout = new TemporaryLayout();
+        layout.CreateFile(Path.Combine("release", "ffmpeg-converter.release"));
+        string packaged = layout.CreateFile(Path.Combine("release", "tools", $"{tool}.exe"));
+        string external = layout.CreateFile(Path.Combine("external", $"{tool}.exe"));
+        var context = Context(Path.Combine(layout.Root, "release", "app"), "windows",
+            new Dictionary<string, string> { [$"{tool.ToUpperInvariant()}_BIN"] = external },
+            Path.GetDirectoryName(external)!);
+
+        Assert.Equal(packaged, ToolDiscovery.Resolve(tool, context));
+        File.Delete(packaged);
+        Assert.Equal("", ToolDiscovery.Resolve(tool, context));
     }
 
     [Fact]
