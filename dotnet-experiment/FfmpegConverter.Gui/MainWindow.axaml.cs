@@ -1151,10 +1151,12 @@ public partial class MainWindow : Window
             // Apply queued stage snapshots before making the run terminal.
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
             progressDisplay.FinishRun(progressRunId);
+            bool cancellationFailed = _cts.IsCancellationRequested && result == ConverterError.FfmpegFailed;
             if (result == ConverterError.Ok && progressDisplay.RunResult != ConverterError.Ok)
                 result = progressDisplay.RunResult;
 
-            if (_cts.IsCancellationRequested || result == ConverterError.SkipFile)
+            if (result == ConverterError.SkipFile ||
+                (_cts.IsCancellationRequested && !cancellationFailed))
             {
                 StatusLabel.Text = "Conversion cancelled by user.";
                 DetailsLabel.Text = "Stopped";

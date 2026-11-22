@@ -155,6 +155,9 @@ public class Converter
 
         foreach (var input in fileList)
         {
+            if (cancellationToken.IsCancellationRequested)
+                return ConverterError.SkipFile;
+
             index++;
             FileBegin?.Invoke(this, new FileBeginEventArgs(input, index, total));
 
@@ -330,6 +333,9 @@ public class Converter
                     addTrackResult.Error is ConverterError.FfprobeFailed or ConverterError.InputNotFound or ConverterError.InputNotReadable)
                     singleMuxResult = addTrackResult.Error;
                 FileEnd?.Invoke(this, new FileEndEventArgs(input, addTrackResult.Error));
+                if (cancellationToken.IsCancellationRequested)
+                    return addTrackResult.Error == ConverterError.Ok
+                        ? ConverterError.SkipFile : addTrackResult.Error;
                 continue;
             }
 
@@ -541,6 +547,8 @@ public class Converter
             var encodeError = await RunFfmpegEncodeAsync(cmdArgs, duration, cancellationToken);
 
             FileEnd?.Invoke(this, new FileEndEventArgs(input, encodeError));
+            if (cancellationToken.IsCancellationRequested)
+                return encodeError == ConverterError.Ok ? ConverterError.SkipFile : encodeError;
         }
 
         Completed?.Invoke(this, EventArgs.Empty);
@@ -848,8 +856,12 @@ public class Converter
                 preservationResult.Plan);
             ConverterError conversionError = await RunFfmpegEncodeAsync(arguments, duration, cancellationToken);
             if (conversionError != ConverterError.Ok)
+            {
+                if (conversionError == ConverterError.SkipFile && cancellationToken.IsCancellationRequested)
+                    EmitMuxProgress(input, MuxProgressStage.Canceled, "Mux canceled");
                 return AddTrackResult.Failed(
                     conversionError, AddTrackStage.SourcePreparation, "Add Track source preparation failed.");
+            }
 
             if (!await MuxPipeline.ValidatePreparedSourceAsync(
                     _tools.Ffprobe, intermediateFile, cancellationToken))
@@ -1144,10 +1156,11 @@ public class Converter
         return null;
     }
 
-    private async Task<ConverterError> RunFfmpegEncodeAsync(string cmdArgs, double duration, CancellationToken cancellationToken)
+    internal async Task<ConverterError> RunFfmpegEncodeAsync(string cmdArgs, double duration, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var process = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -1167,11 +1180,10 @@ public class Converter
 
             process.Start();
 
-            // Asynchronously read the standard output (which has progress statements)
-            var readOutputTask = Task.Run(async () =>
+            async Task ReadProgressAsync()
             {
                 using var reader = process.StandardOutput;
-                while (await reader.ReadLineAsync(cancellationToken) is { } line)
+                while (await reader.ReadLineAsync() is { } line)
                 {
                     if (line.StartsWith("out_time_ms="))
                     {
@@ -1192,7 +1204,7 @@ public class Converter
                         if (line.Contains("end"))
                         {
                             ProgressEncode?.Invoke(this, new ProgressEncodeEventArgs(100.0f, (float)fps, 0));
-                            break;
+                            continue;
                         }
                     }
 
@@ -1208,14 +1220,49 @@ public class Converter
                         ProgressEncode?.Invoke(this, new ProgressEncodeEventArgs((float)percent, (float)fps, (float)eta));
                     }
                 }
-            });
+            }
 
-            await process.WaitForExitAsync(cancellationToken);
-            await readOutputTask;
+            async Task<string> ReadDiagnosticsAsync()
+            {
+                const int maxCharacters = 16384;
+                var diagnostics = new StringBuilder();
+                var buffer = new char[4096];
+                int count;
+                while ((count = await process.StandardError.ReadAsync(buffer)) > 0)
+                {
+                    diagnostics.Append(buffer, 0, count);
+                    if (diagnostics.Length > maxCharacters)
+                        diagnostics.Remove(0, diagnostics.Length - maxCharacters);
+                }
+                return diagnostics.ToString().Trim();
+            }
+
+            Task readOutputTask = ReadProgressAsync();
+            Task<string> readErrorTask = ReadDiagnosticsAsync();
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException) when (process.HasExited) { }
+                await process.WaitForExitAsync(CancellationToken.None);
+                await Task.WhenAll(readOutputTask, readErrorTask);
+                throw;
+            }
+
+            await Task.WhenAll(readOutputTask, readErrorTask);
 
             if (process.ExitCode != 0)
             {
-                RaiseError($"ffmpeg exited with non-zero code: {process.ExitCode}", ConverterError.FfmpegFailed);
+                string diagnostics = await readErrorTask;
+                string detail = string.IsNullOrEmpty(diagnostics) ? "" : $"\n{diagnostics}";
+                RaiseError($"ffmpeg exited with non-zero code: {process.ExitCode}{detail}", ConverterError.FfmpegFailed);
                 return ConverterError.FfmpegFailed;
             }
 
