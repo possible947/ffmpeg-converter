@@ -141,11 +141,8 @@ For C CLI (`build/bin/ffmpeg_converter`):
 
 ## 3. Validation
 
-Build and run all Pascal tests (CLI, command-builder, path-parse, mode matrix):
-
-```bash
-make -C fpc/build all
-```
+The Free Pascal implementation is Windows-only. On macOS, validate the C/CMake
+build described above; do not invoke the Windows FPC build.
 
 Full regression suite (Pascal + CLI parity checks, requires `ffmpeg` in PATH):
 

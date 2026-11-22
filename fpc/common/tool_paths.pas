@@ -248,10 +248,10 @@ end;
 
 function ResolveFfmpegBin: string;
 begin
-  Result := ResolveFromEnv('FFMPEG');
-  if Result = '' then Result := ResolveFromEnv('FFMPEG_BIN');
-  if Result = '' then Result := ResolveFromExeDir('ffmpeg');
+  Result := ResolveFromExeDir('ffmpeg');
   if Result = '' then Result := ResolveFromRepoWindowsBin('ffmpeg');
+  if Result = '' then Result := ResolveFromEnv('FFMPEG');
+  if Result = '' then Result := ResolveFromEnv('FFMPEG_BIN');
   if Result = '' then
   Result := ResolveBinary('ffmpeg',
     ['/opt/local/bin/ffmpeg8', '/opt/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg',
@@ -260,10 +260,10 @@ end;
 
 function ResolveFfprobeBin: string;
 begin
-  Result := ResolveFromEnv('FFPROBE');
-  if Result = '' then Result := ResolveFromEnv('FFPROBE_BIN');
-  if Result = '' then Result := ResolveFromExeDir('ffprobe');
+  Result := ResolveFromExeDir('ffprobe');
   if Result = '' then Result := ResolveFromRepoWindowsBin('ffprobe');
+  if Result = '' then Result := ResolveFromEnv('FFPROBE');
+  if Result = '' then Result := ResolveFromEnv('FFPROBE_BIN');
   if Result = '' then
   Result := ResolveBinary('ffprobe',
     ['/opt/local/bin/ffprobe8', '/opt/local/bin/ffprobe', '/opt/homebrew/bin/ffprobe', '/usr/local/bin/ffprobe',
@@ -277,14 +277,17 @@ var
   I: Integer;
 {$ENDIF}
 begin
-  Result := ResolveFromEnv('MP4BOX');
-  if Result = '' then Result := ResolveFromEnv('MP4BOX_BIN');
-  if Result = '' then Result := ResolveFromExeDir('MP4Box');
+  Result := ResolveFromExeDir('MP4Box');
   if Result = '' then Result := ResolveFromRepoWindowsBin('MP4Box');
   if Result <> '' then
     Exit;
 
 {$IFDEF Windows}
+  Result := ResolveFromEnv('MP4BOX');
+  if Result = '' then Result := ResolveFromEnv('MP4BOX_BIN');
+  if Result <> '' then
+    Exit;
+
   { Search in common Windows installation paths }
   Candidates := [
     'C:\Program Files\GPAC\mp4box.exe',
@@ -310,13 +313,13 @@ end;
 
 function ResolveMkvmergeBin: string;
 begin
-  Result := ResolveFromEnv('MKVMERGE');
-  if Result = '' then
-    Result := ResolveFromEnv('MKVMERGE_BIN');
-  if Result = '' then
-    Result := ResolveFromExeDir('mkvmerge');
+  Result := ResolveFromExeDir('mkvmerge');
   if Result = '' then
     Result := ResolveFromRepoWindowsBin('mkvmerge');
+  if Result = '' then
+    Result := ResolveFromEnv('MKVMERGE');
+  if Result = '' then
+    Result := ResolveFromEnv('MKVMERGE_BIN');
   if Result = '' then
   Result := ResolveBinary('mkvmerge',
     ['/opt/local/bin/mkvmerge', '/opt/homebrew/bin/mkvmerge', '/usr/local/bin/mkvmerge',

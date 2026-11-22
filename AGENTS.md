@@ -22,12 +22,12 @@ cmake --build build --target macos_cli
 cmake --build build --target macos_gui_native && cmake --install build   # .app bundle
 ```
 
-Free Pascal (`fpc/build/Makefile`, Windows only, default `FPCFLAGS=-Mobjfpc -Sh -O2`):
+Free Pascal (native Windows PowerShell build, default compiler flags
+`-Mobjfpc -Sh -O2`):
 
-```bash
-make -C fpc/build cli        # → fpc/bin/ffmpeg_converter.exe
-make -C fpc/build lib        # → fpc/converter/converter_pas.dll
-make -C fpc/build gui        # needs lazbuild
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows_build_fpc.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows_build_fpc.ps1 -LibraryOnly
 ```
 
 Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat`. Linux and macOS use the C/CMake implementation.
@@ -53,7 +53,8 @@ Windows builds do not include or expose HQ_converter. See
   for focused tests. See `.github/copilot-instructions.md` for build/test commands.
   Running `ffmpeg_converter --help` is a CLI smoke check, not a substitute for
   behavioral tests.
-- Pascal entrypoint is `make -C fpc/build tests`, but **`fpc/test/` currently has no tracked sources** — the Makefile prints "No Pascal tests found… skipping" when empty. Check the directory exists before expecting tests to run.
+- The Windows release script runs `fpc/test/test_windows_bundle_resolution.pas`;
+  there is no broader tracked Pascal test suite.
 - The regression script (`fpc/test/run_all_regression_and_capture.sh`, referenced in docs) likewise only exists when `fpc/test/` is populated.
 
 ## Validation Strategy
@@ -82,12 +83,18 @@ the committed Copilot instructions.
 
 ## Pascal notes
 
-- On Windows/MSYS2, bash mangles `-Fu` paths; the Makefile uses `cygpath -w` + double-quoted args — follow that pattern for any new `-Fu`.
+- Windows release builds use PowerShell with native FPC/Lazarus and do not require MSYS2.
+- The release consumes prepared FFmpeg files from `src/platform/windows/bin/` and
+  requires MKVToolNix and GPAC; the complete package is staged in `fpc/bin/`.
 - Compiled units → `fpc/build/.units/`, binaries → `fpc/bin/`. Never commit these.
 
 ## Tool discovery (both implementations)
 
-Order: executable-adjacent dir → env vars (`FFMPEG_BIN`, `FFPROBE_BIN`, `MKVMERGE_BIN`, `MP4BOX_BIN`, legacy `MKVMERGE`) → system `PATH`. macOS C also probes `/opt/local/bin/ffmpeg8`, `/opt/local/bin/ffmpeg`, `/opt/homebrew/bin`. `mux` mode is silently disabled when `mkvmerge` is absent.
+For Windows Pascal releases, bundled tools beside the executable take priority;
+environment variables and `PATH` are development fallbacks. C/Linux and
+macOS tool discovery may retain optional system-tool behavior. macOS C also
+probes `/opt/local/bin/ffmpeg8`, `/opt/local/bin/ffmpeg`, and
+`/opt/homebrew/bin`.
 
 ## Apple M4V pipeline
 

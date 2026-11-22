@@ -7,6 +7,7 @@
 ::   windows_build_fpc.bat
 ::   windows_build_fpc.bat -CLIOnly
 ::   windows_build_fpc.bat -GUIOnly
+::   windows_build_fpc.bat -LibraryOnly
 ::   windows_build_fpc.bat -Clean
 ::   windows_build_fpc.bat -Clean -GUIOnly
 

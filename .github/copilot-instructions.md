@@ -4,11 +4,17 @@ Prefer executable sources in this repo (CMake, Makefiles, scripts, and platform 
 
 ## ⚠️ Critical Prerequisites (read before building)
 
-- **FFmpeg version 8.1** (not system FFmpeg) compiled with `--enable-libfdk_aac` and `--enable-soxr` is **mandatory**
-  - macOS: must be in `src/platform/macos/bin/ffmpeg` and `src/platform/macos/bin/ffprobe` → build fails with `FATAL_ERROR` if missing
-  - Linux: optional for build, but binary won't work at runtime without it
+- **macOS C builds require FFmpeg 8.1** (not system FFmpeg), compiled with
+  `--enable-libfdk_aac` and `--enable-soxr`, in `src/platform/macos/bin/`;
+  CMake fails if either binary is missing.
+- **Windows Pascal releases require the prepared Windows FFmpeg bundle** in
+  `src/platform/windows/bin/`; it is consumed as an artifact and is prepared
+  separately from the native PowerShell/FPC/Lazarus application build.
+- **Linux C builds** may proceed without a bundled FFmpeg, but the application
+  will not run without one available at runtime.
 - **Windows has no C build at all** (no CLI, no GUI, no CMake target) — Windows is Pascal (`fpc/`) today, with the .NET port as its planned replacement
-- **macOS Pascal is discontinued** (v2.4+) — use C/Cocoa GUI only; FPC Makefile hard-blocks Darwin with exit error
+- **Windows Pascal release** uses `scripts/windows_build_fpc.ps1`, consumes the prepared bundle in `src/platform/windows/bin/`, and requires no MSYS2 installation on Windows.
+- **macOS Pascal is discontinued** (v2.4+) — use C/Cocoa GUI only
 - `presets.json` is copied next to each binary automatically by the build system
 - HQ_converter is an external Linux/macOS dependency. Its prepared release must
   be placed in `third_party/hq_converter/` before configuring/building; the build
@@ -55,27 +61,29 @@ For a CLI smoke check, run the platform binary with `--help` (for example `./bui
 
 The Pascal port is deprecated for new feature work, but its existing Windows
 CLI, library, and GUI remain in the repository for maintenance. Its Makefile
-currently permits builds only on Windows.
+is removed. Use the native PowerShell build script.
 
 CLI/library build:
-```bash
-make -C fpc/build cli
-make -C fpc/build lib
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows_build_fpc.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows_build_fpc.ps1 -LibraryOnly
 ```
 
 GUI build:
-```bash
-make -C fpc/build gui
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows_build_fpc.ps1 -GUIOnly
 ```
 
-Test entry point (currently skips because `fpc/test/` has no Pascal test sources):
-```bash
-make -C fpc/build tests
-```
+The Windows release script runs the focused `fpc/test/test_windows_bundle_resolution.pas`
+check. No broader Pascal test suite is currently available.
 
-Run Pascal targets from Windows; the Makefile rejects Linux and macOS builds.
+Run Pascal builds from Windows PowerShell. The release build consumes the
+prepared FFmpeg bundle from `src/platform/windows/bin/`, plus MKVToolNix and
+GPAC, and stages the complete package in `fpc/bin/`. It does not use MSYS2.
 
-Pascal build notes: default `FPCFLAGS=-Mobjfpc -Sh -O2`; compiled units land in `fpc/build/.units/`, binaries in `fpc/bin/` (never commit these). On Windows/MSYS2, bash mangles `-Fu` include paths — the Makefile wraps them with `cygpath -w` + double quotes; follow that pattern for any new `-Fu` flag. Windows FPC builds use `scripts/windows_build_fpc.ps1`/`.bat`.
+Pascal build notes: compiler flags are `-Mobjfpc -Sh -O2`; compiled units land
+in `fpc/build/.units/`, binaries in `fpc/bin/` (never commit these). Windows
+FPC builds use `scripts/windows_build_fpc.ps1` or its `.bat` launcher.
 
 ### Experimental .NET port (planned Windows Pascal replacement)
 
@@ -252,7 +260,10 @@ Important repo-level behavior:
 - The converter object is opaque: create/destroy via `converter_create()` / `converter_destroy()` and do not reach into `struct Converter` from outside `converter.c`.
 - `src/CMakeLists.txt` treats `core`, `utils`, `progress`, `audio`, `video`, and `ffmpeg_cmd` as interface libraries. Put implementations into the correct module directory rather than adding `.c` files there.
 - OS-specific code belongs in the matching platform directory; do not add Linux-only code into macOS or Windows platform subdirs, or vice versa.
-- `mkvmerge` is optional; mux mode is silently disabled when it is absent.
+- On the Windows Pascal release, `ffmpeg`, `ffprobe`, `mkvmerge`, and `MP4Box`
+  are required and bundled beside the application; the release build fails if
+  any is missing. Other platform implementations may retain their optional
+  system-tool discovery behavior.
 - Apple M4V pipeline details are intentionally duplicated in C and Pascal and must stay synchronized: stream-copy video, fixed AAC CBR 320k via `libfdk_aac`, AC3 track, `MP4Box` mux, optional chapter import.
 - The repo’s executable sources are the source of truth. If README text and scripts disagree, prefer the actual build or runtime behavior in CMake/Makefile/scripts.
 - **Never add a real hardware-encode probe (VAAPI/Vulkan/NVENC/QSV/AMF) that runs by default without process isolation and a non-invasive fallback.** A real one-frame VAAPI encode in `src/platform/linux/runtime_probe.c` was found to crash the desktop compositor (GNOME Shell/Mutter) via a kernel-level GPU-ring fault on some `amdgpu` systems — not the probe process itself, so `fork`/timeout/signal handling alone cannot prevent it. VAAPI capability detection now defaults to a read-only `vainfo -a` profile/entrypoint listing (`vaapi_profile_supported()`/`VaapiProfileSupported`), with real-encode confirmation gated behind `FFMPEG_CONVERTER_VAAPI_REAL_PROBE=1` (opt-in only). Follow this same read-only-by-default pattern for any new hardware-encoder probe; see `CHANGELOG.md` "Linux VAAPI hardware-probe crash fix" for full details.
@@ -290,10 +301,10 @@ Implemented separately in C (`src/m4v/`, `src/gui_macos_native/apple_m4v_creator
 | Problem | Likely Cause | Solution |
 |---------|--------------|----------|
 | macOS CMake fails: "src/platform/macos/bin/ffmpeg not found" | FFmpeg not bundled | Place static FFmpeg 8.1 binary in `src/platform/macos/bin/` |
-| Windows: no `windows_cli` target | C Windows port never worked and was removed | Use the Pascal build (`make -C fpc/build cli`/`gui`, `scripts/windows_build_fpc.ps1`) or the .NET port |
+| Windows: no `windows_cli` target | C Windows port never worked and was removed | Use `scripts/windows_build_fpc.ps1` for the Pascal release or the experimental .NET port |
 | Linux CLI builds but fails at runtime: "ffmpeg not found" | No bundled binary, missing env var | Set `FFMPEG_BIN=/path/to/ffmpeg` or place binary next to `ffmpeg_converter` |
 | Windows: GUI doesn't exist in C | Tried to build C on Windows | Windows GUI is Pascal-only (`fpc/gui/`) until the .NET/Avalonia port replaces it. |
-| macOS: Error when building FPC | Pascal support discontinued | Use C implementation (`cmake --build build --target macos_cli`). FPC Makefile exits with error on Darwin. |
+| macOS: Error when building FPC | Pascal support discontinued | Use C implementation (`cmake --build build --target macos_cli`). The Windows FPC release script is not supported on macOS. |
 | Both C & Pascal sync issue | Changed `converter.h` but not Pascal export | Any change to `src/converter/converter.h` → mirror in `fpc/converter/converter_pas.lpr` (8 exported functions) |
 | M4V pipeline broken after edit | C and Pascal M4V diverged | Keep `src/m4v/` + `src/gui_macos_native/apple_m4v_creator.m` synchronized with `fpc/converter/apple_m4v_creator.pas` |
 

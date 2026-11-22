@@ -6,7 +6,6 @@
 
 # Bundled Windows ffmpeg/ffprobe binaries and their DLL dependencies
 src/platform/windows/bin/
-!fpc/build/Makefile
 !fpc/build/fpmake.pp
 !fpc/build/package_macos_app.sh
 
@@ -37,6 +36,7 @@ fpc/bin/
 
 # Pascal compiled test binaries
 fpc/test/test_*
+!fpc/test/test_windows_bundle_resolution.pas
 fpc/test/run_*
 
 # Local test media files

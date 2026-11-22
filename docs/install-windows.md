@@ -26,8 +26,8 @@ The following video codecs are available on Windows:
 | `h264_qsv` | Intel GPU | Intel GPU + MFX runtime |
 | `hevc_qsv` | Intel GPU | Intel GPU + MFX runtime |
 | `prores_ks_vulkan` | Any GPU (Vulkan) | Vulkan 1.1 driver (any vendor) |
-| `mux` | MKV post-mux | `mkvmerge` found on PATH or next to exe |
-| `m4v` | Apple M4V creator | `MP4Box` (GPAC) found on PATH or next to exe |
+| `mux` | MKV post-mux | `mkvmerge.exe` bundled next to the app |
+| `m4v` | Apple M4V creator | `MP4Box.exe` bundled next to the app |
 
 ### prores_ks_vulkan
 
@@ -72,10 +72,9 @@ do not support AV1 hardware decoding (most GPUs before RTX 30 series) return an 
 - For `av1_qsv`: Intel Arc or 12th-gen+ Intel CPU with integrated graphics and
   the Intel oneVPL/MFX runtime. Detected automatically at startup.
 
-**MSYS2 ucrt64 build flags required:**
-```bash
-./configure --enable-libdav1d --enable-libvpl  # for libdav1d + QSV
-```
+The Windows FPC release consumes the prepared FFmpeg bundle in
+`src/platform/windows/bin/`; building that bundle is a separate WSL-based
+process. No MSYS2 environment is required on Windows.
 
 ### mux
 
@@ -86,13 +85,11 @@ original (or processed) audio without re-encoding either.
 
 **Requirements:**
 - `mkvmerge` (from [MKVToolNix](https://mkvtoolnix.download/)) must be available.
-  Install via any of the following — the converter finds it automatically:
-  - **Chocolatey**: `choco install mkvtoolnix`
-  - **MSYS2**: `pacman -S mingw-w64-x86_64-mkvtoolnix`
-  - **Bundled**: place `mkvmerge.exe` next to `ffmpeg_converter.exe` or in a `bin/` subfolder.
-  - **Custom path**: set the `MKVMERGE` or `MKVMERGE_BIN` environment variable to the full path.
+  The Windows release build copies it and its runtime files into `fpc/bin/`.
+  The build stops with an error if it cannot find the executable. Developers
+  can pass `-MkvmergePath` to `windows_build_fpc.ps1` or set `MKVMERGE_BIN`.
 - `mux` appears in the codec list **only when** `mkvmerge` is detected at startup.
-  If it is not found, the option is silently omitted.
+  A correctly assembled Windows release always includes it.
 
 **Usage (command line):**
 ```powershell
@@ -122,16 +119,14 @@ ffmpeg AC3 encoder).
 
 **Requirements:**
 - `MP4Box` from [GPAC](https://gpac.io/) must be available on the system.
-  Install via any of the following — the converter finds it automatically:
-  - **Chocolatey**: `choco install gpac`
-  - **Bundled**: place `MP4Box.exe` next to `ffmpeg_converter.exe`.
-  - **Custom path**: set the `MP4BOX` or `MP4BOX_BIN` environment variable to
-    the full path of `MP4Box.exe`.
+  The Windows release build copies it and its runtime files into `fpc/bin/`.
+  The build stops with an error if it cannot find the executable. Developers
+  can pass `-MP4BoxPath` to `windows_build_fpc.ps1` or set `MP4BOX_BIN`.
 - The bundled `ffmpeg.exe` must have been built with `--enable-libfdk_aac`.
   The default binary set in `src/platform/windows/bin/` satisfies this
   (it includes `libfdk-aac-2.dll`).
 - Input video codec must be `h264`, `hevc`, `prores`, or `prores_ks`.
-- `m4v` appears in the codec list **only when** `MP4Box` is detected at startup.
+- `m4v` appears in the codec list when the bundled `MP4Box.exe` is present.
 
 **M4V-specific options (command line):**
 
@@ -183,25 +178,31 @@ audio output steps (not applicable) and instead prompts for:
 ## 3. Free Pascal Path (v2.5: CLI and GUI, feature-complete)
 
 ### 3.1 Install dependencies
-- **FPC** (Free Pascal Compiler) — download from [www.freepascal.org](https://www.freepascal.org/)
-- **Lazarus IDE** (optional, for GUI build) — download from [lazarus-ide.org](https://www.lazarus-ide.org/)
+- **FPC** (Free Pascal Compiler) and **Lazarus IDE** — required for CLI and GUI builds.
+- **Prepared FFmpeg bundle** — `ffmpeg.exe`, `ffprobe.exe`, and their runtime
+  files must be present in `src/platform/windows/bin/`.
+- **MKVToolNix** and **GPAC** — required for the release package. The script
+  searches standard install directories and PATH; explicit executable paths
+  can also be supplied.
+- The Windows application build uses PowerShell and does not require MSYS2.
 
 ### 3.2 Build targets
 
-From repository root:
+From the repository root in PowerShell:
 
-```batch
-REM CLI binary (requires FPC only)
-fpc -Fu.\fpc\converter -Fu.\fpc\common -Fu.\fpc\json -Fu.\fpc\platform -Fu.\fpc\cli ^
-  -WwO2 .\fpc\cli\ffmpeg_converter_windows.lpr -offmpeg_converter_windows.exe
-
-REM GUI (requires Lazarus installed)
-lazbuild --build-mode=default .\fpc\gui\form.lpi
+```powershell
+.\scripts\windows_build_fpc.ps1 -Clean
 ```
 
-Artifacts:
-- `fpc/cli/ffmpeg_converter_windows.exe` — CLI binary (feature-matched with C CLI)
-- `fpc/gui/ffmpeg_converter_gui.exe` — GUI app with threaded conversion
+The complete release is staged in `fpc/bin/`: CLI and GUI executables,
+`ffmpeg.exe`, `ffprobe.exe`, `mkvmerge.exe`, `MP4Box.exe`, required runtime
+libraries, and `presets.json`. The build fails if any required component is
+missing or fails its startup check.
+
+For focused builds, use `-CLIOnly` or `-GUIOnly`; both still validate and stage
+the complete runtime bundle. `-LibraryOnly` builds `converter_pas.dll` without
+creating an application release. `-MkvmergePath` and `-MP4BoxPath` accept
+explicit executable paths when tools are installed outside standard locations.
 
 ### 3.3 Windows Pascal Features
 
@@ -218,8 +219,8 @@ Artifacts:
 
 **CLI and GUI parity:**
 - Both support identical codec sets and command-line options
-- Both auto-detect bundled tools next to executable
-- Both support environment variable overrides (`FFMPEG_BIN`, `MKVMERGE_BIN`, etc.)
+- Both use the bundled tools next to the executable first
+- Environment variables remain explicit developer overrides, not release dependencies
 
 ### 3.4 Tool Discovery (Windows Pascal)
 
@@ -238,12 +239,11 @@ Artifacts:
 
 ## 4. Tool Resolution and Environment
 
-Both C and Pascal implementations on Windows follow the same tool discovery order:
-1. Bundled executables (next to `.exe`)
-2. Environment variable paths
-3. System `PATH`
-
-Set environment variables for custom tool paths:
+The Windows FPC release resolves FFmpeg, FFprobe, mkvmerge, and MP4Box from the
+same directory as the application. This keeps the release independent of
+system-installed tool versions. Environment variables are fallback overrides
+for development when a bundled file is absent; they do not override the
+complete release bundle:
 ```batch
 set FFMPEG_BIN=C:\tools\ffmpeg.exe
 set FFPROBE_BIN=C:\tools\ffprobe.exe

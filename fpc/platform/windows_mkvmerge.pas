@@ -31,32 +31,7 @@ begin
   Result := '';
 
 {$IFDEF Windows}
-  { Explicit env override }
-  EnvPath := Trim(SysUtils.GetEnvironmentVariable('MKVMERGE'));
-  if (EnvPath = '') then
-    EnvPath := Trim(SysUtils.GetEnvironmentVariable('MKVMERGE_BIN'));
-  if (EnvPath <> '') and FileExists(EnvPath) then
-  begin
-    Result := EnvPath;
-    Exit;
-  end;
-
-  { Check if mkvmerge.exe is in PATH using where.exe }
-  CmdRes := RunCommandCapture('where mkvmerge.exe 2>nul');
-  if CmdRes.ExitCode = 0 then
-  begin
-    Result := Trim(CmdRes.OutputText);
-    { where may return multiple lines; take the first }
-    if Pos(#13, Result) > 0 then
-      Result := Copy(Result, 1, Pos(#13, Result) - 1);
-    if Pos(#10, Result) > 0 then
-      Result := Copy(Result, 1, Pos(#10, Result) - 1);
-    Result := Trim(Result);
-    if Result <> '' then
-      Exit;
-  end;
-
-  { Check in application directory }
+  { Prefer the complete release bundle next to the executable. }
   FillChar(ExePathW, SizeOf(ExePathW), 0);
   GetModuleFileNameW(0, ExePathW, MAX_PATH);
   SearchPath := ExtractFilePath(WideToAnsi(WideString(ExePathW))) + 'mkvmerge.exe';
@@ -78,6 +53,30 @@ begin
       Exit;
     end;
     BaseDir := ExpandFileName(IncludeTrailingPathDelimiter(BaseDir) + '..');
+  end;
+
+  { Explicit overrides are useful for development builds without a staged bundle. }
+  EnvPath := Trim(SysUtils.GetEnvironmentVariable('MKVMERGE'));
+  if (EnvPath = '') then
+    EnvPath := Trim(SysUtils.GetEnvironmentVariable('MKVMERGE_BIN'));
+  if (EnvPath <> '') and FileExists(EnvPath) then
+  begin
+    Result := EnvPath;
+    Exit;
+  end;
+
+  { Development fallback when running outside a complete release folder. }
+  CmdRes := RunCommandCapture('where mkvmerge.exe 2>nul');
+  if CmdRes.ExitCode = 0 then
+  begin
+    Result := Trim(CmdRes.OutputText);
+    if Pos(#13, Result) > 0 then
+      Result := Copy(Result, 1, Pos(#13, Result) - 1);
+    if Pos(#10, Result) > 0 then
+      Result := Copy(Result, 1, Pos(#10, Result) - 1);
+    Result := Trim(Result);
+    if Result <> '' then
+      Exit;
   end;
 {$ELSE}
   { On non-Windows, use command -v to find mkvmerge }

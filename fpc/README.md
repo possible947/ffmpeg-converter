@@ -1,15 +1,13 @@
 # Free Pascal Port — ffmpeg_converter (Version 2.6)
 
 This folder contains the Free Pascal (FPC) implementation of the `ffmpeg-converter` project,
-available for Windows release builds and Linux development/debug builds.
+available for Windows release builds and maintenance.
 
 ## Platform Status (strategy)
 
 - **Windows**: CLI + Lazarus/LCL GUI (native win32/win64 widgetset) with Vulkan GPU support.
   This is the native release and final-validation target.
-- **Linux**: CLI/GUI development and debug target. The Pascal implementation is
-  functionally usable and is used to debug shared behavior before Windows testing,
-  but the Linux GUI still has known interface issues and is not a release package.
+- **Linux**: unsupported; use the C/CMake implementation.
 - **macOS**: Pascal support is discontinued; use the C/CMake implementation.
 
 ## Features
@@ -39,81 +37,32 @@ available for Windows release builds and Linux development/debug builds.
 
 ## Build
 
-The supported Windows release build uses the Makefile from a Windows environment
-(`make -C fpc/build ...`). Linux development GUI builds can be performed directly
-with Lazarus, for example:
+The Windows release is built natively with FPC/Lazarus and PowerShell. FFmpeg is
+prepared separately and staged in `src/platform/windows/bin/`; MSYS2 is not
+required.
 
-```bash
-lazbuild --ws=gtk3 fpc/gui/form.lpi
-lazbuild --ws=qt6 fpc/gui/form.lpi
+### CLI and GUI release
+
+```powershell
+.\scripts\windows_build_fpc.ps1 -Clean
 ```
 
-These Linux builds are development/debug builds and do not replace native Windows
-release validation.
-
-LCL availability is distribution-dependent. The tested Ubuntu Linux 24.04.4
-environment, using Lazarus from external sources, did not provide the required
-LCL units. Fedora Linux 44 provides the LCL packages and supports the GTK3 and
-Qt6 builds shown above.
-
-### CLI binary
-
-```bash
-make -C fpc/build cli        # → fpc/bin/ffmpeg_converter.exe
-```
-
-The direct `cli` and `gui` targets stage `presets.json` next to their binaries.
+The complete release is staged in `fpc/bin/` and contains the CLI, GUI,
+`ffmpeg.exe`, `ffprobe.exe`, `mkvmerge.exe`, `MP4Box.exe`, their required
+runtime files, and `presets.json`. The build stops if a required component is
+missing or fails its startup check. Focused `-CLIOnly` and `-GUIOnly` builds
+still stage and validate the complete runtime bundle.
 
 ### Shared library
 
-```bash
-make -C fpc/build lib        # → fpc/converter/converter_pas.dll
+```powershell
+.\scripts\windows_build_fpc.ps1 -LibraryOnly
 ```
 
-Direct invocation:
-
-```bash
-fpc -Cg -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json ./fpc/converter/converter_pas.lpr
-```
-
-> Note: `-Cg` enables position-independent code (PIC), required for shared library linking on x86_64.
-
-### GUI (requires Lazarus IDE or lazbuild)
-
-```bash
-make -C fpc/build gui
-```
-
-### Tests
-
-```bash
-make -C fpc/build tests
-```
-
-Targeted parity checks:
-
-```bash
-make -C fpc/build tests TEST_PROGRAMS="test_cmd_builder test_cli_mode_matrix test_unified_tool_resolver"
-./fpc/test/test_cmd_builder
-./fpc/test/test_cli_mode_matrix
-./fpc/test/test_unified_tool_resolver
-```
-
-Shell-based integration tests:
-
-```bash
-bash fpc/test/test_cli_args_matrix.sh
-bash fpc/test/check_gui_cli_issues.sh
-```
-
-Unified regression run (build + unit + integration + Pascal/C parity):
-
-```bash
-./fpc/test/run_all_regression_and_capture.sh
-```
-
-The script writes a timestamped report under `/tmp/ffc_regression_<timestamp>/`
-with `summary.txt`, `status.tsv`, logs, and parity artifacts.
+The library-only mode builds `fpc/converter/converter_pas.dll`; it does not
+create an application release bundle. The release script compiles and runs the
+focused bundle-resolution check in `fpc/test/test_windows_bundle_resolution.pas`;
+there is no broader Pascal test suite.
 
 ### Generated artifacts
 
@@ -146,11 +95,11 @@ LD_LIBRARY_PATH=fpc/converter ./your_app
 
 ## Notes
 
-- Pascal GUI/CLI is release-supported on Windows. Linux Pascal remains a functional
-  development/debug implementation; production Linux users should use the C/CMake
-  implementation (`src/gui/`). macOS users should use `src/gui_macos_native`.
-- Pascal runtime resolves tools for GUI/CLI launches using a unified resolver
-  (`ffmpeg`, `ffprobe`, `MP4Box`, `mkvmerge`): executable-adjacent dir → env vars → PATH.
+- Pascal GUI/CLI is supported for Windows release builds only. Linux and macOS
+  users should use the C/CMake implementations (`src/gui/` and
+  `src/gui_macos_native/`).
+- Pascal runtime resolves bundled tools beside the executable first; environment
+  variables and PATH are development fallbacks.
 - `converter_set_options` validates Windows hardware codec capabilities at runtime.
 - Windows GUI runtime-probes NVENC/AMF/QSV/Vulkan and conditionally exposes matching codecs
   in the codec combobox.

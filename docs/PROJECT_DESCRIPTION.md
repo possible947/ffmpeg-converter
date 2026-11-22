@@ -16,7 +16,8 @@ including the new `hq_converter` codec group and mux workflows. **Windows C
 support (CLI, GUI, platform sources) has been removed entirely** — Windows is
 now served only by the Free Pascal port, which has in turn become a
 **Windows-only** target (its Linux and macOS build paths were removed; the
-Pascal Makefile hard-blocks non-Windows hosts). See "2.2 Free Pascal" below.
+native PowerShell release script builds it on Windows). See "2.2 Free Pascal"
+below.
 
 ## Phase 3 Status
 
@@ -149,7 +150,7 @@ independent implementations:
 - **C/CMake** in `src/` — primary implementation, Linux and macOS only
   (Windows C support was removed in Phase 3.0)
 - **Free Pascal** in `fpc/` — Windows-only release target (Linux and macOS
-  Pascal build paths were removed; the Makefile hard-blocks non-Windows hosts)
+  Pascal build paths were removed)
 
 Both paths provide conversion workflows around external `ffmpeg`/`ffprobe`.
 
@@ -210,9 +211,7 @@ Both paths provide conversion workflows around external `ffmpeg`/`ffprobe`.
 **Platform coverage:**
 - **Windows**: CLI + Lazarus/LCL GUI with Vulkan GPU support (sole Pascal
   target and release target)
-- **Linux**: removed — the Pascal Makefile (`fpc/build/Makefile`)
-  intentionally errors out ("Pascal/FPC builds are supported on Windows
-  only.") on any non-Windows host; use the C/CMake implementation
+- **Linux**: removed; use the C/CMake implementation
 - **macOS**: unsupported Pascal target (discontinued v2.4+); use the C/Cocoa
   implementation
 
@@ -222,8 +221,8 @@ Both paths provide conversion workflows around external `ffmpeg`/`ffprobe`.
 - GUI: `fpc/gui/form.pas` (Lazarus/LCL)
 - Apple M4V: `fpc/converter/apple_m4v_creator.pas`
 - JSON parsing: `fpc/json/loudnorm_json.pas`
-- Tests: `fpc/test/test_*.pas` (currently no tracked test sources; the
-  Makefile `tests` target skips cleanly when the directory is empty)
+- Tests: `fpc/test/test_windows_bundle_resolution.pas` (focused release-bundle
+  resolution check, run by the Windows PowerShell release script)
 - No HQ Converter counterpart — HQ Converter integration is C/Linux/macOS
   only (see section 8); Pascal/Windows does not have an `hq_converter` group
 
@@ -291,19 +290,24 @@ anymore. Use the Free Pascal build for Windows.
   valid prepared release under `third_party/hq_converter/` (not a
   user-facing cache option); see section 8
 
-### 4.2 Pascal/Make targets (Windows only)
+### 4.2 Pascal/PowerShell targets (Windows only)
 
-In `fpc/build/Makefile`:
-- `cli` — CLI binary
-- `lib` — shared library (C ABI export)
-- `gui` — Lazarus/LCL GUI (needs `lazbuild`)
-- `tests` — all unit tests (currently a no-op: `fpc/test/` has no tracked
-  sources, so the target prints a "no tests found" message and exits cleanly)
+Windows FPC builds use `scripts/windows_build_fpc.ps1`; the legacy MSYS2
+Makefile has been removed.
 
-The Makefile errors out immediately on any non-Windows host.
+- Default — build CLI and Lazarus/LCL GUI, then stage the complete release in
+  `fpc/bin/`
+- `-CLIOnly` / `-GUIOnly` — build one application while still validating and
+  staging all required runtime tools
+- `-LibraryOnly` — build the C ABI shared library without creating a release
 
-**Platform-specific:**
-- Windows: produces `fpc/cli/ffmpeg_converter_windows.exe`
+The application release requires the prepared FFmpeg bundle, MKVToolNix, and
+GPAC. It includes `ffmpeg.exe`, `ffprobe.exe`, `mkvmerge.exe`, `MP4Box.exe`,
+required runtime files, and `presets.json`. The build fails when a required
+component is missing.
+
+The release script runs the focused `fpc/test/test_windows_bundle_resolution.pas`
+check; there is no broader tracked Pascal test suite.
 
 ## 5. Runtime Dependencies
 

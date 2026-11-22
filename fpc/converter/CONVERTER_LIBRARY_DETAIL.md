@@ -84,8 +84,8 @@ Main responsibilities inside `converter.c`:
 
 ## 8. Build and Integration
 Build from repository root:
-```bash
-make -C fpc/build lib
+```powershell
+.\scripts\windows_build_fpc.ps1 -LibraryOnly
 ```
 
 C/C++ integration points:

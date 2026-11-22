@@ -262,7 +262,7 @@ on Linux and macOS:
 - Audio normalization: `none`, `peak`, `peak 2-pass`, `loudness`, `loudness 2-pass`.
 - Audio output modes: PCM, fixed CBR FDK AAC 320k, and fixed CBR FDK AAC 320k + AC3.
 - Linux MKV mux mode: one source file + external replacement video track, final output via `mkvmerge`.
-- **Windows MKV mux mode**: same workflow available on Windows when `mkvmerge` is found on PATH or next to the executable (installed via MKVToolNix, Chocolatey, or MSYS2).
+- **Windows MKV mux mode**: the Pascal release bundle includes `mkvmerge.exe` beside the application.
 - **Audio filter multithreading**: 2-pass analysis uses `-filter_threads N` (N = CPU/2) for parallel audio processing.
 - Encode progress: percent, FPS, ETA.
 - CLI with argument parsing and interactive menu.
@@ -300,20 +300,23 @@ on Linux and macOS:
   See `docs/v3.0-Phase2.md` §6.2 for GPU support ranges and known driver caveats.
 - `MP4Box` (GPAC) for Apple M4V packaging on macOS native GUI and Linux GTK M4V workflow.
 - `mkvmerge` for mux mode on all platforms (Linux, macOS, Windows).
-  - Windows: install via Chocolatey (`choco install mkvtoolnix`), MSYS2 (`pacman -S mingw-w64-x86_64-mkvtoolnix`),
-    or place `mkvmerge.exe` next to `ffmpeg_converter.exe`.
-  - Environment variables: `MKVMERGE` or `MKVMERGE_BIN` override binary path.
-  - Mux mode silently disabled if mkvmerge not found.
+  - Windows Pascal release: `mkvmerge.exe` and its runtime files are bundled beside the application.
+  - Linux/macOS: provide `mkvmerge` through the platform package, PATH, or the platform bundle.
+  - On Windows Pascal releases, bundled tools take priority; environment
+    variables are fallback overrides for development or incomplete bundles.
+  - The Windows release build fails if `mkvmerge.exe` is missing from the build inputs.
 - Linux GUI only: `libgtk-4-dev` (or distro equivalent) and `glib-compile-resources`
   (part of `libglib2.0-dev-bin` on Debian/Ubuntu, included with `gtk4-devel` on Fedora).
 - macOS GUI only: Xcode command-line tools (includes clang, libtool).
 - Optional AppImage packaging (Linux): `appimagetool` (https://github.com/AppImage/AppImageKit).
 
-### Free Pascal path (Linux development and Windows release)
-- **Linux**: Lazarus IDE + FPC for development/debug GUI builds. Direct builds use
-  `lazbuild --ws=gtk3 fpc/gui/form.lpi` or `lazbuild --ws=qt6 fpc/gui/form.lpi`.
-- **Windows**: Lazarus IDE + FPC for the native release GUI/CLI build.
-- **macOS**: Pascal support discontinued in v2.4.
+### Free Pascal path (Windows release)
+- **Windows**: Lazarus IDE + FPC for the native release GUI/CLI build. The release
+  package contains `ffmpeg.exe`, `ffprobe.exe`, `mkvmerge.exe`, `MP4Box.exe`,
+  required runtime libraries, and `presets.json`.
+- **Windows release inputs**: the prepared FFmpeg artifact in
+  `src/platform/windows/bin/`, plus installed MKVToolNix and GPAC. The native
+  Windows build uses PowerShell and does not require MSYS2.
 - `ffmpeg` + `ffprobe` for Linux bundling in `src/platform/linux/bin/` (not required for CLI,
   but used for GUI packaging).
 - `mkvmerge` for Pascal `mux` workflow (`codec=mux`) and GUI post-mux stage.
@@ -357,18 +360,18 @@ cmake --build . --target macos_gui_native
 cmake --install .   # produces build/install/ffmpeg_converter_gui_macos.app
 ```
 
-### Free Pascal (Windows release, Linux development/debug)
+### Free Pascal (Windows release)
 
-```bash
-# Windows CLI (via FPC compiler)
-make -C fpc/build cli
-fpc -Fu./fpc/converter -Fu./fpc/common -Fu./fpc/json -Fu./fpc/cli \
-  ./fpc/cli/ffmpeg_converter_windows.lpr -offmpeg_converter_windows.exe
-
-# Windows GUI (via Lazarus)
-lazbuild fpc/gui/form.lpi
-# → fpc/gui/ffmpeg_converter_gui.exe
+```powershell
+.\scripts\windows_build_fpc.ps1 -Clean
+# Release output: fpc\bin\
 ```
+
+The script requires FPC, Lazarus, the prepared FFmpeg bundle, MKVToolNix, and
+GPAC. It fails instead of producing an incomplete release when an input is
+missing. Use `-CLIOnly` or `-GUIOnly` for a single-application build; both
+variants still stage and validate the complete runtime bundle. Use
+`-LibraryOnly` to build only `converter_pas.dll` without creating a release.
 
 **Note**: Pascal macOS implementation discontinued; use C/CMake native GUI instead.
 Linux Pascal is maintained for parallel development and preliminary Windows
