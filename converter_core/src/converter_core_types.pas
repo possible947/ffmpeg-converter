@@ -24,12 +24,17 @@ const
   PLATFORM_WINDOWS_ID11 = 'windows_vulkan_nvidia';
   PLATFORM_HQ_ID12 = 'hq-converter';
 
+  // HQ_converter preset file, relative to the hq_converter release folder.
+  // Checked by TPlatformDetection and read by the registry (HQPresetLoader).
+  HQ_PRESETS_FILE = 'modules/encoder_orchestrator_v2/config/presets/encoder_presets_v2.json';
+
 type
   TPlatformToolsList = record // Stores paths to platform tools
     FFmpegPath: string; // Path to the FFmpeg executable
     FFprobePath: string; // Path to the FFprobe executable
     MkvmergePath: string; // Path to the mkvmerge executable
     mp4boxPath: string; // Path to the MP4Box executable
+    HqConverterPath: string; // hq_converter release folder; empty when 'hq-converter' was not detected
   end;
 
   TPlatformlist = class // Manages a list of platforms

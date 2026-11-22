@@ -11,6 +11,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CORE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# HQ_converter release used by the HQ checks and by --dump hq-converter
+HQ_DIR="$(cd "$CORE_DIR/.." && pwd)/third_party/hq_converter"
 FPC="${FPC:-fpc}"
 
 if ! command -v "$FPC" >/dev/null 2>&1; then
@@ -30,10 +32,11 @@ if ! "$FPC" -Mobjfpc -Sh -gh -gl -Cr -Co -Ct -vew "-Fu$CORE_DIR/src" "-FU$WORK" 
 fi
 
 case "${1:-}" in
-  --dump|--detected) "$WORK/reestr_tests" "$@"; exit $? ;;
+  --dump) "$WORK/reestr_tests" --hq "$HQ_DIR" "$@"; exit $? ;;
+  --detected) "$WORK/reestr_tests" "$@"; exit $? ;;
 esac
 
-OUT="$("$WORK/reestr_tests" 2>&1)"
+OUT="$("$WORK/reestr_tests" --hq "$HQ_DIR" 2>&1)"
 CODE=$?
 printf '%s\n' "$OUT" | grep -E '^(PASS|FAIL|INFO)|passed,'
 

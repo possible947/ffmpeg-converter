@@ -62,7 +62,7 @@ const
     'bin/mkvmerge',
     'modules/encoder_orchestrator_v2/runner/encoder_orchestrator_v2_runner',
     'modules/encoder_orchestrator_v2/config/toolchain_runtime.ini',
-    'modules/encoder_orchestrator_v2/config/presets/encoder_presets_v2.json');
+    HQ_PRESETS_FILE);
   HQ_REQUIRED_DIRS: array[0..0] of string = ('native/libav-sdk/lib');
 
   // GPU architecture detection (Windows/Linux). Only the PCI vendor/device ID is
@@ -610,6 +610,8 @@ const
     for I := Low(HQ_REQUIRED_DIRS) to High(HQ_REQUIRED_DIRS) do
       if not DirectoryExists(HqDir + HQ_REQUIRED_DIRS[I]) then
         Exit;
+    // The registry reads the HQ preset file from this folder
+    Value.Tools.HqConverterPath := HqDir;
     Value.AddItem(PLATFORM_HQ_ID12);
     {$ENDIF}
   end;

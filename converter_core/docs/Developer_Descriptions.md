@@ -104,7 +104,8 @@ HQ_converter keeps its own FFmpeg 8.1).
 5. Run the OS-specific detection (`DarwinPlatformDetection`,
    `LinuxPlatformList`, `WindowsPlatformList`).
 6. macOS/Linux: if the HQ_converter folder contains a complete release, add
-   platform `hq-converter`. Its absence is not an error.
+   platform `hq-converter` and store the folder in `Tools.HqConverterPath`
+   (the registry reads the HQ preset file from it). Its absence is not an error.
 7. Set `PlatformAllowed := True`.
 
 On the first failure in steps 1–3 detection stops: `PlatformAllowed` stays
@@ -201,8 +202,15 @@ checks and fails on any `FAIL` line or unfreed memory. It checks the base
 groups, ignored unknown/duplicate names, the fixed codec order, encoder
 availability of the nvenc7/qsv_dg2/Vulkan platforms (no AV1 on nvenc7, no
 10-bit on Windows), the tree rules for all platforms at once and the registry
-for the hardware platforms detected on the current machine. `--dump <names...>`
-(`-Dump` in PowerShell) and `--detected` (`-Detected`) print the registry tree.
+for the hardware platforms detected on the current machine. HQ checks
+(`HQPresetLoader`) write temporary preset files: missing folder/file, broken
+JSON and empty `encoders` give no HQ group; a sample file checks encoder IDs
+(known keys 18–23, unknown keys from 24), file order, `default_preset` as the
+current preset, Preset ID 40 with tool 5 and the HQ rules. The runners pass
+`third_party/hq_converter` (`--hq <dir>`); when the release is there its
+preset file is loaded too, otherwise `NOT AVAILABLE` is printed.
+`--dump <names...>` (`-Dump` in PowerShell, `hq-converter` included) and
+`--detected` (`-Detected`) print the registry tree.
 
 ## 8. Planned milestones
 

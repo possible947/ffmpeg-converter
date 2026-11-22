@@ -49,10 +49,12 @@ try {
 
     # heaptrc writes its report to stderr; Windows PowerShell 5 must not treat it as an error
     $ErrorActionPreference = 'Continue'
-    if ($Dump) { & $Exe --dump @Platforms; exit $LASTEXITCODE }
+    # HQ_converter release used by the HQ checks and by -Dump hq-converter
+    $HqArgs = @('--hq', (Join-Path (Split-Path -Parent $CoreDir) 'third_party\hq_converter'))
+    if ($Dump) { & $Exe @HqArgs --dump @Platforms; exit $LASTEXITCODE }
     if ($Detected) { & $Exe --detected; exit $LASTEXITCODE }
 
-    $output = & $Exe 2>&1 | ForEach-Object { "$_" }
+    $output = & $Exe @HqArgs 2>&1 | ForEach-Object { "$_" }
     $code = $LASTEXITCODE
     $output | Where-Object { $_ -match '^(PASS|FAIL|INFO)|passed,' } | ForEach-Object { Write-Host $_ }
 

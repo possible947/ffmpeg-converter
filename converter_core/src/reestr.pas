@@ -50,6 +50,7 @@ const
   CODEC_WINDOWS_NVENC7 = 9;
   CODEC_WINDOWS_QSV_DG2 = 10;
   CODEC_WINDOWS_VULKAN = 11;
+  CODEC_HQ = 12;
 
   // Encoder IDs. The same encoder ID in different codec groups has the same rules.
   ENC_PRORES = 1;
@@ -69,6 +70,18 @@ const
   ENC_HEVC_10 = 15;
   ENC_AV1 = 16;
   ENC_AV1_10 = 17;
+
+  // HQ_converter encoders, mapped from the encoder keys of encoder_presets_v2.json.
+  ENC_HQ_X264 = 18;              // "x264"
+  ENC_HQ_X265 = 19;              // "x265"
+  ENC_HQ_SVT_HEVC = 20;          // "svt-hevc"
+  ENC_HQ_SVT_AV1 = 21;           // "svt-av1"
+  ENC_HQ_FFMPEG_PRORES = 22;     // "ffmpeg-prores"
+  ENC_HQ_FFMPEG_PRORES_KS = 23;  // "ffmpeg-prores_ks"
+  ENC_HQ_FIRST_EXTRA = 24;       // unknown keys get 24, 25, ... in file order
+
+  // All HQ presets share one Preset ID; the preset name selects the HQ preset.
+  PRESET_HQ = 40;
 
 type
   // Implementation data of one preset for the current platform (from the low registry)
@@ -161,6 +174,9 @@ function GetReestr(PlatformList: TPlatformlist): TReestr;
 
 implementation
 
+uses
+  SysUtils, Classes, fpjson, jsonparser;
+
 const
   PLATFORM_COUNT = 12;
   PLATFORM_NAMES: array[1..PLATFORM_COUNT] of string = (
@@ -186,6 +202,8 @@ const
   RULES_H264:   TEncoderRules = (Mov: False; Mkv: True;  Mp4: True;  Pcm: True;  ACopy: False; Aac: True;  Ac3: True;  Chapters: True;  Subtitles: True;  Metadata: True;  OnePass: True;  TwoPass: True);
   RULES_HEVC:   TEncoderRules = (Mov: False; Mkv: True;  Mp4: True;  Pcm: True;  ACopy: False; Aac: True;  Ac3: True;  Chapters: True;  Subtitles: True;  Metadata: True;  OnePass: True;  TwoPass: True);
   RULES_AV1:    TEncoderRules = (Mov: False; Mkv: True;  Mp4: False; Pcm: True;  ACopy: False; Aac: True;  Ac3: True;  Chapters: True;  Subtitles: True;  Metadata: True;  OnePass: True;  TwoPass: True);
+  // One rule set for every HQ encoder; the container is chosen later by the Mux runtime module.
+  RULES_HQ:     TEncoderRules = (Mov: True;  Mkv: True;  Mp4: False; Pcm: True;  ACopy: True;  Aac: True;  Ac3: True;  Chapters: True;  Subtitles: True;  Metadata: True;  OnePass: True;  TwoPass: True);
 
 type
   // TReestrPlatform is the internal platform level of the high registry.
@@ -476,6 +494,108 @@ begin
   AddPreset(E, 39, 'default', ProResAvailable, ProResAvailable, AID);
 end;
 
+// Encoder ID for an HQ encoder key. Known keys have fixed IDs; any other key
+// gets the next free ID (NextID) in file order.
+function HqEncoderID(const Key: string; var NextID: integer): integer;
+const
+  HQ_ENCODER_KEYS: array[0..5] of string = (
+    'x264', 'x265', 'svt-hevc', 'svt-av1', 'ffmpeg-prores', 'ffmpeg-prores_ks');
+var
+  I: integer;
+begin
+  for I := Low(HQ_ENCODER_KEYS) to High(HQ_ENCODER_KEYS) do
+    if HQ_ENCODER_KEYS[I] = Key then
+      Exit(ENC_HQ_X264 + I);
+  Result := NextID;
+  Inc(NextID);
+end;
+
+// 5.11 hq-converter (ID 12): builds the HQ codec group from the HQ_converter
+// preset file <HqDir>/HQ_PRESETS_FILE ("encoders" object).
+//   - every encoder and preset of the file is Available;
+//   - the first encoder is Current; in each encoder the preset named by
+//     "default_preset" is Current, or the first preset when it is missing/unknown;
+//   - encoder and preset names are the JSON keys, unchanged (HQ needs them);
+//   - every preset has Preset ID 40 and gets its PresetSet from the low registry.
+// Returns nil when the file is missing, cannot be parsed or has no usable
+// encoder: then the HQ group is simply not offered, as if HQ was not found.
+function HQPresetLoader(const HqDir: string): TReestrPlatform;
+var
+  FileName, DefaultName, PresetName: string;
+  Stream: TFileStream;
+  Data, Item: TJSONData;
+  Encoders, Encoder, Presets: TJSONObject;
+  C: TReestrCodec;
+  E: TReestrEncoder;
+  I, J, NextID: integer;
+  HasDefault, FirstEncoder: boolean;
+begin
+  Result := nil;
+  if HqDir = '' then
+    Exit;
+  FileName := IncludeTrailingPathDelimiter(HqDir) + HQ_PRESETS_FILE;
+  if not FileExists(FileName) then
+    Exit;
+
+  Data := nil;
+  try
+    try
+      Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
+      try
+        Data := GetJSON(Stream);
+      finally
+        Stream.Free;
+      end;
+      if not (Data is TJSONObject) then
+        Exit;
+      Encoders := TJSONObject(Data).Find('encoders', jtObject) as TJSONObject;
+      if (Encoders = nil) or (Encoders.Count = 0) then
+        Exit;
+
+      Result := NewPlatform(12, True, False);
+      C := AddCodec(Result, CODEC_HQ, 'HQ-converter', True, False);
+      NextID := ENC_HQ_FIRST_EXTRA;
+      for I := 0 to Encoders.Count - 1 do
+      begin
+        if not (Encoders.Items[I] is TJSONObject) then
+          Continue;
+        Encoder := TJSONObject(Encoders.Items[I]);
+        Presets := Encoder.Find('presets', jtObject) as TJSONObject;
+        if (Presets = nil) or (Presets.Count = 0) then
+          Continue;
+
+        FirstEncoder := C.GetItemsCount = 0;
+        E := AddEncoder(C, HqEncoderID(Encoders.Names[I], NextID), Encoders.Names[I],
+          True, FirstEncoder, RULES_HQ);
+
+        Item := Encoder.Find('default_preset', jtString);
+        DefaultName := '';
+        if Item <> nil then
+          DefaultName := Item.AsString;
+        HasDefault := (DefaultName <> '') and (Presets.IndexOfName(DefaultName) >= 0);
+
+        for J := 0 to Presets.Count - 1 do
+        begin
+          PresetName := Presets.Names[J];
+          if HasDefault then
+            AddPreset(E, PRESET_HQ, PresetName, True, PresetName = DefaultName, 12)
+          else
+            AddPreset(E, PRESET_HQ, PresetName, True, J = 0, 12);
+        end;
+      end;
+
+      if C.GetItemsCount = 0 then
+        FreeAndNil(Result);
+    finally
+      Data.Free;
+    end;
+  except
+    // Unreadable or malformed preset file: HQ is not offered
+    on Exception do
+      FreeAndNil(Result);
+  end;
+end;
+
 function PlatformNameToID(const AName: string): integer;
 var
   I: integer;
@@ -491,6 +611,7 @@ function PrepareHighReestr(PlatformList: TPlatformlist): TReestrPlatformArray;
 var
   Requested: array[1..PLATFORM_COUNT] of boolean;
   AacAt: TReestrEncoder;
+  HQ: TReestrPlatform;
   I, ID: integer;
 
   procedure Add(P: TReestrPlatform);
@@ -540,7 +661,14 @@ begin
   if Requested[10] then Add(BuildPlatformHw(10, CODEC_WINDOWS_QSV_DG2, 'WINDOWS_QSV_DG2', False, True));
   if Requested[11] then Add(BuildPlatformVulkan(11, CODEC_WINDOWS_VULKAN, True));
 
-  // 5.11 hq-converter (ID 12): HQPresetLoader is not implemented yet
+  // 5.11 hq-converter (ID 12): the HQ preset file is read from the folder found by
+  // TPlatformDetection (Tools.HqConverterPath)
+  if Requested[12] then
+  begin
+    HQ := HQPresetLoader(PlatformList.Tools.HqConverterPath);
+    if HQ <> nil then
+      Add(HQ);
+  end;
 end;
 
 { Low registry }

@@ -4,6 +4,8 @@ program reestr_tests;
 //   reestr_tests              run all checks, print PASS/FAIL lines and a summary
 //   reestr_tests --detected   dump the registry for 'all' + the hardware platforms of this machine
 //   reestr_tests --dump N...  dump the registry for the given platform names
+//   reestr_tests --hq DIR ... any of the above with the HQ_converter release in DIR
+//                             (checks the real preset file; 'hq-converter' in --dump)
 
 {$mode objfpc}{$H+}
 
@@ -191,6 +193,176 @@ begin
   end;
 end;
 
+// HQ_converter release root (third_party/hq_converter), set by --root <repo>
+var
+  HqReleaseDir: string = '';
+
+// Writes Content as <Dir>/HQ_PRESETS_FILE, creating the folders
+procedure WriteHqPresets(const Dir, Content: string);
+var
+  FileName: string;
+  F: TextFile;
+begin
+  FileName := IncludeTrailingPathDelimiter(Dir) + SetDirSeparators(HQ_PRESETS_FILE);
+  ForceDirectories(ExtractFileDir(FileName));
+  AssignFile(F, FileName);
+  Rewrite(F);
+  Write(F, Content);
+  CloseFile(F);
+end;
+
+// Removes the preset file and the folders created by WriteHqPresets
+procedure RemoveHqPresets(const Dir: string);
+var
+  Path: string;
+begin
+  Path := IncludeTrailingPathDelimiter(Dir) + SetDirSeparators(HQ_PRESETS_FILE);
+  DeleteFile(Path);
+  repeat
+    Path := ExtractFileDir(Path);
+    RemoveDir(Path);
+  until (Length(Path) <= Length(ExcludeTrailingPathDelimiter(Dir)));
+end;
+
+// Registry for 'hq-converter' with the HQ folder set as TPlatformDetection does
+function BuildHqReestr(const HqDir: string): TReestr;
+var
+  L: TPlatformlist;
+begin
+  L := MakeList([PLATFORM_HQ_ID12]);
+  try
+    L.Tools.HqConverterPath := HqDir;
+    Result := GetReestr(L);
+  finally
+    L.Free;
+  end;
+end;
+
+function PresetCount(C: TReestrCodec): integer;
+var
+  E: TReestrEncoder;
+begin
+  Result := 0;
+  if C <> nil then
+    for E in C.EncoderList do
+      Inc(Result, Length(E.PresetsList));
+end;
+
+// Name of the Current preset of an encoder, '' when none or more than one
+function CurrentPreset(E: TReestrEncoder): string;
+var
+  S: TReestrPreset;
+  N: integer;
+begin
+  Result := '';
+  N := 0;
+  if E <> nil then
+    for S in E.PresetsList do
+      if S.Current then
+      begin
+        Result := S.Name;
+        Inc(N);
+      end;
+  if N <> 1 then
+    Result := '';
+end;
+
+procedure RunHqChecks;
+const
+  // Known keys, an unknown key, an encoder without presets (skipped) and a
+  // default_preset that does not exist (first preset becomes current)
+  SAMPLE =
+    '{"schema_version": "v2", "encoders": {' +
+    ' "x265": {"default_preset": "Slow", "presets": {"Medium": {}, "Slow": {}}},' +
+    ' "new-enc": {"presets": {"one": {}, "two": {}}},' +
+    ' "empty-enc": {"default_preset": "x", "presets": {}},' +
+    ' "svt-av1": {"default_preset": "missing", "presets": {"balanced": {}}}}}';
+var
+  Dir, Names: string;
+  R: TReestr;
+  C: TReestrCodec;
+  E: TReestrEncoder;
+  S: TReestrPreset;
+  PresetsOk: boolean;
+begin
+  Dir := IncludeTrailingPathDelimiter(GetTempDir(False)) + 'reestr_hq_' + IntToStr(GetProcessID);
+
+  // 10. No HQ folder / no preset file: no HQ group
+  R := BuildHqReestr('');
+  Check('hq_no_path_no_group', CodecIDs(R) = '1,2,3', CodecIDs(R));
+  R.Free;
+  R := BuildHqReestr(Dir);
+  Check('hq_no_file_no_group', CodecIDs(R) = '1,2,3', CodecIDs(R));
+  R.Free;
+
+  // 11. Broken JSON and a file without encoders: no HQ group, no exception
+  WriteHqPresets(Dir, '{"encoders": {"x264": ');
+  R := BuildHqReestr(Dir);
+  Check('hq_invalid_json_no_group', CodecIDs(R) = '1,2,3', CodecIDs(R));
+  R.Free;
+  WriteHqPresets(Dir, '{"schema_version": "v2", "encoders": {}}');
+  R := BuildHqReestr(Dir);
+  Check('hq_empty_encoders_no_group', CodecIDs(R) = '1,2,3', CodecIDs(R));
+  R.Free;
+
+  // 12. Sample file: names, IDs, order, Current flags, rules and PresetSet
+  WriteHqPresets(Dir, SAMPLE);
+  R := BuildHqReestr(Dir);
+  try
+    C := FindCodec(R, CODEC_HQ);
+    Check('hq_sample_group', (CodecIDs(R) = '1,2,3,12') and (C <> nil) and C.Available
+      and not C.Current and (C.Name = 'HQ-converter'), CodecIDs(R));
+    if C = nil then
+      Exit;
+    Names := '';
+    for E in C.EncoderList do
+      Names := Names + Format(' %d:%s', [E.ID, E.Name]);
+    Check('hq_sample_encoders', Names = ' 19:x265 24:new-enc 21:svt-av1', Names);
+    Check('hq_sample_current_encoder', (Length(C.EncoderList) = 3) and C.EncoderList[0].Current
+      and not C.EncoderList[1].Current and not C.EncoderList[2].Current);
+    Check('hq_sample_default_preset', CurrentPreset(FindEncoder(C, ENC_HQ_X265)) = 'Slow',
+      CurrentPreset(FindEncoder(C, ENC_HQ_X265)));
+    Check('hq_sample_first_preset_without_default', CurrentPreset(FindEncoder(C, 24)) = 'one',
+      CurrentPreset(FindEncoder(C, 24)));
+    Check('hq_sample_first_preset_unknown_default', CurrentPreset(FindEncoder(C, ENC_HQ_SVT_AV1)) = 'balanced',
+      CurrentPreset(FindEncoder(C, ENC_HQ_SVT_AV1)));
+    PresetsOk := PresetCount(C) = 5;
+    for E in C.EncoderList do
+      for S in E.PresetsList do
+        PresetsOk := PresetsOk and S.Available and (S.ID = PRESET_HQ) and S.PresetSet.Defined
+          and (S.PresetSet.ToolID = TOOL_HQ_VIDEO_ENCODER) and not S.PresetSet.HasData;
+    Check('hq_sample_presets_id40_tool5', PresetsOk);
+    E := FindEncoder(C, ENC_HQ_X265);
+    Check('hq_sample_rules', (E <> nil) and E.ContainerMovAvailable and E.ContainerMkvAvailable
+      and not E.ContainerMp4Available and E.AudioCopyAvailable and E.AudioPcmAvailable);
+    Check('hq_sample_tree_rules', TreeErrors(R) = '', TreeErrors(R));
+  finally
+    R.Free;
+    RemoveHqPresets(Dir);
+  end;
+
+  // 13. Real HQ_converter release, when it is placed in third_party/hq_converter
+  if (HqReleaseDir = '') or not FileExists(IncludeTrailingPathDelimiter(HqReleaseDir) +
+    SetDirSeparators(HQ_PRESETS_FILE)) then
+  begin
+    WriteLn('INFO  hq release: NOT AVAILABLE (third_party/hq_converter)');
+    Exit;
+  end;
+  R := BuildHqReestr(HqReleaseDir);
+  try
+    C := FindCodec(R, CODEC_HQ);
+    Names := '';
+    if C <> nil then
+      for E in C.EncoderList do
+        Names := Names + Format(' %d:%s', [E.ID, E.Name]);
+    WriteLn('INFO  hq release encoders:', Names, '  presets ', PresetCount(C));
+    Check('hq_release_loaded', (C <> nil) and (Length(C.EncoderList) > 0) and (PresetCount(C) > 0));
+    Check('hq_release_tree_rules', TreeErrors(R) = '', TreeErrors(R));
+  finally
+    R.Free;
+  end;
+end;
+
 procedure RunChecks;
 const
   WINDOWS_NAMES: array[0..2] of string = (PLATFORM_WINDOWS_ID9, PLATFORM_WINDOWS_ID10, PLATFORM_WINDOWS_ID11);
@@ -279,12 +451,23 @@ end;
 var
   L: TPlatformlist;
   R: TReestr;
-  I: integer;
+  I, First: integer;
+  Mode: string;
 begin
-  if (ParamCount >= 1) and (ParamStr(1) = '--dump') then
+  // Optional leading "--hq <dir>": HQ_converter release folder for the HQ checks and dumps
+  First := 1;
+  if (ParamCount >= 2) and (ParamStr(1) = '--hq') then
+  begin
+    HqReleaseDir := ParamStr(2);
+    First := 3;
+  end;
+  Mode := ParamStr(First);
+
+  if Mode = '--dump' then
   begin
     L := TPlatformlist.Create;
-    for I := 2 to ParamCount do
+    L.Tools.HqConverterPath := HqReleaseDir;
+    for I := First + 1 to ParamCount do
       L.AddItem(ParamStr(I));
     R := GetReestr(L);
     L.Free;
@@ -292,7 +475,7 @@ begin
     R.Free;
     Exit;
   end;
-  if (ParamCount >= 1) and (ParamStr(1) = '--detected') then
+  if Mode = '--detected' then
   begin
     L := TPlatformlist.Create;
     L.AddItem(PLATFORM_ALL_ID1);
@@ -307,6 +490,7 @@ begin
   Passed := 0;
   Failed := 0;
   RunChecks;
+  RunHqChecks;
   WriteLn;
   WriteLn(Passed, ' passed, ', Failed, ' failed');
   if Failed > 0 then
