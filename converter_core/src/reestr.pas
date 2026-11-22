@@ -45,10 +45,10 @@ const
   CODEC_VIDEOTOOLBOX = 4;
   CODEC_VAAPI = 5;
   CODEC_LINUX_NVENC7 = 6;
-  CODEC_LINUX_QSV_DGX1 = 7;
+  CODEC_LINUX_QSV_DG2 = 7;
   CODEC_LINUX_VULKAN = 8;
   CODEC_WINDOWS_NVENC7 = 9;
-  CODEC_WINDOWS_QSV_DGX1 = 10;
+  CODEC_WINDOWS_QSV_DG2 = 10;
   CODEC_WINDOWS_VULKAN = 11;
 
   // Encoder IDs. The same encoder ID in different codec groups has the same rules.
@@ -447,20 +447,21 @@ begin
   AddStandardEncoder(Result, C, ENC_HEVC, 'HEVC', True, False, RULES_HEVC, 23, True);
 end;
 
-// linux_vaapi (5), linux_nvenc7 (6), linux_qsv_dgx1 (7), windows_nvenc7 (9), windows_qsv_dgx1 (10).
+// linux_vaapi (5), linux_nvenc7 (6), linux_qsv_dg2 (7), windows_nvenc7 (9), windows_qsv_dg2 (10).
 // On Windows (TenBit = False) HEVC_10 and AV1_10 are not available.
+// NVENC 7th generation (Turing/Ampere, Av1 = False) has no AV1 encoder: AV1 and AV1_10 are not available.
 function BuildPlatformHw(AID, ACodecID: integer; const ACodecName: string;
-  TenBit: boolean): TReestrPlatform;
+  TenBit, Av1: boolean): TReestrPlatform;
 var
   C: TReestrCodec;
 begin
   Result := NewPlatform(AID, True, False);
   C := AddCodec(Result, ACodecID, ACodecName, True, False);
-  AddStandardEncoder(Result, C, ENC_H264,    'H264',    True,   True,  RULES_H264, 19, True);
-  AddStandardEncoder(Result, C, ENC_HEVC,    'HEVC',    True,   False, RULES_HEVC, 23, True);
-  AddStandardEncoder(Result, C, ENC_HEVC_10, 'HEVC_10', TenBit, False, RULES_HEVC, 27, TenBit);
-  AddStandardEncoder(Result, C, ENC_AV1,     'AV1',     True,   False, RULES_AV1,  31, True);
-  AddStandardEncoder(Result, C, ENC_AV1_10,  'AV1_10',  TenBit, False, RULES_AV1,  35, TenBit);
+  AddStandardEncoder(Result, C, ENC_H264,    'H264',    True,            True,  RULES_H264, 19, True);
+  AddStandardEncoder(Result, C, ENC_HEVC,    'HEVC',    True,            False, RULES_HEVC, 23, True);
+  AddStandardEncoder(Result, C, ENC_HEVC_10, 'HEVC_10', TenBit,          False, RULES_HEVC, 27, TenBit);
+  AddStandardEncoder(Result, C, ENC_AV1,     'AV1',     Av1,             False, RULES_AV1,  31, Av1);
+  AddStandardEncoder(Result, C, ENC_AV1_10,  'AV1_10',  TenBit and Av1,  False, RULES_AV1,  35, TenBit and Av1);
 end;
 
 // linux_vulkan_nvidia (8, ProRes not available) and windows_vulkan_nvidia (11, ProRes available)
@@ -530,12 +531,13 @@ begin
   if Requested[4] then Add(BuildPlatformDarwin(4));
 
   // 5.4 - 5.10
-  if Requested[5]  then Add(BuildPlatformHw(5,  CODEC_VAAPI,            'VAAPI',            True));
-  if Requested[6]  then Add(BuildPlatformHw(6,  CODEC_LINUX_NVENC7,     'LINUX_NVENC7',     True));
-  if Requested[7]  then Add(BuildPlatformHw(7,  CODEC_LINUX_QSV_DGX1,   'LINUX_QSV_DGX1',   True));
+  //                                     ID  codec group           name               TenBit Av1
+  if Requested[5]  then Add(BuildPlatformHw(5,  CODEC_VAAPI,           'VAAPI',           True,  True));
+  if Requested[6]  then Add(BuildPlatformHw(6,  CODEC_LINUX_NVENC7,    'LINUX_NVENC7',    True,  False));
+  if Requested[7]  then Add(BuildPlatformHw(7,  CODEC_LINUX_QSV_DG2,   'LINUX_QSV_DG2',   True,  True));
   if Requested[8]  then Add(BuildPlatformVulkan(8,  CODEC_LINUX_VULKAN,   False));
-  if Requested[9]  then Add(BuildPlatformHw(9,  CODEC_WINDOWS_NVENC7,   'WINDOWS_NVENC7',   False));
-  if Requested[10] then Add(BuildPlatformHw(10, CODEC_WINDOWS_QSV_DGX1, 'WINDOWS_QSV_DGX1', False));
+  if Requested[9]  then Add(BuildPlatformHw(9,  CODEC_WINDOWS_NVENC7,  'WINDOWS_NVENC7',  False, False));
+  if Requested[10] then Add(BuildPlatformHw(10, CODEC_WINDOWS_QSV_DG2, 'WINDOWS_QSV_DG2', False, True));
   if Requested[11] then Add(BuildPlatformVulkan(11, CODEC_WINDOWS_VULKAN, True));
 
   // 5.11 hq-converter (ID 12): HQPresetLoader is not implemented yet
@@ -710,53 +712,38 @@ begin
   V(30, 7, '', '', '-vf "format=p010le"', '-c:v hevc_qsv -global_quality 25 -preset slow -profile:v main10');
   V(30, 9, '', '', '', '');
   V(30, 10, '', '', '', '');
+  // AV1 / AV1_10: NVENC 7th generation (platforms 6 and 9) has no AV1 encoder, so there is no implementation.
   // AV1 - default (Preset ID 31)
   V(31, 5, '-vaapi_device {vaapi_device}', '', '-vf "format=nv12,hwupload"', '-c:v av1_vaapi -rc_mode auto');
-  V(31, 6, '', '', '', '-c:v av1_nvenc -preset p6 -cq 30 -lookahead_level auto');
   V(31, 7, '', '', '', '-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1');
-  V(31, 9, '', '', '', '-c:v av1_nvenc -preset p6 -cq 30 -lookahead_level auto');
   V(31, 10, '', '', '', '-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1');
   // AV1 - low (Preset ID 32)
   V(32, 5, '-vaapi_device {vaapi_device}', '', '-vf "format=nv12,hwupload"', '-c:v av1_vaapi -rc_mode CQP -global_quality 28');
-  V(32, 6, '', '', '', '-c:v av1_nvenc -preset p1 -cq 30 -lookahead_level 0');
   V(32, 7, '', '', '', '-c:v av1_qsv -global_quality 28 -preset veryfast');
-  V(32, 9, '', '', '', '-c:v av1_nvenc -preset p1 -cq 30 -lookahead_level 0');
   V(32, 10, '', '', '', '-c:v av1_qsv -global_quality 28 -preset veryfast -extbrc 1');
   // AV1 - balanced (Preset ID 33)
   V(33, 5, '-vaapi_device {vaapi_device}', '', '-vf "format=nv12,hwupload"', '-c:v av1_vaapi -rc_mode CQP -global_quality 25');
-  V(33, 6, '', '', '', '-c:v av1_nvenc -preset p4 -cq 30 -lookahead_level auto');
   V(33, 7, '', '', '', '-c:v av1_qsv -global_quality 28 -preset medium');
-  V(33, 9, '', '', '', '-c:v av1_nvenc -preset p4 -cq 30 -lookahead_level auto');
   V(33, 10, '', '', '', '-c:v av1_qsv -global_quality 28 -preset medium -look_ahead 1 -look_ahead_depth 60 -extbrc 1');
   // AV1 - high (Preset ID 34)
   V(34, 5, '-vaapi_device {vaapi_device}', '', '-vf "format=nv12,hwupload"', '-c:v av1_vaapi -rc_mode CQP -global_quality 22');
-  V(34, 6, '', '', '', '-c:v av1_nvenc -preset p7 -cq 30 -lookahead_level auto');
   V(34, 7, '', '', '', '-c:v av1_qsv -global_quality 28 -preset slow');
-  V(34, 9, '', '', '', '-c:v av1_nvenc -preset p7 -cq 30 -lookahead_level auto');
   V(34, 10, '', '', '', '-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1');
   // AV1_10 - default (Preset ID 35)
   V(35, 5, '-vaapi_device {vaapi_device}', '', '-vf "format=p010le,hwupload"', '-c:v av1_vaapi -rc_mode auto');
-  V(35, 6, '', '', '-vf "format=p010le"', '-c:v av1_nvenc -preset p6 -cq 30 -lookahead_level auto');
   V(35, 7, '', '', '-vf "format=p010le"', '-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1');
-  V(35, 9, '', '', '', '');
   V(35, 10, '', '', '', '');
   // AV1_10 - low (Preset ID 36)
   V(36, 5, '-vaapi_device {vaapi_device}', '', '-vf "format=p010le,hwupload"', '-c:v av1_vaapi -rc_mode CQP -global_quality 28');
-  V(36, 6, '', '', '-vf "format=p010le"', '-c:v av1_nvenc -preset p1 -cq 30 -lookahead_level 0');
   V(36, 7, '', '', '-vf "format=p010le"', '-c:v av1_qsv -global_quality 28 -preset veryfast');
-  V(36, 9, '', '', '', '');
   V(36, 10, '', '', '', '');
   // AV1_10 - balanced (Preset ID 37)
   V(37, 5, '-vaapi_device {vaapi_device}', '', '-vf "format=p010le,hwupload"', '-c:v av1_vaapi -rc_mode CQP -global_quality 25');
-  V(37, 6, '', '', '-vf "format=p010le"', '-c:v av1_nvenc -preset p4 -cq 30 -lookahead_level auto');
   V(37, 7, '', '', '-vf "format=p010le"', '-c:v av1_qsv -global_quality 28 -preset medium');
-  V(37, 9, '', '', '', '');
   V(37, 10, '', '', '', '');
   // AV1_10 - high (Preset ID 38)
   V(38, 5, '-vaapi_device {vaapi_device}', '', '-vf "format=p010le,hwupload"', '-c:v av1_vaapi -rc_mode CQP -global_quality 22');
-  V(38, 6, '', '', '-vf "format=p010le"', '-c:v av1_nvenc -preset p7 -cq 30 -lookahead_level auto');
   V(38, 7, '', '', '-vf "format=p010le"', '-c:v av1_qsv -global_quality 28 -preset slow');
-  V(38, 9, '', '', '', '');
   V(38, 10, '', '', '', '');
   // ProRes - default (Preset ID 39)
   V(39, 8, '', '', '', '');

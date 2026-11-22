@@ -112,6 +112,28 @@ On the first failure in steps 1–3 detection stops: `PlatformAllowed` stays
 was searched, and no platform is added. The resolved tool paths are stored in
 `TPlatformlist.Tools`.
 
+### GPU platforms (Windows and Linux)
+
+`WindowsPlatformList` and `LinuxPlatformList` only identify the GPU
+architecture and add the matching registry platform name. They never start
+FFmpeg or run test encodes; which encoders and presets a platform offers is
+decided by the registry (`src/reestr.pas`). An unknown or missing GPU adds
+nothing and is not an error.
+
+Display adapters are read by PCI vendor/device ID: on Windows through
+`EnumDisplayDevicesW` (`PCI\VEN_xxxx&DEV_xxxx`), on Linux from
+`/sys/bus/pci/devices/*/{class,vendor,device}` (display class `0x03`).
+
+| Condition | Windows | Linux |
+|---|---|---|
+| NVIDIA `10DE`, device `1D80–1DFF`, `1E00–1FFF`, `2180–21FF`, `2200–25FF` except `2300–23FF` (GV100, Turing, Ampere; GH100 excluded) | `windows_nvenc7` (ID 9) | `linux_nvenc7` (ID 6) |
+| Intel `8086`, device `5690–56CF` (Arc DG2) | `windows_qsv_dg2` (ID 10) | `linux_qsv_dg2` (ID 7) |
+| any NVIDIA adapter and the Vulkan loader loads (`vulkan-1.dll` / `libvulkan.so.1`) | `windows_vulkan_nvidia` (ID 11) | `linux_vulkan_nvidia` (ID 8) |
+
+Each name is added once, in ID order. `linux_vaapi` is not detected yet.
+The ID ranges are in `NVENC7_DEVICE_RANGES`, `NVENC7_EXCLUDED_RANGES` and
+`DG2_DEVICE_RANGES`.
+
 ## 6. Preparing `converter_core/platform`
 
 macOS (requires MacPorts `mkvtoolnix` and `gpac`, and Xcode command-line tools):
@@ -164,12 +186,32 @@ Builds `tests/platform_detection_probe.pas` into a temporary folder and checks:
 detection with `platform/tools`, default resolution through
 `<binary dir>/tools`, a missing tools folder and a missing tool.
 
+Registry (`GetReestr`) tests, no tools needed:
+
+```bash
+converter_core/tests/run_reestr_tests.sh
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File converter_core/tests/run_reestr_tests.ps1
+```
+
+Builds `tests/reestr_tests.pas` with heap (`-gh`) and range/overflow/stack
+checks and fails on any `FAIL` line or unfreed memory. It checks the base
+groups, ignored unknown/duplicate names, the fixed codec order, encoder
+availability of the nvenc7/qsv_dg2/Vulkan platforms (no AV1 on nvenc7, no
+10-bit on Windows), the tree rules for all platforms at once and the registry
+for the hardware platforms detected on the current machine. `--dump <names...>`
+(`-Dump` in PowerShell) and `--detected` (`-Detected`) print the registry tree.
+
 ## 8. Planned milestones
 
 1. Platform detection — tool and component checks, macOS model detection
    (current).
 2. `linux_prepare.sh` (`patchelf --set-rpath '$ORIGIN/lib'`) and Linux
-   hardware platform detection.
-3. Windows tool resolution and hardware platform detection.
+   hardware platform detection (GPU platforms by PCI ID done; `linux_vaapi`
+   pending).
+3. Windows tool resolution and hardware platform detection (GPU platforms by
+   PCI ID done).
 4. Library build and packaging that copies `platform/tools` and
    `platform/hq_converter` next to the library.

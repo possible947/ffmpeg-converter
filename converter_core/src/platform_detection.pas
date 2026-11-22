@@ -39,7 +39,7 @@ var
 implementation
 
 uses
-  SysUtils, Classes, process
+  SysUtils, Classes, process, dynlibs
   {$IFDEF UNIX}, BaseUnix, dl{$ENDIF}
   {$IFDEF WINDOWS}, Windows{$ENDIF}
   {$IFDEF DARWIN}, ctypes, sysctl{$ENDIF};
@@ -64,6 +64,49 @@ const
     'modules/encoder_orchestrator_v2/config/toolchain_runtime.ini',
     'modules/encoder_orchestrator_v2/config/presets/encoder_presets_v2.json');
   HQ_REQUIRED_DIRS: array[0..0] of string = ('native/libav-sdk/lib');
+
+  // GPU architecture detection (Windows/Linux). Only the PCI vendor/device ID is
+  // read: no encoder is started. Which encoders and presets a detected platform
+  // offers is decided by the registry (unit reestr).
+  PCI_VENDOR_NVIDIA = $10DE;
+  PCI_VENDOR_INTEL = $8086;
+
+type
+  TPciIdRange = record
+    First, Last: Word;
+  end;
+
+  TPciDevice = record
+    VendorID, DeviceID: Word;
+  end;
+  TPciDeviceArray = array of TPciDevice;
+
+  // Architectures known to the registry; gaOther is any GPU without a registry platform.
+  TGpuArchitecture = (gaOther, gaNvidiaNvenc7, gaIntelDg2);
+
+const
+  // NVIDIA, 7th generation NVENC platform "nvenc7" (no AV1 encoder).
+  // Gaps between the ranges are excluded on purpose: GA100 (0x2080-0x20FF) and
+  // GH100 (0x2300-0x23FF) have no NVENC; Pascal and older are below 0x1D80;
+  // Ada Lovelace (0x2680+) and newer have an AV1 encoder and are not nvenc7.
+  NVENC7_DEVICE_RANGES: array[0..3] of TPciIdRange = (
+    (First: $1D80; Last: $1DFF),  // Volta GV100 (Titan V, Quadro GV100, Tesla V100)
+    (First: $1E00; Last: $1FFF),  // Turing TU102, TU104, TU106, TU117
+    (First: $2180; Last: $21FF),  // Turing TU116
+    (First: $2200; Last: $25FF)); // Ampere GA102, GA103, GA104, GA106, GA107 (GH100 is excluded below)
+  NVENC7_EXCLUDED_RANGES: array[0..0] of TPciIdRange = (
+    (First: $2300; Last: $23FF)); // Hopper GH100: no NVENC
+
+  // Intel Arc Alchemist (DG2) discrete GPUs, including Arc Pro and Data Center Flex (ATS-M).
+  // Integrated graphics (including Meteor Lake "Arc" iGPU) and Battlemage are not DG2.
+  DG2_DEVICE_RANGES: array[0..0] of TPciIdRange = (
+    (First: $5690; Last: $56CF));
+
+  {$IFDEF WINDOWS}
+  VULKAN_LOADER_NAME = 'vulkan-1.dll';
+  {$ELSE}
+  VULKAN_LOADER_NAME = 'libvulkan.so.1';
+  {$ENDIF}
 
 {$IFDEF UNIX}
 var
@@ -126,7 +169,7 @@ var
   var
     ModulePath: string;
   begin
-    Result := GetEnvironmentVariable(TOOLS_DIR_ENV);
+    Result := SysUtils.GetEnvironmentVariable(TOOLS_DIR_ENV);
     if Result <> '' then
       Exit(ExcludeTrailingPathDelimiter(ExpandFileName(Result)));
     ModulePath := GetCoreModulePath;
@@ -312,14 +355,238 @@ var
     {$ENDIF}
   end;
 
-  procedure WindowsPlatformList(Value: TPlatformlist);
+  function InPciRanges(DeviceID: Word; const Ranges: array of TPciIdRange): boolean;
+  var
+    I: integer;
   begin
-    // Initialize the platform list for Windows platforms
+    for I := Low(Ranges) to High(Ranges) do
+      if (DeviceID >= Ranges[I].First) and (DeviceID <= Ranges[I].Last) then
+        Exit(True);
+    Result := False;
   end;
 
+  function ClassifyGpu(const Device: TPciDevice): TGpuArchitecture;
+  begin
+    Result := gaOther;
+    case Device.VendorID of
+      PCI_VENDOR_NVIDIA:
+        if InPciRanges(Device.DeviceID, NVENC7_DEVICE_RANGES)
+          and not InPciRanges(Device.DeviceID, NVENC7_EXCLUDED_RANGES) then
+          Result := gaNvidiaNvenc7;
+      PCI_VENDOR_INTEL:
+        if InPciRanges(Device.DeviceID, DG2_DEVICE_RANGES) then
+          Result := gaIntelDg2;
+    end;
+  end;
+
+  // True when the Vulkan loader library is installed. It is only loaded and
+  // unloaded; no Vulkan instance is created.
+  function VulkanLoaderPresent: boolean;
+  var
+    Handle: TLibHandle;
+  begin
+    Handle := SafeLoadLibrary(VULKAN_LOADER_NAME);
+    Result := Handle <> NilHandle;
+    if Result then
+      UnloadLibrary(Handle);
+  end;
+
+  // A GPU with several outputs or several GPUs of one architecture give one platform name.
+  procedure AddPlatformOnce(Value: TPlatformlist; const Name: string);
+  var
+    I: integer;
+  begin
+    for I := 0 to Value.Count - 1 do
+      if Value.GetItem(I) = Name then
+        Exit;
+    Value.AddItem(Name);
+  end;
+
+  // Shared decision for Windows and Linux: maps the found display adapters to
+  // registry platform names. Adapters without a registry platform add nothing.
+  procedure AddGpuPlatforms(Value: TPlatformlist; const Devices: TPciDeviceArray;
+    const Nvenc7Name, Dg2Name, VulkanNvidiaName: string);
+  var
+    I: integer;
+    HasNvenc7, HasDg2, HasNvidia: boolean;
+  begin
+    HasNvenc7 := False;
+    HasDg2 := False;
+    HasNvidia := False;
+    for I := 0 to High(Devices) do
+    begin
+      if Devices[I].VendorID = PCI_VENDOR_NVIDIA then
+        HasNvidia := True;
+      case ClassifyGpu(Devices[I]) of
+        gaNvidiaNvenc7: HasNvenc7 := True;
+        gaIntelDg2: HasDg2 := True;
+        gaOther: ;
+      end;
+    end;
+
+    // Fixed order: nvenc7, qsv_dg2, vulkan_nvidia (registry platform ID order).
+    if HasNvenc7 then
+      AddPlatformOnce(Value, Nvenc7Name);
+    if HasDg2 then
+      AddPlatformOnce(Value, Dg2Name);
+    // Vulkan is reported for any NVIDIA GPU when the Vulkan loader is installed.
+    if HasNvidia and VulkanLoaderPresent then
+      AddPlatformOnce(Value, VulkanNvidiaName);
+  end;
+
+  procedure AddPciDevice(var Devices: TPciDeviceArray; VendorID, DeviceID: Word);
+  begin
+    SetLength(Devices, Length(Devices) + 1);
+    Devices[High(Devices)].VendorID := VendorID;
+    Devices[High(Devices)].DeviceID := DeviceID;
+  end;
+
+{$IFDEF WINDOWS}
+type
+  // DISPLAY_DEVICEW from wingdi.h; not declared by the FPC 3.2 Windows unit.
+  TDisplayDeviceW = record
+    cb: DWORD;
+    DeviceName: array[0..31] of WideChar;
+    DeviceString: array[0..127] of WideChar;
+    StateFlags: DWORD;
+    DeviceID: array[0..127] of WideChar;
+    DeviceKey: array[0..127] of WideChar;
+  end;
+
+const
+  DISPLAY_DEVICE_MIRRORING_DRIVER = $00000008;
+
+  function EnumDisplayDevicesW(lpDevice: PWideChar; iDevNum: DWORD;
+    var lpDisplayDevice: TDisplayDeviceW; dwFlags: DWORD): BOOL; stdcall;
+    external 'user32' name 'EnumDisplayDevicesW';
+
+  // Reads a 4-digit hex value that follows Key in a PnP ID such as
+  // "PCI\VEN_10DE&DEV_2204&SUBSYS_...". Returns False if it is missing.
+  function ParsePnpHex(const PnpID, Key: string; out Value: Word): boolean;
+  var
+    P, Parsed: integer;
+  begin
+    Value := 0;
+    P := Pos(Key, UpperCase(PnpID));
+    if P = 0 then
+      Exit(False);
+    Result := TryStrToInt('$' + Copy(PnpID, P + Length(Key), 4), Parsed);
+    if Result then
+      Value := Word(Parsed);
+  end;
+
+  // Display adapters known to Windows (one entry per adapter output, duplicates are harmless).
+  // Only PCI adapters are returned; mirroring and software drivers are skipped.
+  function ListPciDisplayAdapters: TPciDeviceArray;
+  var
+    Device: TDisplayDeviceW;
+    Index: DWORD;
+    PnpID: string;
+    VendorID, DeviceID: Word;
+  begin
+    Result := nil;
+    Index := 0;
+    while True do
+    begin
+      FillChar(Device, SizeOf(Device), 0);
+      Device.cb := SizeOf(Device);
+      if not EnumDisplayDevicesW(nil, Index, Device, 0) then
+        Break;
+      Inc(Index);
+      if (Device.StateFlags and DISPLAY_DEVICE_MIRRORING_DRIVER) <> 0 then
+        Continue;
+      PnpID := UTF8Encode(WideString(PWideChar(@Device.DeviceID[0])));
+      if not SameText(Copy(PnpID, 1, 4), 'PCI\') then
+        Continue;
+      if ParsePnpHex(PnpID, 'VEN_', VendorID) and ParsePnpHex(PnpID, 'DEV_', DeviceID) then
+        AddPciDevice(Result, VendorID, DeviceID);
+    end;
+  end;
+{$ENDIF}
+
+{$IFDEF LINUX}
+const
+  SYSFS_PCI_DEVICES = '/sys/bus/pci/devices/';
+
+  // Reads the first line of a sysfs attribute such as "0x10de"; sysfs reports a
+  // fake file size, so text I/O is used instead of a stream.
+  function ReadSysfsHex(const FileName: string; out Value: longint): boolean;
+  var
+    F: TextFile;
+    Line: string;
+  begin
+    Value := 0;
+    Result := False;
+    if not FileExists(FileName) then
+      Exit;
+    AssignFile(F, FileName);
+    {$I-}
+    Reset(F);
+    {$I+}
+    if IOResult <> 0 then
+      Exit;
+    try
+      ReadLn(F, Line);
+    finally
+      CloseFile(F);
+    end;
+    Line := Trim(Line);
+    if SameText(Copy(Line, 1, 2), '0x') then
+      Delete(Line, 1, 2);
+    Result := TryStrToInt('$' + Line, Value);
+  end;
+
+  // PCI devices with the display controller base class (0x03): VGA, 3D and other display controllers.
+  function ListPciDisplayAdapters: TPciDeviceArray;
+  var
+    Search: TSearchRec;
+    Dir: string;
+    ClassCode, VendorID, DeviceID: longint;
+  begin
+    Result := nil;
+    if FindFirst(SYSFS_PCI_DEVICES + '*', faAnyFile, Search) <> 0 then
+      Exit;
+    try
+      repeat
+        if (Search.Name = '.') or (Search.Name = '..') then
+          Continue;
+        Dir := SYSFS_PCI_DEVICES + Search.Name + '/';
+        if not ReadSysfsHex(Dir + 'class', ClassCode) then
+          Continue;
+        if (ClassCode shr 16) <> $03 then
+          Continue;
+        if ReadSysfsHex(Dir + 'vendor', VendorID) and ReadSysfsHex(Dir + 'device', DeviceID) then
+          AddPciDevice(Result, Word(VendorID), Word(DeviceID));
+      until FindNext(Search) <> 0;
+    finally
+      FindClose(Search);
+    end;
+  end;
+{$ENDIF}
+
+  // Adds windows_nvenc7 (Turing/Ampere NVENC 7), windows_qsv_dg2 (Intel Arc DG2)
+  // and windows_vulkan_nvidia (NVIDIA GPU + Vulkan loader). Nothing is added for
+  // other GPUs; this is not an error and ErrorMessage is not changed.
+  procedure WindowsPlatformList(Value: TPlatformlist);
+  begin
+    if Value = nil then
+      Exit;
+    {$IFDEF WINDOWS}
+    AddGpuPlatforms(Value, ListPciDisplayAdapters,
+      PLATFORM_WINDOWS_ID9, PLATFORM_WINDOWS_ID10, PLATFORM_WINDOWS_ID11);
+    {$ENDIF}
+  end;
+
+  // Same rules as WindowsPlatformList with the linux_* names.
+  // linux_vaapi (Radeon without AMF) is not detected yet.
   procedure LinuxPlatformList(Value: TPlatformlist);
   begin
-    // Initialize the platform list for Linux platforms
+    if Value = nil then
+      Exit;
+    {$IFDEF LINUX}
+    AddGpuPlatforms(Value, ListPciDisplayAdapters,
+      PLATFORM_LINUX_ID6, PLATFORM_LINUX_ID7, PLATFORM_LINUX_ID8);
+    {$ENDIF}
   end;
 
   // HQ_converter is optional: its absence is not an error. Not available on Windows.

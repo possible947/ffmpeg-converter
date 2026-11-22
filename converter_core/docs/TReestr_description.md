@@ -27,18 +27,18 @@
         Video (available - true, current - false) - h264 (available - true, current - true), hevc (available - true, current - false), hevc_10 (available - true, current - false), av1 (available - true, current - false), av1_10 (available - true, current - false).
         (Compute - opencl, hip, vulkan)
     linux_nvenc7(ID=6)
-         Video (available - true, current - false) - h264 (available - true, current - true), hevc (available - true, current - false), hevc_10 (available - true, current - false), av1 (available - true, current - false), av1_10 (available - true, current - false).
+         Video (available - true, current - false) - h264 (available - true, current - true), hevc (available - true, current - false), hevc_10 (available - true, current - false), av1 (available - false, current - false), av1_10 (available - false, current - false).
         (Compute - opencl, cuda, vulkan)
-    linux_qsv_dgx1(ID=7)
+    linux_qsv_dg2(ID=7)
          Video (available - true, current - false) - h264 (available - true, current - true), hevc (available - true, current - false), hevc_10 (available - true, current - false), av1 (available - true, current - false), av1_10 (available - true, current - false).
         (Compute - opencl, oneapi, vulkan)
     linux_vulkan_nvidia(ID=8)
         Video (available - true, current - true) - prores (available - false, current - false)
         (Compute - vulkan)
     windows_nvenc7(ID=9)
-         Video (available - true, current - false) - h264 (available - true, current - true), hevc (available - true, current - false), hevc_10 (available - false, current - false), av1 (available - true, current - false), av1_10 (available - false, current - false).
+         Video (available - true, current - false) - h264 (available - true, current - true), hevc (available - true, current - false), hevc_10 (available - false, current - false), av1 (available - false, current - false), av1_10 (available - false, current - false).
         (Compute - opencl, cuda, vulkan)
-    windows_qsv_dgx1(ID=10)
+    windows_qsv_dg2(ID=10)
          Video (available - true, current - false) - h264 (available - true, current - true), hevc (available - true, current - false), hevc_10 (available - false, current - false), av1 (available - true, current - false), av1_10 (available - false, current - false).
         (Compute - opencl, oneapi, vulkan)
     windows_vulkan_nvidia(ID=11)
@@ -187,14 +187,14 @@
         HEVC_10 - low (ID 28) - true - false
         HEVC_10 - balanced (ID 29) - true - false
         HEVC_10 - high (ID 30) - true - false
-        AV1 - default (ID 31) - true - true
-        AV1 - low (ID 32) - true - false
-        AV1 - balanced (ID 33) - true - false
-        AV1 - high (ID 34) - true - false
-        AV1_10 - default (ID 35) - true - true
-        AV1_10 - low (ID 36) - true - false
-        AV1_10 - balanced (ID 37) - true - false
-        AV1_10 - high (ID 38) - true - false
+        AV1 - default (ID 31) - false - false
+        AV1 - low (ID 32) - false - false
+        AV1 - balanced (ID 33) - false - false
+        AV1 - high (ID 34) - false - false
+        AV1_10 - default (ID 35) - false - false
+        AV1_10 - low (ID 36) - false - false
+        AV1_10 - balanced (ID 37) - false - false
+        AV1_10 - high (ID 38) - false - false
     группа WINDOWS_NVENC7 (ID 9)
         энкодер - пресет - ID - Available - Current
         -----------------------------------------
@@ -210,15 +210,15 @@
         HEVC_10 - low (ID 28) - false - false
         HEVC_10 - balanced (ID 29) - false - false
         HEVC_10 - high (ID 30) - false - false
-        AV1 - default (ID 31) - true - true
-        AV1 - low (ID 32) - true - false
-        AV1 - balanced (ID 33) - true - false
-        AV1 - high (ID 34) - true - false
+        AV1 - default (ID 31) - false - false
+        AV1 - low (ID 32) - false - false
+        AV1 - balanced (ID 33) - false - false
+        AV1 - high (ID 34) - false - false
         AV1_10 - default (ID 35) - false - false
         AV1_10 - low (ID 36) - false - false
         AV1_10 - balanced (ID 37) - false - false
         AV1_10 - high (ID 38) - false - false
-    группа LINUX_QSV_DGX1 (ID 7)
+    группа LINUX_QSV_DG2 (ID 7)
         энкодер - пресет - ID - Available - Current
         -----------------------------------------
         H264 - default (ID 19) - true - true
@@ -241,7 +241,7 @@
         AV1_10 - low (ID 36) - true - false
         AV1_10 - balanced (ID 37) - true - false
         AV1_10 - high (ID 38) - true - false
-    группа WINDOWS_QSV_DGX1 (ID 10)
+    группа WINDOWS_QSV_DG2 (ID 10)
         энкодер - пресет - ID - Available - Current
         -----------------------------------------
         H264 - default (ID 19) - true - true
@@ -305,10 +305,10 @@
         5.3 если запрошена платформа darwin_iMacPro11(ID=3) или darwin_MacPro71(ID=4) то реестр меняет значение Audio.aac_at.available на true, создает новый экземпляр класса `TPlatform`DarviniMacPro11 или TPlatformDarvinMacPro71. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
         5.4 если запрошена платформа linux_vaapi(ID=5) то реестр создает новый экземпляр класса `TPlatform`LinuxVAAPI. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
         5.5 если запрошена платформа linux_nvenc7(ID=6) то реестр создает новый экземпляр класса `TPlatform`LinuxNVENC7. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
-        5.6 если запрошена платформа linux_qsv_dgx1(ID=7) то реестр создает новый экземпляр класса `TPlatform`LinuxDGX1. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
+        5.6 если запрошена платформа linux_qsv_dg2(ID=7) то реестр создает новый экземпляр класса `TPlatform`LinuxDG2. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
         5.7 если запрошена платформа linux_vulkan(ID=8) то реестр создает новый экземпляр класса `TPlatform`LinuxVulkan. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
         5.8 если запрошена платформа windows_nvenc7(ID=9) то реестр создает новый экземпляр класса `TPlatform`WindowsNVENC7. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
-        5.9 если запрошена платформа windows_qsv_dgx1(ID=10) то реестр создает новый экземпляр класса `TPlatform`WindowsDGX1. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
+        5.9 если запрошена платформа windows_qsv_dg2(ID=10) то реестр создает новый экземпляр класса `TPlatform`WindowsDG2. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
         5.10 если запрошена платформа windows_vulkan(ID=11) то реестр создает новый экземпляр класса `TPlatform`WindowsVulkan. Для новой группы кодеков определены доступные и текущие значения для энкодеров и пресетов как значения по умолчанию. Новый экземпляр добавляется в TPlatformsList.
         5.11 если запрошена платформа HQ-converter (ID=12), то реестр обращается к методу HQPresetLoader, который выполняет чтение набора данных из файла параметров HQ (он всегда доступен по одному пути относительно самой программы) и создает TPlatformHQ, который возвращает в реестр. Новый экземпляр добавляется в TPlatformsList.
         5.12 реестр проходит полученный TPlatformsList и для каждого пресета создает запись PresetSet, которую заполняет значениями, извлеченными из реестра нижнего уровня.
@@ -1114,21 +1114,11 @@ AV1 - default (ID 31)
         after_options: ""
         filter_options: "-vf \"format=nv12,hwupload\""
         encoder_options: "-c:v av1_vaapi -rc_mode auto"
-    6.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: "-c:v av1_nvenc -preset p6 -cq 30 -lookahead_level auto"
     7.  ID: 01
         before_options: ""
         after_options: ""
         filter_options: ""
         encoder_options: "-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1"
-    9.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: "-c:v av1_nvenc -preset p6 -cq 30 -lookahead_level auto"
     10. ID: 01
         before_options: ""
         after_options: ""
@@ -1140,21 +1130,11 @@ AV1 - low (ID 32)
         after_options: ""
         filter_options: "-vf \"format=nv12,hwupload\""
         encoder_options: "-c:v av1_vaapi -rc_mode CQP -global_quality 28"
-    6.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: "-c:v av1_nvenc -preset p1 -cq 30 -lookahead_level 0"
     7.  ID: 01
         before_options: ""
         after_options: ""
         filter_options: ""
         encoder_options: "-c:v av1_qsv -global_quality 28 -preset veryfast"
-    9.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: "-c:v av1_nvenc -preset p1 -cq 30 -lookahead_level 0"
     10. ID: 01
         before_options: ""
         after_options: ""
@@ -1166,21 +1146,11 @@ AV1 - balanced (ID 33)
         after_options: ""
         filter_options: "-vf \"format=nv12,hwupload\""
         encoder_options: "-c:v av1_vaapi -rc_mode CQP -global_quality 25"
-    6.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: "-c:v av1_nvenc -preset p4 -cq 30 -lookahead_level auto"
     7.  ID: 01
         before_options: ""
         after_options: ""
         filter_options: ""
         encoder_options: "-c:v av1_qsv -global_quality 28 -preset medium"
-    9.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: "-c:v av1_nvenc -preset p4 -cq 30 -lookahead_level auto"
     10. ID: 01
         before_options: ""
         after_options: ""
@@ -1192,21 +1162,11 @@ AV1 - high (ID 34)
         after_options: ""
         filter_options: "-vf \"format=nv12,hwupload\""
         encoder_options: "-c:v av1_vaapi -rc_mode CQP -global_quality 22"
-    6.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: "-c:v av1_nvenc -preset p7 -cq 30 -lookahead_level auto"
     7.  ID: 01
         before_options: ""
         after_options: ""
         filter_options: ""
         encoder_options: "-c:v av1_qsv -global_quality 28 -preset slow"
-    9.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: "-c:v av1_nvenc -preset p7 -cq 30 -lookahead_level auto"
     10. ID: 01
         before_options: ""
         after_options: ""
@@ -1218,21 +1178,11 @@ AV1_10 - default (ID 35)
         after_options: ""
         filter_options: "-vf \"format=p010le,hwupload\""
         encoder_options: "-c:v av1_vaapi -rc_mode auto"
-    6.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: "-vf \"format=p010le\""
-        encoder_options: "-c:v av1_nvenc -preset p6 -cq 30 -lookahead_level auto"
     7.  ID: 01
         before_options: ""
         after_options: ""
         filter_options: "-vf \"format=p010le\""
         encoder_options: "-c:v av1_qsv -global_quality 28 -preset slow -g 240 -bf 4 -look_ahead 1 -look_ahead_depth 60 -extbrc 1"
-    9.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: ""
     10. ID: 01
         before_options: ""
         after_options: ""
@@ -1244,21 +1194,11 @@ AV1_10 - low (ID 36)
         after_options: ""
         filter_options: "-vf \"format=p010le,hwupload\""
         encoder_options: "-c:v av1_vaapi -rc_mode CQP -global_quality 28"
-    6.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: "-vf \"format=p010le\""
-        encoder_options: "-c:v av1_nvenc -preset p1 -cq 30 -lookahead_level 0"
     7.  ID: 01
         before_options: ""
         after_options: ""
         filter_options: "-vf \"format=p010le\""
         encoder_options: "-c:v av1_qsv -global_quality 28 -preset veryfast"
-    9.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: ""
     10. ID: 01
         before_options: ""
         after_options: ""
@@ -1270,21 +1210,11 @@ AV1_10 - balanced (ID 37)
         after_options: ""
         filter_options: "-vf \"format=p010le,hwupload\""
         encoder_options: "-c:v av1_vaapi -rc_mode CQP -global_quality 25"
-    6.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: "-vf \"format=p010le\""
-        encoder_options: "-c:v av1_nvenc -preset p4 -cq 30 -lookahead_level auto"
     7.  ID: 01
         before_options: ""
         after_options: ""
         filter_options: "-vf \"format=p010le\""
         encoder_options: "-c:v av1_qsv -global_quality 28 -preset medium"
-    9.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: ""
     10. ID: 01
         before_options: ""
         after_options: ""
@@ -1296,21 +1226,11 @@ AV1_10 - high (ID 38)
         after_options: ""
         filter_options: "-vf \"format=p010le,hwupload\""
         encoder_options: "-c:v av1_vaapi -rc_mode CQP -global_quality 22"
-    6.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: "-vf \"format=p010le\""
-        encoder_options: "-c:v av1_nvenc -preset p7 -cq 30 -lookahead_level auto"
     7.  ID: 01
         before_options: ""
         after_options: ""
         filter_options: "-vf \"format=p010le\""
         encoder_options: "-c:v av1_qsv -global_quality 28 -preset slow"
-    9.  ID: 01
-        before_options: ""
-        after_options: ""
-        filter_options: ""
-        encoder_options: ""
     10. ID: 01
         before_options: ""
         after_options: ""
